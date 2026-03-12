@@ -1,0 +1,199 @@
+@page "/webrtc"
+@using System.Text.Json
+@implements IAsyncDisposable
+@inject WebRtcService WebRtc
+
+<PageTitle>WebRTC Demo</PageTitle>
+
+<div class="webrtc-page">
+    <header class="webrtc-header">
+        <h1>WebRTC Demo</h1>
+        <p>Open this page in two browsers. Use the first browser to create an offer, copy it into the second browser to create an answer, then paste the answer back into the first browser.</p>
+    </header>
+
+    <section class="webrtc-card">
+        <div class="webrtc-field">
+            <label>Connection Id</label>
+            <input class="webrtc-input" @bind="connectionId" />
+        </div>
+    </section>
+
+    <div class="webrtc-grid">
+        <section class="webrtc-card">
+            <h2>1) Initiator: Create Offer</h2>
+            <button class="webrtc-button" @onclick="CreateOfferAsync">Create offer</button>
+            <textarea class="webrtc-textarea" rows="8" @bind="localOffer" readonly></textarea>
+        </section>
+
+        <section class="webrtc-card">
+            <h2>2) Responder: Accept Offer + Create Answer</h2>
+            <textarea class="webrtc-textarea" rows="8" @bind="remoteOffer"></textarea>
+            <button class="webrtc-button" @onclick="AcceptOfferAsync">Create answer</button>
+            <textarea class="webrtc-textarea" rows="8" @bind="localAnswer" readonly></textarea>
+        </section>
+
+        <section class="webrtc-card">
+            <h2>3) Initiator: Accept Answer</h2>
+            <textarea class="webrtc-textarea" rows="8" @bind="remoteAnswer"></textarea>
+            <button class="webrtc-button" @onclick="AcceptAnswerAsync">Apply answer</button>
+        </section>
+    </div>
+
+    <section class="webrtc-card webrtc-status">
+        <h2>Connection State</h2>
+        <div>
+            <span>Peer: @connectionState</span>
+            <span>Data channel: @dataChannelState</span>
+        </div>
+    </section>
+
+    <section class="webrtc-card">
+        <h2>Send a Message</h2>
+        <div class="webrtc-field">
+            <input class="webrtc-input" @bind="messageToSend" placeholder="Type a message" />
+            <button class="webrtc-button" @onclick="SendMessageAsync" disabled="@(!CanSend)">Send</button>
+        </div>
+
+        <ul class="webrtc-messages">
+            @foreach (var message in receivedMessages)
+            {
+                <li>@message</li>
+            }
+        </ul>
+    </section>
+</div>
+
+@code {
+    private readonly JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
+    private readonly List<string> receivedMessages = [];
+    private string connectionId = "demo";
+    private string? localOffer;
+    private string? remoteOffer;
+    private string? localAnswer;
+    private string? remoteAnswer;
+    private string? connectionState = "new";
+    private string? dataChannelState = "new";
+    private string messageToSend = string.Empty;
+    private bool isInitialized;
+
+    private bool CanSend => dataChannelState == "open";
+
+    protected override void OnInitialized()
+    {
+        WebRtc.ConnectionStateChanged += HandleConnectionStateChanged;
+        WebRtc.DataChannelStateChanged += HandleDataChannelStateChanged;
+        WebRtc.DataMessageReceived += HandleDataMessageReceived;
+    }
+
+    private async Task EnsureInitializedAsync()
+    {
+        if (isInitialized)
+        {
+            return;
+        }
+
+        await WebRtc.InitializeAsync(connectionId);
+        isInitialized = true;
+    }
+
+    private async Task CreateOfferAsync()
+    {
+        await EnsureInitializedAsync();
+        await WebRtc.CreateDataChannelAsync(connectionId, "chat");
+        var offer = await WebRtc.CreateOfferAsync(connectionId);
+        localOffer = JsonSerializer.Serialize(offer, jsonOptions);
+    }
+
+    private async Task AcceptOfferAsync()
+    {
+        await EnsureInitializedAsync();
+        var offer = DeserializeDescription(remoteOffer);
+        if (offer is null)
+        {
+            return;
+        }
+
+        await WebRtc.SetRemoteDescriptionAsync(connectionId, offer);
+        var answer = await WebRtc.CreateAnswerAsync(connectionId);
+        localAnswer = JsonSerializer.Serialize(answer, jsonOptions);
+    }
+
+    private async Task AcceptAnswerAsync()
+    {
+        await EnsureInitializedAsync();
+        var answer = DeserializeDescription(remoteAnswer);
+        if (answer is null)
+        {
+            return;
+        }
+
+        await WebRtc.SetRemoteDescriptionAsync(connectionId, answer);
+    }
+
+    private async Task SendMessageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(messageToSend))
+        {
+            return;
+        }
+
+        await WebRtc.SendMessageAsync(connectionId, messageToSend);
+        receivedMessages.Add($"Me: {messageToSend}");
+        messageToSend = string.Empty;
+    }
+
+    private void HandleConnectionStateChanged(object? sender, WebRtcConnectionStateChangedEventArgs args)
+    {
+        if (args.ConnectionId != connectionId)
+        {
+            return;
+        }
+
+        connectionState = args.State;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleDataChannelStateChanged(object? sender, WebRtcDataChannelStateChangedEventArgs args)
+    {
+        if (args.ConnectionId != connectionId)
+        {
+            return;
+        }
+
+        dataChannelState = args.State;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleDataMessageReceived(object? sender, WebRtcDataMessageEventArgs args)
+    {
+        if (args.ConnectionId != connectionId)
+        {
+            return;
+        }
+
+        receivedMessages.Add($"Remote: {args.Message}");
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static WebRtcSessionDescription? DeserializeDescription(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return null;
+        }
+
+        return JsonSerializer.Deserialize<WebRtcSessionDescription>(payload);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        WebRtc.ConnectionStateChanged -= HandleConnectionStateChanged;
+        WebRtc.DataChannelStateChanged -= HandleDataChannelStateChanged;
+        WebRtc.DataMessageReceived -= HandleDataMessageReceived;
+
+        if (isInitialized)
+        {
+            await WebRtc.CloseAsync(connectionId);
+        }
+    }
+}

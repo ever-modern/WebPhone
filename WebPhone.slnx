@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="EverModern.Blazor.DirectCommunication/EverModern.Blazor.DirectCommunication.csproj" />
+  <Project Path="WebPhone/WebPhone.csproj" />
+</Solution>
