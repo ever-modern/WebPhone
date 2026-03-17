@@ -1,38 +1,28 @@
-@page "/webrtc"
+@page "/webrtc/respond"
 @using System.Text.Json
+@using Microsoft.AspNetCore.Components
 @implements IAsyncDisposable
 @inject WebRtcService WebRtc
-@inject NavigationManager NavigationManager
 @inject IJSRuntime JsRuntime
 
-<PageTitle>WebRTC Demo</PageTitle>
+<PageTitle>WebRTC Responder</PageTitle>
 
 <div class="webrtc-page">
     <header class="webrtc-header">
-        <h1>WebRTC Demo</h1>
-        <p>Create a link, open it on another machine, then paste the confirmation line back here to finish the connection.</p>
+        <h1>WebRTC Responder</h1>
+        <p>Copy the confirmation line back to the initiator to finish the connection.</p>
     </header>
 
     <section class="webrtc-card">
+        <h2>Confirmation line</h2>
         <div class="webrtc-field">
-            <label>Connection Id</label>
-            <input class="webrtc-input" @bind="connectionId" />
+            <input class="webrtc-input" value="@confirmationPayload" readonly />
+            <button class="webrtc-button" @onclick="CopyConfirmationAsync" disabled="@(string.IsNullOrWhiteSpace(confirmationPayload))">Copy</button>
         </div>
-    </section>
-
-    <section class="webrtc-card">
-        <h2>1) Create link for the responder</h2>
-        <button class="webrtc-button" @onclick="CreateOfferLinkAsync">Create link</button>
-        <div class="webrtc-field">
-            <input class="webrtc-input" value="@offerLink" readonly />
-            <button class="webrtc-button" @onclick="CopyOfferLinkAsync" disabled="@(string.IsNullOrWhiteSpace(offerLink))">Copy</button>
-        </div>
-    </section>
-
-    <section class="webrtc-card">
-        <h2>2) Paste confirmation line</h2>
-        <textarea class="webrtc-textarea" rows="4" @bind="confirmationPayload" placeholder="Paste the confirmation line from the responder"></textarea>
-        <button class="webrtc-button" @onclick="AcceptConfirmationAsync">Apply confirmation</button>
+        @if (!string.IsNullOrWhiteSpace(statusMessage))
+        {
+            <p>@statusMessage</p>
+        }
     </section>
 
     <section class="webrtc-card webrtc-status">
@@ -72,15 +62,22 @@
     private readonly JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
     private readonly List<string> receivedMessages = [];
     private string connectionId = "demo";
-    private string? offerLink;
     private string? confirmationPayload;
+    private string? statusMessage;
     private string? connectionState = "new";
     private string? dataChannelState = "new";
     private string messageToSend = string.Empty;
     private bool isInitialized;
+    private string? processedOffer;
     private bool isAudioStarted;
     private ElementReference remoteAudio;
     private string? audioStatusMessage;
+
+    [Parameter, SupplyParameterFromQuery(Name = "offer")]
+    public string? EncodedOffer { get; set; }
+
+    [Parameter, SupplyParameterFromQuery(Name = "id")]
+    public string? ConnectionIdFromQuery { get; set; }
 
     private bool CanSend => dataChannelState == "open";
 
@@ -90,6 +87,39 @@
         WebRtc.DataChannelStateChanged += HandleDataChannelStateChanged;
         WebRtc.DataMessageReceived += HandleDataMessageReceived;
         WebRtc.RemoteStreamAvailable += HandleRemoteStreamAvailable;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (string.IsNullOrWhiteSpace(EncodedOffer))
+        {
+            statusMessage = "Missing offer in the link.";
+            return;
+        }
+
+        if (processedOffer == EncodedOffer)
+        {
+            return;
+        }
+
+        processedOffer = EncodedOffer;
+        connectionId = string.IsNullOrWhiteSpace(ConnectionIdFromQuery) ? "demo" : ConnectionIdFromQuery;
+        statusMessage = null;
+
+        var offer = DeserializeDescriptionFromPayload(EncodedOffer);
+        if (offer is null)
+        {
+            statusMessage = "Offer payload is invalid.";
+            return;
+        }
+
+        await EnsureInitializedAsync();
+        await EnsureAudioAsync();
+        await WebRtc.SetRemoteDescriptionAsync(connectionId, offer);
+        var answer = await WebRtc.CreateAnswerAsync(connectionId);
+        var json = JsonSerializer.Serialize(answer, jsonOptions);
+        confirmationPayload = Base64UrlEncode(json);
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task EnsureInitializedAsync()
@@ -103,32 +133,6 @@
             new WebRtcIceServer { Urls = ["stun:stun.l.google.com:19302"] }
         ]);
         isInitialized = true;
-    }
-
-    private async Task CreateOfferLinkAsync()
-    {
-        await EnsureInitializedAsync();
-        await EnsureAudioAsync();
-        await WebRtc.CreateDataChannelAsync(connectionId, "chat");
-        var offer = await WebRtc.CreateOfferAsync(connectionId);
-        var json = JsonSerializer.Serialize(offer, jsonOptions);
-        var encodedOffer = Base64UrlEncode(json);
-        offerLink = BuildOfferLink(encodedOffer);
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task AcceptConfirmationAsync()
-    {
-        await EnsureInitializedAsync();
-        await EnsureAudioAsync();
-        var answer = DeserializeDescriptionFromPayload(confirmationPayload);
-        if (answer is null)
-        {
-            return;
-        }
-
-        await WebRtc.SetRemoteDescriptionAsync(connectionId, answer);
-        await InvokeAsync(StateHasChanged);
     }
 
     private async Task SendMessageAsync()
@@ -217,21 +221,8 @@
         }
     }
 
-    private string BuildOfferLink(string encodedOffer)
+    private static WebRtcSessionDescription? DeserializeDescriptionFromPayload(string payload)
     {
-        var baseUri = NavigationManager.BaseUri.TrimEnd('/');
-        var encodedId = Uri.EscapeDataString(connectionId);
-        var encodedPayload = Uri.EscapeDataString(encodedOffer);
-        return $"{baseUri}/webrtc/respond?id={encodedId}&offer={encodedPayload}";
-    }
-
-    private static WebRtcSessionDescription? DeserializeDescriptionFromPayload(string? payload)
-    {
-        if (string.IsNullOrWhiteSpace(payload))
-        {
-            return null;
-        }
-
         var decodedJson = Base64UrlDecode(payload);
         return JsonSerializer.Deserialize<WebRtcSessionDescription>(decodedJson);
     }
@@ -258,14 +249,14 @@
         return System.Text.Encoding.UTF8.GetString(bytes);
     }
 
-    private async Task CopyOfferLinkAsync()
+    private async Task CopyConfirmationAsync()
     {
-        if (string.IsNullOrWhiteSpace(offerLink))
+        if (string.IsNullOrWhiteSpace(confirmationPayload))
         {
             return;
         }
 
-        _ = await JsRuntime.InvokeAsync<bool>("webrtcInterop.copyToClipboard", offerLink);
+        _ = await JsRuntime.InvokeAsync<bool>("webrtcInterop.copyToClipboard", confirmationPayload);
     }
 
     public async ValueTask DisposeAsync()

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
 
 namespace EverModern.Blazor.DirectCommunication;
@@ -66,6 +67,11 @@ public sealed class WebRtcService(IJSRuntime jsRuntime) : IAsyncDisposable
     public async ValueTask CloseAsync(string connectionId)
     {
         await jsRuntime.InvokeVoidAsync("webrtcInterop.closeConnection", connectionId);
+    }
+
+    public async ValueTask AttachRemoteAudioAsync(string connectionId, ElementReference audioElement)
+    {
+        await jsRuntime.InvokeVoidAsync("webrtcInterop.attachRemoteStream", connectionId, audioElement);
     }
 
     [JSInvokable]

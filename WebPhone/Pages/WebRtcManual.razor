@@ -1,16 +1,14 @@
-@page "/webrtc"
+@page "/webrtc/manual"
 @using System.Text.Json
 @implements IAsyncDisposable
 @inject WebRtcService WebRtc
-@inject NavigationManager NavigationManager
-@inject IJSRuntime JsRuntime
 
-<PageTitle>WebRTC Demo</PageTitle>
+<PageTitle>WebRTC Manual</PageTitle>
 
 <div class="webrtc-page">
     <header class="webrtc-header">
-        <h1>WebRTC Demo</h1>
-        <p>Create a link, open it on another machine, then paste the confirmation line back here to finish the connection.</p>
+        <h1>WebRTC Manual Flow</h1>
+        <p>Manual offer/answer exchange for troubleshooting.</p>
     </header>
 
     <section class="webrtc-card">
@@ -20,20 +18,26 @@
         </div>
     </section>
 
-    <section class="webrtc-card">
-        <h2>1) Create link for the responder</h2>
-        <button class="webrtc-button" @onclick="CreateOfferLinkAsync">Create link</button>
-        <div class="webrtc-field">
-            <input class="webrtc-input" value="@offerLink" readonly />
-            <button class="webrtc-button" @onclick="CopyOfferLinkAsync" disabled="@(string.IsNullOrWhiteSpace(offerLink))">Copy</button>
-        </div>
-    </section>
+    <div class="webrtc-grid">
+        <section class="webrtc-card">
+            <h2>1) Initiator: Create Offer</h2>
+            <button class="webrtc-button" @onclick="CreateOfferAsync">Create offer</button>
+            <textarea class="webrtc-textarea" rows="8" @bind="localOffer" readonly></textarea>
+        </section>
 
-    <section class="webrtc-card">
-        <h2>2) Paste confirmation line</h2>
-        <textarea class="webrtc-textarea" rows="4" @bind="confirmationPayload" placeholder="Paste the confirmation line from the responder"></textarea>
-        <button class="webrtc-button" @onclick="AcceptConfirmationAsync">Apply confirmation</button>
-    </section>
+        <section class="webrtc-card">
+            <h2>2) Responder: Accept Offer + Create Answer</h2>
+            <textarea class="webrtc-textarea" rows="8" @bind="remoteOffer"></textarea>
+            <button class="webrtc-button" @onclick="AcceptOfferAsync">Create answer</button>
+            <textarea class="webrtc-textarea" rows="8" @bind="localAnswer" readonly></textarea>
+        </section>
+
+        <section class="webrtc-card">
+            <h2>3) Initiator: Accept Answer</h2>
+            <textarea class="webrtc-textarea" rows="8" @bind="remoteAnswer"></textarea>
+            <button class="webrtc-button" @onclick="AcceptAnswerAsync">Apply answer</button>
+        </section>
+    </div>
 
     <section class="webrtc-card webrtc-status">
         <h2>Connection State</h2>
@@ -72,8 +76,10 @@
     private readonly JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
     private readonly List<string> receivedMessages = [];
     private string connectionId = "demo";
-    private string? offerLink;
-    private string? confirmationPayload;
+    private string? localOffer;
+    private string? remoteOffer;
+    private string? localAnswer;
+    private string? remoteAnswer;
     private string? connectionState = "new";
     private string? dataChannelState = "new";
     private string messageToSend = string.Empty;
@@ -105,23 +111,36 @@
         isInitialized = true;
     }
 
-    private async Task CreateOfferLinkAsync()
+    private async Task CreateOfferAsync()
     {
         await EnsureInitializedAsync();
         await EnsureAudioAsync();
         await WebRtc.CreateDataChannelAsync(connectionId, "chat");
         var offer = await WebRtc.CreateOfferAsync(connectionId);
-        var json = JsonSerializer.Serialize(offer, jsonOptions);
-        var encodedOffer = Base64UrlEncode(json);
-        offerLink = BuildOfferLink(encodedOffer);
+        localOffer = JsonSerializer.Serialize(offer, jsonOptions);
         await InvokeAsync(StateHasChanged);
     }
 
-    private async Task AcceptConfirmationAsync()
+    private async Task AcceptOfferAsync()
     {
         await EnsureInitializedAsync();
         await EnsureAudioAsync();
-        var answer = DeserializeDescriptionFromPayload(confirmationPayload);
+        var offer = DeserializeDescription(remoteOffer);
+        if (offer is null)
+        {
+            return;
+        }
+
+        await WebRtc.SetRemoteDescriptionAsync(connectionId, offer);
+        var answer = await WebRtc.CreateAnswerAsync(connectionId);
+        localAnswer = JsonSerializer.Serialize(answer, jsonOptions);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task AcceptAnswerAsync()
+    {
+        await EnsureInitializedAsync();
+        var answer = DeserializeDescription(remoteAnswer);
         if (answer is null)
         {
             return;
@@ -217,55 +236,14 @@
         }
     }
 
-    private string BuildOfferLink(string encodedOffer)
-    {
-        var baseUri = NavigationManager.BaseUri.TrimEnd('/');
-        var encodedId = Uri.EscapeDataString(connectionId);
-        var encodedPayload = Uri.EscapeDataString(encodedOffer);
-        return $"{baseUri}/webrtc/respond?id={encodedId}&offer={encodedPayload}";
-    }
-
-    private static WebRtcSessionDescription? DeserializeDescriptionFromPayload(string? payload)
+    private static WebRtcSessionDescription? DeserializeDescription(string? payload)
     {
         if (string.IsNullOrWhiteSpace(payload))
         {
             return null;
         }
 
-        var decodedJson = Base64UrlDecode(payload);
-        return JsonSerializer.Deserialize<WebRtcSessionDescription>(decodedJson);
-    }
-
-    private static string Base64UrlEncode(string value)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
-        return Convert.ToBase64String(bytes)
-            .Replace('+', '-')
-            .Replace('/', '_')
-            .TrimEnd('=');
-    }
-
-    private static string Base64UrlDecode(string value)
-    {
-        var padded = value.Replace('-', '+').Replace('_', '/');
-        var padding = 4 - (padded.Length % 4);
-        if (padding is > 0 and < 4)
-        {
-            padded = padded.PadRight(padded.Length + padding, '=');
-        }
-
-        var bytes = Convert.FromBase64String(padded);
-        return System.Text.Encoding.UTF8.GetString(bytes);
-    }
-
-    private async Task CopyOfferLinkAsync()
-    {
-        if (string.IsNullOrWhiteSpace(offerLink))
-        {
-            return;
-        }
-
-        _ = await JsRuntime.InvokeAsync<bool>("webrtcInterop.copyToClipboard", offerLink);
+        return JsonSerializer.Deserialize<WebRtcSessionDescription>(payload);
     }
 
     public async ValueTask DisposeAsync()

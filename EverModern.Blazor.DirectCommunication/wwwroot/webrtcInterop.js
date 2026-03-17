@@ -2,6 +2,7 @@ const connections = new Map();
 const dotNetReferences = new Map();
 const dataChannels = new Map();
 const localStreams = new Map();
+const remoteStreams = new Map();
 
 function getConnection(id) {
   const connection = connections.get(id);
@@ -101,6 +102,7 @@ async function createConnection(id, dotNetReference, iceServers) {
   peerConnection.ontrack = (event) => {
     const stream = event.streams[0];
     if (stream) {
+      remoteStreams.set(id, stream);
       dotNetReference.invokeMethodAsync("OnRemoteStream", id);
     }
   };
@@ -113,9 +115,29 @@ async function createConnection(id, dotNetReference, iceServers) {
   dotNetReferences.set(id, dotNetReference);
 }
 
+function attachRemoteStream(id, element) {
+  const stream = remoteStreams.get(id);
+  if (!stream) {
+    throw new Error(`No remote stream found for id '${id}'.`);
+  }
+
+  if (!element) {
+    throw new Error("Remote audio element was not provided.");
+  }
+
+  element.srcObject = stream;
+  if (typeof element.play === "function") {
+    element.play();
+  }
+}
+
 async function startLocalStream(id, constraints) {
   if (localStreams.has(id)) {
     return localStreams.get(id);
+  }
+
+  if (!navigator?.mediaDevices?.getUserMedia) {
+    throw new Error("Media devices are unavailable. Use HTTPS or localhost and allow microphone access.");
   }
 
   const resolvedConstraints = constraints ?? { audio: true, video: false };
@@ -204,8 +226,34 @@ function closeConnection(id) {
   }
 
   dotNetReferences.delete(id);
+  remoteStreams.delete(id);
 
   stopLocalStream(id);
+}
+
+async function copyToClipboard(text) {
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  let success = false;
+  try {
+    success = document.execCommand("copy");
+  } catch {
+    success = false;
+  }
+
+  document.body.removeChild(textarea);
+  return success;
 }
 
 window.webrtcInterop = {
@@ -219,5 +267,7 @@ window.webrtcInterop = {
   addIceCandidate,
   sendData,
   stopLocalStream,
-  closeConnection
+  closeConnection,
+  copyToClipboard,
+  attachRemoteStream
 };

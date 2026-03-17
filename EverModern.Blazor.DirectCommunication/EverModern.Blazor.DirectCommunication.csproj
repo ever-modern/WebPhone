@@ -15,9 +15,4 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.4" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Remove="wwwroot\webrtcInterop.js" />
-    <None Include="wwwroot\webrtcInterop.js" />
-  </ItemGroup>
-
 </Project>
