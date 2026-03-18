@@ -1,28 +1,30 @@
 using System.Net.Http.Json;
-using System.Text.Json;
 using System.Threading.Channels;
+using Microsoft.JSInterop;
+using WebPhone.Registration;
 
 namespace WebPhone.Registration;
 
-public sealed class NetlifyMessagesChannel: IExternalChannel<Message>, IAsyncDisposable
+public sealed class NetlifyMessagesChannel : IExternalChannel<Message>, IAsyncDisposable
 {
     private readonly HttpClient client;
+    private readonly IJSRuntime jsRuntime;
+    private readonly string pollChannelName;
     private readonly Channel<Message> incomingChannel = Channel.CreateUnbounded<Message>();
     private readonly Channel<Message> outgoingChannel = Channel.CreateUnbounded<Message>();
-    private readonly Uri pollUri;
     private readonly PeriodicTimer pollTimer;
     private readonly CancellationTokenSource cts = new();
     private readonly Task sendLoopTask;
     private readonly Task pollLoopTask;
 
-    public NetlifyMessagesChannel(string baseUrl, string pollPath = "poll", int pollIntervalMs = 1000)
+    public NetlifyMessagesChannel(IJSRuntime jsRuntime, string baseUrl, string pollChannelName, int pollIntervalMs = 1000)
     {
         client = new HttpClient
         {
             BaseAddress = new Uri(baseUrl)
         };
-
-        pollUri = new Uri(client.BaseAddress!, pollPath);
+        this.jsRuntime = jsRuntime;
+        this.pollChannelName = pollChannelName;
         pollTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(Math.Max(pollIntervalMs, 250)));
         sendLoopTask = RunSendLoopAsync(cts.Token);
         pollLoopTask = RunPollLoopAsync(cts.Token);
@@ -51,15 +53,8 @@ public sealed class NetlifyMessagesChannel: IExternalChannel<Message>, IAsyncDis
 
     private async Task PollAsync(CancellationToken cancellationToken)
     {
-        using var response = await client.GetAsync(pollUri, cancellationToken);
-        if (!response.IsSuccessStatusCode)
-        {
-            return;
-        }
-
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var messages = await JsonSerializer.DeserializeAsync<Message[]>(stream, cancellationToken: cancellationToken);
-        if (messages is null)
+        var messages = await jsRuntime.InvokeAsync<Message[]>("pusherInterop.poll", cancellationToken, pollChannelName);
+        if (messages is null || messages.Length == 0)
         {
             return;
         }

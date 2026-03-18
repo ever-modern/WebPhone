@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.Options;
 using Microsoft.JSInterop;
 using WebPhone.Registration;
+using WebPhone.Registration.Pusher;
 
 namespace WebPhone.Services;
 
@@ -14,12 +15,14 @@ public sealed class PhoneService(
     IJSRuntime jsRuntime,
     ILogger<PhoneService> logger,
     IOptions<PhoneOptions> options,
+    IOptions<PusherOptions> pusherOptions,
     IExternalChannel<Message> externalChannel) : IAsyncDisposable
 {
     private readonly Dictionary<string, UserPresence> activeUsers = new();
     private readonly Stopwatch stepTimer = Stopwatch.StartNew();
     private readonly List<string> receivedMessages = [];
     private readonly int pollIntervalMs = Math.Max(options.Value.PollIntervalMs, 250);
+    private readonly PusherOptions pusherOptions = pusherOptions.Value;
     private long lastStepTimestamp;
     private string connectionId = string.Empty;
     private bool isInitialized;
@@ -98,7 +101,31 @@ public sealed class PhoneService(
         }
 
         await webRtc.InitializeAsync(connectionId, [
-            new WebRtcIceServer { Urls = ["stun:stun.l.google.com:19302"] }
+            new WebRtcIceServer { Urls = ["stun:stun.relay.metered.ca:80"] },
+            new WebRtcIceServer
+            {
+                Urls = ["turn:standard.relay.metered.ca:80"],
+                Username = "ca04422b48d9f681eb1577de",
+                Credential = "lJmBSxV942Wi2HEi"
+            },
+            new WebRtcIceServer
+            {
+                Urls = ["turn:standard.relay.metered.ca:80?transport=tcp"],
+                Username = "ca04422b48d9f681eb1577de",
+                Credential = "lJmBSxV942Wi2HEi"
+            },
+            new WebRtcIceServer
+            {
+                Urls = ["turn:standard.relay.metered.ca:443"],
+                Username = "ca04422b48d9f681eb1577de",
+                Credential = "lJmBSxV942Wi2HEi"
+            },
+            new WebRtcIceServer
+            {
+                Urls = ["turns:standard.relay.metered.ca:443?transport=tcp"],
+                Username = "ca04422b48d9f681eb1577de",
+                Credential = "lJmBSxV942Wi2HEi"
+            }
         ]);
         isInitialized = true;
         LogStep("WebRTC initialized");
@@ -107,9 +134,9 @@ public sealed class PhoneService(
     public async Task SaveProfileAsync()
     {
         LogStep("Saving profile");
-        if (string.IsNullOrWhiteSpace(DisplayName) || string.IsNullOrWhiteSpace(PusherSecret))
+        if (string.IsNullOrWhiteSpace(DisplayName))
         {
-            ProfileStatus = "Name and secret are required.";
+            ProfileStatus = "Name is required.";
             NotifyStateChanged();
             return;
         }
@@ -273,25 +300,6 @@ public sealed class PhoneService(
         LogStep("Signaling initialized");
     }
 
-    private static WebPhone.Registration.Message? DeserializeSignalingMessage(string payloadJson)
-    {
-        if (string.IsNullOrWhiteSpace(payloadJson))
-        {
-            return null;
-        }
-
-        if (payloadJson.TrimStart().StartsWith('"'))
-        {
-            var inner = JsonSerializer.Deserialize<string>(payloadJson);
-            if (!string.IsNullOrWhiteSpace(inner))
-            {
-                return JsonSerializer.Deserialize<WebPhone.Registration.Message>(inner);
-            }
-        }
-
-        return JsonSerializer.Deserialize<WebPhone.Registration.Message>(payloadJson);
-    }
-
     private string BuildChannelName()
         => "private-webrtc-lobby";
 
@@ -355,8 +363,20 @@ public sealed class PhoneService(
 
     private async Task PublishAsync<TPayload>(SignalingMessage<TPayload> message)
     {
-        var payload = JsonSerializer.SerializeToElement(message);
-        await externalChannel.Writer.WriteAsync(new WebPhone.Registration.Message(BuildEventName(), payload));
+        var eventName = BuildEventName();
+        var serverEventName = eventName.StartsWith("client-", StringComparison.OrdinalIgnoreCase)
+            ? eventName["client-".Length..]
+            : eventName;
+        var payload = JsonSerializer.SerializeToElement(new
+        {
+            appId = pusherOptions.AppId,
+            key = pusherOptions.Key,
+            cluster = pusherOptions.Cluster,
+            channel = BuildChannelName(),
+            eventName = serverEventName,
+            data = message
+        });
+        await externalChannel.Writer.WriteAsync(new WebPhone.Registration.Message("pusher", payload));
     }
 
     private void StartMessageReader()
@@ -376,7 +396,7 @@ public sealed class PhoneService(
                 continue;
             }
 
-            var payload = DeserializeSignalingMessage(message.Payload.GetRawText());
+            var payload = JsonSerializer.Deserialize<WebPhone.Registration.Message>(message.Payload.GetRawText());
             if (payload is null)
             {
                 continue;

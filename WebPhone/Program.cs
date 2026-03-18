@@ -7,6 +7,7 @@ using WebPhone.Registration.Pusher;
 using Microsoft.Extensions.Configuration;
 using WebPhone.Services;
 using Microsoft.Extensions.Options;
+using Microsoft.JSInterop;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
@@ -20,7 +21,11 @@ builder.Services.AddScoped<IWebRtcConnector, PusherChannelsRegistrator>();
 builder.Services.AddScoped<IExternalChannel<Message>>(sp =>
 {
     var options = sp.GetRequiredService<IOptions<PhoneOptions>>().Value;
-    return new NetlifyMessagesChannel(options.ExternalChannelBaseUrl, options.ExternalChannelPollPath, options.PollIntervalMs);
+    var baseAddress = builder.HostEnvironment.BaseAddress;
+    var absoluteBaseUrl = new Uri(new Uri(baseAddress), options.ExternalChannelBaseUrl).ToString();
+    var pusherOptions = sp.GetRequiredService<IOptions<PusherOptions>>().Value;
+    var channelName = $"private-{pusherOptions.ChannelPrefix}-lobby";
+    return new NetlifyMessagesChannel(sp.GetRequiredService<IJSRuntime>(), absoluteBaseUrl, channelName, options.PollIntervalMs);
 });
 builder.Services.Configure<PusherOptions>(builder.Configuration.GetSection("Pusher"));
 builder.Services.Configure<PhoneOptions>(builder.Configuration.GetSection("Phone"));

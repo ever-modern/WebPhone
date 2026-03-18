@@ -67,10 +67,6 @@ public sealed class PusherChannelsRegistrator(
         }
 
         var secret = GetSecret();
-        if (string.IsNullOrWhiteSpace(secret))
-        {
-            throw new InvalidOperationException("Pusher secret is missing. Provide it before publishing messages.");
-        }
 
         var fallbackEvent = eventName.StartsWith("client-", StringComparison.OrdinalIgnoreCase)
             ? eventName["client-".Length..]

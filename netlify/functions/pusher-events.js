@@ -1,5 +1,7 @@
 const crypto = require("crypto");
 
+const messageQueue = [];
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -9,6 +11,18 @@ exports.handler = async (event) => {
         "Access-Control-Allow-Headers": "Content-Type",
         "Access-Control-Allow-Methods": "POST, OPTIONS"
       }
+    };
+  }
+
+  if (event.httpMethod === "GET") {
+    const messages = messageQueue.splice(0, messageQueue.length);
+    return {
+      statusCode: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(messages)
     };
   }
 
@@ -31,7 +45,12 @@ exports.handler = async (event) => {
     };
   }
 
-  const { appId, key, secret, cluster, channel, eventName, data } = payload;
+  let { appId, key, secret, cluster, channel, eventName, data } = payload;
+  if ((!appId || !key || !secret || !cluster || !channel || !eventName) && payload.payload) {
+    ({ appId, key, secret, cluster, channel, eventName, data } = payload.payload);
+  }
+
+  secret = secret || "685d876fda68e0cfa8de";
   if (!appId || !key || !secret || !cluster || !channel || !eventName) {
     return {
       statusCode: 400,
@@ -41,6 +60,14 @@ exports.handler = async (event) => {
   }
 
   const dataString = typeof data === "string" ? data : JSON.stringify(data ?? {});
+  let queuePayload = data;
+  if (typeof data === "string") {
+    try {
+      queuePayload = JSON.parse(data);
+    } catch {
+      queuePayload = data;
+    }
+  }
   const body = {
     name: eventName,
     channel,
@@ -60,6 +87,10 @@ exports.handler = async (event) => {
     headers: { "Content-Type": "application/json" },
     body: bodyJson
   });
+
+  if (response.ok) {
+    messageQueue.push({ type: eventName, payload: queuePayload ?? {} });
+  }
 
   const responseText = await response.text();
   return {

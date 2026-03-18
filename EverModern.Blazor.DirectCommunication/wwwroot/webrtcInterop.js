@@ -40,7 +40,7 @@ function wireDataChannel(id, channel) {
   };
 }
 
-function waitForIceGatheringComplete(peerConnection) {
+function waitForIceGatheringComplete(peerConnection, timeoutMs = 2000) {
   if (peerConnection.iceGatheringState === "complete") {
     return Promise.resolve();
   }
@@ -54,6 +54,10 @@ function waitForIceGatheringComplete(peerConnection) {
     };
 
     peerConnection.addEventListener("icegatheringstatechange", handler);
+    setTimeout(() => {
+      peerConnection.removeEventListener("icegatheringstatechange", handler);
+      resolve();
+    }, timeoutMs);
   });
 }
 
