@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EverModern.Blazor.DirectCommunication\EverModern.Blazor.DirectCommunication.csproj" />
+    <ProjectReference Include="..\WebPhone.Registration.Pusher\WebPhone.Registration.Pusher.csproj" />
   </ItemGroup>
 
   <ItemGroup>

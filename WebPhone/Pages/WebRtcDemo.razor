@@ -1,66 +1,87 @@
 @page "/webrtc"
-@using System.Text.Json
 @implements IAsyncDisposable
-@inject WebRtcService WebRtc
-@inject NavigationManager NavigationManager
-@inject IJSRuntime JsRuntime
+@inject WebPhone.Services.PhoneService Phone
 
 <PageTitle>WebRTC Demo</PageTitle>
 
 <div class="webrtc-page">
     <header class="webrtc-header">
         <h1>WebRTC Demo</h1>
-        <p>Create a link, open it on another machine, then paste the confirmation line back here to finish the connection.</p>
+        <p>Enter your name and Pusher secret to announce your presence. Select a user to connect.</p>
     </header>
 
     <section class="webrtc-card">
+        <h2>Your profile</h2>
         <div class="webrtc-field">
-            <label>Connection Id</label>
-            <input class="webrtc-input" @bind="connectionId" />
+            <label>Name</label>
+            <input class="webrtc-input" @bind="Phone.DisplayName" placeholder="Your name" />
         </div>
+        <div class="webrtc-field">
+            <label>Pusher secret</label>
+            <input class="webrtc-input" @bind="Phone.PusherSecret" placeholder="Secret" />
+            <button class="webrtc-button" @onclick="Phone.SaveProfileAsync">Save</button>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(Phone.ProfileStatus))
+        {
+            <p>@Phone.ProfileStatus</p>
+        }
     </section>
 
     <section class="webrtc-card">
-        <h2>1) Create link for the responder</h2>
-        <button class="webrtc-button" @onclick="CreateOfferLinkAsync">Create link</button>
-        <div class="webrtc-field">
-            <input class="webrtc-input" value="@offerLink" readonly />
-            <button class="webrtc-button" @onclick="CopyOfferLinkAsync" disabled="@(string.IsNullOrWhiteSpace(offerLink))">Copy</button>
-        </div>
+        <h2>Available users</h2>
+        <ul class="webrtc-users">
+            @foreach (var user in Phone.AvailableUsers)
+            {
+                <li>
+                    <div>
+                        <strong>@user.Name</strong>
+                        <span>@user.UserId</span>
+                    </div>
+                    <button class="webrtc-button" @onclick="() => Phone.ConnectToUserAsync(user)">Connect</button>
+                </li>
+            }
+        </ul>
+        @if (!string.IsNullOrWhiteSpace(Phone.SignalingStatus))
+        {
+            <p>@Phone.SignalingStatus</p>
+        }
     </section>
 
-    <section class="webrtc-card">
-        <h2>2) Paste confirmation line</h2>
-        <textarea class="webrtc-textarea" rows="4" @bind="confirmationPayload" placeholder="Paste the confirmation line from the responder"></textarea>
-        <button class="webrtc-button" @onclick="AcceptConfirmationAsync">Apply confirmation</button>
-    </section>
+    @if (Phone.IncomingCall is not null)
+    {
+        <section class="webrtc-card">
+            <h2>Incoming call</h2>
+            <p>@Phone.IncomingCall.FromName is calling you.</p>
+            <button class="webrtc-button" @onclick="Phone.AcceptIncomingCallAsync">Accept</button>
+        </section>
+    }
 
     <section class="webrtc-card webrtc-status">
         <h2>Connection State</h2>
         <div>
-            <span>Peer: @connectionState</span>
-            <span>Data channel: @dataChannelState</span>
+            <span>Peer: @Phone.ConnectionState</span>
+            <span>Data channel: @Phone.DataChannelState</span>
         </div>
     </section>
 
     <section class="webrtc-card">
         <h2>Audio</h2>
-        <audio class="webrtc-audio" @ref="remoteAudio" autoplay controls></audio>
-        @if (!string.IsNullOrWhiteSpace(audioStatusMessage))
+        <audio class="webrtc-audio" @ref="Phone.RemoteAudio" autoplay controls></audio>
+        @if (!string.IsNullOrWhiteSpace(Phone.AudioStatusMessage))
         {
-            <p>@audioStatusMessage</p>
+            <p>@Phone.AudioStatusMessage</p>
         }
     </section>
 
     <section class="webrtc-card">
         <h2>Send a Message</h2>
         <div class="webrtc-field">
-            <input class="webrtc-input" @bind="messageToSend" placeholder="Type a message" />
-            <button class="webrtc-button" @onclick="SendMessageAsync" disabled="@(!CanSend)">Send</button>
+            <input class="webrtc-input" @bind="Phone.MessageToSend" placeholder="Type a message" />
+            <button class="webrtc-button" @onclick="Phone.SendMessageAsync" disabled="@(!Phone.CanSend)">Send</button>
         </div>
 
         <ul class="webrtc-messages">
-            @foreach (var message in receivedMessages)
+            @foreach (var message in Phone.ReceivedMessages)
             {
                 <li>@message</li>
             }
@@ -69,215 +90,20 @@
 </div>
 
 @code {
-    private readonly JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
-    private readonly List<string> receivedMessages = [];
-    private string connectionId = "demo";
-    private string? offerLink;
-    private string? confirmationPayload;
-    private string? connectionState = "new";
-    private string? dataChannelState = "new";
-    private string messageToSend = string.Empty;
-    private bool isInitialized;
-    private bool isAudioStarted;
-    private ElementReference remoteAudio;
-    private string? audioStatusMessage;
-
-    private bool CanSend => dataChannelState == "open";
-
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        WebRtc.ConnectionStateChanged += HandleConnectionStateChanged;
-        WebRtc.DataChannelStateChanged += HandleDataChannelStateChanged;
-        WebRtc.DataMessageReceived += HandleDataMessageReceived;
-        WebRtc.RemoteStreamAvailable += HandleRemoteStreamAvailable;
+        Phone.StateChanged += HandlePhoneStateChanged;
+        await Phone.InitializeAsync();
     }
 
-    private async Task EnsureInitializedAsync()
+    private async void HandlePhoneStateChanged()
     {
-        if (isInitialized)
-        {
-            return;
-        }
-
-        await WebRtc.InitializeAsync(connectionId, [
-            new WebRtcIceServer { Urls = ["stun:stun.l.google.com:19302"] }
-        ]);
-        isInitialized = true;
-    }
-
-    private async Task CreateOfferLinkAsync()
-    {
-        await EnsureInitializedAsync();
-        await EnsureAudioAsync();
-        await WebRtc.CreateDataChannelAsync(connectionId, "chat");
-        var offer = await WebRtc.CreateOfferAsync(connectionId);
-        var json = JsonSerializer.Serialize(offer, jsonOptions);
-        var encodedOffer = Base64UrlEncode(json);
-        offerLink = BuildOfferLink(encodedOffer);
         await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task AcceptConfirmationAsync()
-    {
-        await EnsureInitializedAsync();
-        await EnsureAudioAsync();
-        var answer = DeserializeDescriptionFromPayload(confirmationPayload);
-        if (answer is null)
-        {
-            return;
-        }
-
-        await WebRtc.SetRemoteDescriptionAsync(connectionId, answer);
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task SendMessageAsync()
-    {
-        if (string.IsNullOrWhiteSpace(messageToSend))
-        {
-            return;
-        }
-
-        await WebRtc.SendMessageAsync(connectionId, messageToSend);
-        receivedMessages.Add($"Me: {messageToSend}");
-        messageToSend = string.Empty;
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private void HandleConnectionStateChanged(object? sender, WebRtcConnectionStateChangedEventArgs args)
-    {
-        if (args.ConnectionId != connectionId)
-        {
-            return;
-        }
-
-        connectionState = args.State;
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    private void HandleDataChannelStateChanged(object? sender, WebRtcDataChannelStateChangedEventArgs args)
-    {
-        if (args.ConnectionId != connectionId)
-        {
-            return;
-        }
-
-        dataChannelState = args.State;
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    private void HandleDataMessageReceived(object? sender, WebRtcDataMessageEventArgs args)
-    {
-        if (args.ConnectionId != connectionId)
-        {
-            return;
-        }
-
-        receivedMessages.Add($"Remote: {args.Message}");
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    private async void HandleRemoteStreamAvailable(object? sender, WebRtcRemoteStreamEventArgs args)
-    {
-        if (args.ConnectionId != connectionId)
-        {
-            return;
-        }
-
-        await WebRtc.AttachRemoteAudioAsync(connectionId, remoteAudio);
-    }
-
-    private async Task EnsureAudioAsync()
-    {
-        if (isAudioStarted)
-        {
-            return;
-        }
-
-        try
-        {
-            await WebRtc.StartLocalStreamAsync(connectionId, new
-            {
-                audio = new
-                {
-                    echoCancellation = true,
-                    noiseSuppression = true,
-                    autoGainControl = true
-                },
-                video = false
-            });
-            await WebRtc.AddLocalTracksAsync(connectionId);
-            isAudioStarted = true;
-            audioStatusMessage = null;
-        }
-        catch (JSException ex)
-        {
-            audioStatusMessage = ex.Message;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private string BuildOfferLink(string encodedOffer)
-    {
-        var baseUri = NavigationManager.BaseUri.TrimEnd('/');
-        var encodedId = Uri.EscapeDataString(connectionId);
-        var encodedPayload = Uri.EscapeDataString(encodedOffer);
-        return $"{baseUri}/webrtc/respond?id={encodedId}&offer={encodedPayload}";
-    }
-
-    private static WebRtcSessionDescription? DeserializeDescriptionFromPayload(string? payload)
-    {
-        if (string.IsNullOrWhiteSpace(payload))
-        {
-            return null;
-        }
-
-        var decodedJson = Base64UrlDecode(payload);
-        return JsonSerializer.Deserialize<WebRtcSessionDescription>(decodedJson);
-    }
-
-    private static string Base64UrlEncode(string value)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
-        return Convert.ToBase64String(bytes)
-            .Replace('+', '-')
-            .Replace('/', '_')
-            .TrimEnd('=');
-    }
-
-    private static string Base64UrlDecode(string value)
-    {
-        var padded = value.Replace('-', '+').Replace('_', '/');
-        var padding = 4 - (padded.Length % 4);
-        if (padding is > 0 and < 4)
-        {
-            padded = padded.PadRight(padded.Length + padding, '=');
-        }
-
-        var bytes = Convert.FromBase64String(padded);
-        return System.Text.Encoding.UTF8.GetString(bytes);
-    }
-
-    private async Task CopyOfferLinkAsync()
-    {
-        if (string.IsNullOrWhiteSpace(offerLink))
-        {
-            return;
-        }
-
-        _ = await JsRuntime.InvokeAsync<bool>("webrtcInterop.copyToClipboard", offerLink);
     }
 
     public async ValueTask DisposeAsync()
     {
-        WebRtc.ConnectionStateChanged -= HandleConnectionStateChanged;
-        WebRtc.DataChannelStateChanged -= HandleDataChannelStateChanged;
-        WebRtc.DataMessageReceived -= HandleDataMessageReceived;
-        WebRtc.RemoteStreamAvailable -= HandleRemoteStreamAvailable;
-
-        if (isInitialized)
-        {
-            await WebRtc.CloseAsync(connectionId);
-        }
+        Phone.StateChanged -= HandlePhoneStateChanged;
+        await Phone.DisposeAsync();
     }
 }

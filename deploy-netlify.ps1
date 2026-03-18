@@ -10,7 +10,7 @@ Write-Host "Publishing $projectPath ($Configuration)..."
 dotnet publish $projectPath -c $Configuration
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-$deployArgs = @("deploy", "--dir", $publishDir)
+$deployArgs = @("deploy", "--dir", $publishDir, "--functions", "netlify/functions")
 if ($Prod) {
     $deployArgs += "--prod"
 }

@@ -2,6 +2,19 @@
   publish = "WebPhone/bin/Release/net10.0/publish/wwwroot"
   command = "dotnet publish WebPhone/WebPhone.csproj -c Release"
 
+[functions]
+  directory = "netlify/functions"
+
+[[redirects]]
+  from = "/_content/*"
+  to = "/_content/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/_framework/*"
+  to = "/_framework/:splat"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

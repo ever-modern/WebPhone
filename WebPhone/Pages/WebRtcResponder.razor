@@ -1,24 +1,22 @@
 @page "/webrtc/respond"
 @using System.Text.Json
+@using WebPhone.Registration
 @using Microsoft.AspNetCore.Components
 @implements IAsyncDisposable
 @inject WebRtcService WebRtc
-@inject IJSRuntime JsRuntime
+@inject IWebRtcConfigurator Configurator
+@inject IWebRtcConnector Connector
 
 <PageTitle>WebRTC Responder</PageTitle>
 
 <div class="webrtc-page">
     <header class="webrtc-header">
         <h1>WebRTC Responder</h1>
-        <p>Copy the confirmation line back to the initiator to finish the connection.</p>
+        <p>Waiting for the initiator offer and responding automatically.</p>
     </header>
 
     <section class="webrtc-card">
-        <h2>Confirmation line</h2>
-        <div class="webrtc-field">
-            <input class="webrtc-input" value="@confirmationPayload" readonly />
-            <button class="webrtc-button" @onclick="CopyConfirmationAsync" disabled="@(string.IsNullOrWhiteSpace(confirmationPayload))">Copy</button>
-        </div>
+        <h2>Signaling</h2>
         @if (!string.IsNullOrWhiteSpace(statusMessage))
         {
             <p>@statusMessage</p>
@@ -59,10 +57,8 @@
 </div>
 
 @code {
-    private readonly JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
     private readonly List<string> receivedMessages = [];
     private string connectionId = "demo";
-    private string? confirmationPayload;
     private string? statusMessage;
     private string? connectionState = "new";
     private string? dataChannelState = "new";
@@ -72,12 +68,11 @@
     private bool isAudioStarted;
     private ElementReference remoteAudio;
     private string? audioStatusMessage;
+    private bool isSignalingInitialized;
+    private bool isOfferHandled;
 
-    [Parameter, SupplyParameterFromQuery(Name = "offer")]
-    public string? EncodedOffer { get; set; }
-
-    [Parameter, SupplyParameterFromQuery(Name = "id")]
-    public string? ConnectionIdFromQuery { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "session")]
+    public string? SessionId { get; set; }
 
     private bool CanSend => dataChannelState == "open";
 
@@ -91,34 +86,25 @@
 
     protected override async Task OnParametersSetAsync()
     {
-        if (string.IsNullOrWhiteSpace(EncodedOffer))
+        if (string.IsNullOrWhiteSpace(SessionId))
         {
-            statusMessage = "Missing offer in the link.";
+            statusMessage = "Missing session id in the link.";
             return;
         }
 
-        if (processedOffer == EncodedOffer)
+        if (processedOffer == SessionId)
         {
             return;
         }
 
-        processedOffer = EncodedOffer;
-        connectionId = string.IsNullOrWhiteSpace(ConnectionIdFromQuery) ? "demo" : ConnectionIdFromQuery;
+        processedOffer = SessionId;
+        connectionId = SessionId;
         statusMessage = null;
-
-        var offer = DeserializeDescriptionFromPayload(EncodedOffer);
-        if (offer is null)
-        {
-            statusMessage = "Offer payload is invalid.";
-            return;
-        }
 
         await EnsureInitializedAsync();
         await EnsureAudioAsync();
-        await WebRtc.SetRemoteDescriptionAsync(connectionId, offer);
-        var answer = await WebRtc.CreateAnswerAsync(connectionId);
-        var json = JsonSerializer.Serialize(answer, jsonOptions);
-        confirmationPayload = Base64UrlEncode(json);
+        await EnsureSignalingAsync();
+        statusMessage = "Waiting for offer...";
         await InvokeAsync(StateHasChanged);
     }
 
@@ -128,11 +114,21 @@
         {
             return;
         }
-
         await WebRtc.InitializeAsync(connectionId, [
             new WebRtcIceServer { Urls = ["stun:stun.l.google.com:19302"] }
         ]);
         isInitialized = true;
+    }
+
+    private async Task EnsureSignalingAsync()
+    {
+        if (isSignalingInitialized)
+        {
+            return;
+        }
+
+        await Configurator.InitializeAsync(BuildChannelName(), BuildEventName());
+        isSignalingInitialized = true;
     }
 
     private async Task SendMessageAsync()
@@ -181,6 +177,38 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
+    private async void HandleSignalingMessageReceived(object? sender, ChannelMessageReceivedEventArgs args)
+    {
+        if (!string.Equals(args.ChannelName, BuildChannelName(), StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var message = DeserializeSignalingMessage(args.PayloadJson);
+        if (message is null || message.Type != "offer")
+        {
+            return;
+        }
+
+        if (isOfferHandled)
+        {
+            return;
+        }
+
+        var offer = message.Payload.Deserialize<WebRtcSessionDescription>();
+        if (offer is null)
+        {
+            return;
+        }
+
+        isOfferHandled = true;
+        await WebRtc.SetRemoteDescriptionAsync(connectionId, offer);
+        var answer = await WebRtc.CreateAnswerAsync(connectionId);
+        await Connector.PublishAsync(BuildChannelName(), BuildEventName(), new SignalingMessage<WebRtcSessionDescription>("answer", answer));
+        statusMessage = "Answer sent.";
+        await InvokeAsync(StateHasChanged);
+    }
+
     private async void HandleRemoteStreamAvailable(object? sender, WebRtcRemoteStreamEventArgs args)
     {
         if (args.ConnectionId != connectionId)
@@ -221,43 +249,21 @@
         }
     }
 
-    private static WebRtcSessionDescription? DeserializeDescriptionFromPayload(string payload)
+    private static WebPhone.Registration.Message? DeserializeSignalingMessage(string payloadJson)
     {
-        var decodedJson = Base64UrlDecode(payload);
-        return JsonSerializer.Deserialize<WebRtcSessionDescription>(decodedJson);
-    }
-
-    private static string Base64UrlEncode(string value)
-    {
-        var bytes = System.Text.Encoding.UTF8.GetBytes(value);
-        return Convert.ToBase64String(bytes)
-            .Replace('+', '-')
-            .Replace('/', '_')
-            .TrimEnd('=');
-    }
-
-    private static string Base64UrlDecode(string value)
-    {
-        var padded = value.Replace('-', '+').Replace('_', '/');
-        var padding = 4 - (padded.Length % 4);
-        if (padding is > 0 and < 4)
+        if (string.IsNullOrWhiteSpace(payloadJson))
         {
-            padded = padded.PadRight(padded.Length + padding, '=');
+            return null;
         }
 
-        var bytes = Convert.FromBase64String(padded);
-        return System.Text.Encoding.UTF8.GetString(bytes);
+        return JsonSerializer.Deserialize<WebPhone.Registration.Message>(payloadJson);
     }
 
-    private async Task CopyConfirmationAsync()
-    {
-        if (string.IsNullOrWhiteSpace(confirmationPayload))
-        {
-            return;
-        }
+    private string BuildChannelName()
+        => $"webrtc-{connectionId}";
 
-        _ = await JsRuntime.InvokeAsync<bool>("webrtcInterop.copyToClipboard", confirmationPayload);
-    }
+    private static string BuildEventName()
+        => "signal";
 
     public async ValueTask DisposeAsync()
     {

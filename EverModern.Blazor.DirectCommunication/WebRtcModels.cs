@@ -48,46 +48,14 @@ public sealed record WebRtcDataChannelOptions
 
     [JsonPropertyName("maxRetransmits")]
     public int? MaxRetransmits { get; init; }
-
-    [JsonPropertyName("protocol")]
-    public string? Protocol { get; init; }
-
-    [JsonPropertyName("negotiated")]
-    public bool? Negotiated { get; init; }
-
-    [JsonPropertyName("id")]
-    public ushort? Id { get; init; }
 }
 
-public sealed class WebRtcIceCandidateEventArgs(string connectionId, WebRtcIceCandidate candidate) : EventArgs
-{
-    public string ConnectionId { get; } = connectionId;
+public sealed record WebRtcConnectionStateChangedEventArgs(string ConnectionId, string State);
 
-    public WebRtcIceCandidate Candidate { get; } = candidate;
-}
+public sealed record WebRtcDataChannelStateChangedEventArgs(string ConnectionId, string State);
 
-public sealed class WebRtcConnectionStateChangedEventArgs(string connectionId, string state) : EventArgs
-{
-    public string ConnectionId { get; } = connectionId;
+public sealed record WebRtcDataMessageEventArgs(string ConnectionId, string Message);
 
-    public string State { get; } = state;
-}
+public sealed record WebRtcRemoteStreamEventArgs(string ConnectionId);
 
-public sealed class WebRtcDataChannelStateChangedEventArgs(string connectionId, string state) : EventArgs
-{
-    public string ConnectionId { get; } = connectionId;
-
-    public string State { get; } = state;
-}
-
-public sealed class WebRtcDataMessageEventArgs(string connectionId, string message) : EventArgs
-{
-    public string ConnectionId { get; } = connectionId;
-
-    public string Message { get; } = message;
-}
-
-public sealed class WebRtcRemoteStreamEventArgs(string connectionId) : EventArgs
-{
-    public string ConnectionId { get; } = connectionId;
-}
+public sealed record WebRtcIceCandidateEventArgs(string ConnectionId, WebRtcIceCandidate Candidate);
