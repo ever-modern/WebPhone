@@ -1,0 +1,18 @@
+@using WebPhone.Services
+
+<section class="webrtc-card webrtc-profile-card">
+    <div class="webrtc-field webrtc-field-inline">
+       @*  <label>Name</label> *@
+        <input class="webrtc-input" @bind="Phone.DisplayName" placeholder="Your name" />
+        <button class="webrtc-button" @onclick="Phone.SaveProfileAsync">@(Phone.HasStoredProfileName ? "Change name" : "Register")</button>
+    </div>
+    @if (!string.IsNullOrWhiteSpace(Phone.ProfileStatus))
+    {
+        <p>@Phone.ProfileStatus</p>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public PhoneService Phone { get; set; } = default!;
+}

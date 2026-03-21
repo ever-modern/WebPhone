@@ -185,7 +185,7 @@
         }
 
         var message = DeserializeSignalingMessage(args.PayloadJson);
-        if (message is null || message.Type != "offer")
+        if (message is null || message.Type != MessageType.Offer)
         {
             return;
         }
@@ -204,7 +204,7 @@
         isOfferHandled = true;
         await WebRtc.SetRemoteDescriptionAsync(connectionId, offer);
         var answer = await WebRtc.CreateAnswerAsync(connectionId);
-        await Connector.PublishAsync(BuildChannelName(), BuildEventName(), new SignalingMessage<WebRtcSessionDescription>("answer", answer));
+        await Connector.PublishAsync(BuildChannelName(), BuildEventName(), new SignalingMessage<WebRtcSessionDescription>(MessageType.Answer, answer));
         statusMessage = "Answer sent.";
         await InvokeAsync(StateHasChanged);
     }

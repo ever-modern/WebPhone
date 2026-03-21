@@ -5,88 +5,18 @@
 <PageTitle>WebRTC Demo</PageTitle>
 
 <div class="webrtc-page">
-    <header class="webrtc-header">
+   @*  <header class="webrtc-header">
         <h1>WebRTC Demo</h1>
-        <p>Enter your name and Pusher secret to announce your presence. Select a user to connect.</p>
-    </header>
+        <p>Enter your name to announce your presence. Select a user to connect.</p>
+    </header> *@
 
-    <section class="webrtc-card">
-        <h2>Your profile</h2>
-        <div class="webrtc-field">
-            <label>Name</label>
-            <input class="webrtc-input" @bind="Phone.DisplayName" placeholder="Your name" />
-        </div>
-        <div class="webrtc-field">
-            <label>Pusher secret</label>
-            <input class="webrtc-input" @bind="Phone.PusherSecret" placeholder="Secret" />
-            <button class="webrtc-button" @onclick="Phone.SaveProfileAsync">Save</button>
-        </div>
-        @if (!string.IsNullOrWhiteSpace(Phone.ProfileStatus))
-        {
-            <p>@Phone.ProfileStatus</p>
-        }
-    </section>
-
-    <section class="webrtc-card">
-        <h2>Available users</h2>
-        <ul class="webrtc-users">
-            @foreach (var user in Phone.AvailableUsers)
-            {
-                <li>
-                    <div>
-                        <strong>@user.Name</strong>
-                        <span>@user.UserId</span>
-                    </div>
-                    <button class="webrtc-button" @onclick="() => Phone.ConnectToUserAsync(user)">Connect</button>
-                </li>
-            }
-        </ul>
-        @if (!string.IsNullOrWhiteSpace(Phone.SignalingStatus))
-        {
-            <p>@Phone.SignalingStatus</p>
-        }
-    </section>
-
-    @if (Phone.IncomingCall is not null)
-    {
-        <section class="webrtc-card">
-            <h2>Incoming call</h2>
-            <p>@Phone.IncomingCall.FromName is calling you.</p>
-            <button class="webrtc-button" @onclick="Phone.AcceptIncomingCallAsync">Accept</button>
-        </section>
-    }
-
-    <section class="webrtc-card webrtc-status">
-        <h2>Connection State</h2>
-        <div>
-            <span>Peer: @Phone.ConnectionState</span>
-            <span>Data channel: @Phone.DataChannelState</span>
-        </div>
-    </section>
-
-    <section class="webrtc-card">
-        <h2>Audio</h2>
-        <audio class="webrtc-audio" @ref="Phone.RemoteAudio" autoplay controls></audio>
-        @if (!string.IsNullOrWhiteSpace(Phone.AudioStatusMessage))
-        {
-            <p>@Phone.AudioStatusMessage</p>
-        }
-    </section>
-
-    <section class="webrtc-card">
-        <h2>Send a Message</h2>
-        <div class="webrtc-field">
-            <input class="webrtc-input" @bind="Phone.MessageToSend" placeholder="Type a message" />
-            <button class="webrtc-button" @onclick="Phone.SendMessageAsync" disabled="@(!Phone.CanSend)">Send</button>
-        </div>
-
-        <ul class="webrtc-messages">
-            @foreach (var message in Phone.ReceivedMessages)
-            {
-                <li>@message</li>
-            }
-        </ul>
-    </section>
+    <div class="webrtc-shell">
+        <main class="webrtc-main">
+            <ProfileSettingsCard Phone="Phone" />
+            <ActiveCallCard Phone="Phone" />
+            <ContactCardsGrid Phone="Phone" />
+        </main>
+    </div>
 </div>
 
 @code {

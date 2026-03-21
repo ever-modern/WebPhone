@@ -1,0 +1,36 @@
+@using WebPhone.Services
+
+<section class="webrtc-contacts-card">
+    <h2>Contacts</h2>
+    @if (!string.IsNullOrWhiteSpace(Phone.SignalingStatus))
+    {
+        <p>@Phone.SignalingStatus</p>
+    }
+    <div class="webrtc-contact-carousel">
+        @foreach (var user in Phone.AvailableUsers)
+        {
+            var isActive = Phone.CurrentPeerId == user.UserId;
+            var isCalling = Phone.IsCalling && isActive;
+            var isIncoming = Phone.IncomingCall?.FromUserId == user.UserId;
+            <ContactCard Phone="Phone"
+                         User="user"
+                         IsActive="isActive"
+                         IsCalling="isCalling"
+                         IsIncoming="isIncoming"
+                         ConnectionState="@(isActive ? Phone.ConnectionState : null)" />
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public PhoneService Phone { get; set; } = default!;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        foreach (var user in Phone.AvailableUsers)
+        {
+            await Phone.EnsureContactNameAsync(user.UserId);
+        }
+    }
+}

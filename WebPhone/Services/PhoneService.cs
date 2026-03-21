@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.Http.Json;
 using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
 using Microsoft.AspNetCore.Components;
@@ -12,6 +13,7 @@ namespace WebPhone.Services;
 public sealed class PhoneService(
     WebRtcService webRtc,
     IWebRtcConfigurator channels,
+    HttpClient httpClient,
     IJSRuntime jsRuntime,
     ILogger<PhoneService> logger,
     IOptions<PhoneOptions> options,
@@ -19,10 +21,13 @@ public sealed class PhoneService(
     IExternalChannel<Message> externalChannel) : IAsyncDisposable
 {
     private readonly Dictionary<string, UserPresence> activeUsers = new();
+    private readonly Dictionary<string, string> contactNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly Stopwatch stepTimer = Stopwatch.StartNew();
     private readonly List<string> receivedMessages = [];
     private readonly int pollIntervalMs = Math.Max(options.Value.PollIntervalMs, 250);
+    private readonly string presenceAnnounceUrl = options.Value.PresenceAnnounceUrl;
     private readonly PusherOptions pusherOptions = pusherOptions.Value;
+    private readonly HttpClient httpClient = httpClient;
     private long lastStepTimestamp;
     private string connectionId = string.Empty;
     private bool isInitialized;
@@ -31,6 +36,7 @@ public sealed class PhoneService(
     private string userId = string.Empty;
     private string? currentSessionId;
     private string? currentPeerId;
+    private string? currentPeerName;
     private bool isCallAccepted;
     private PeriodicTimer? presenceTimer;
     private CancellationTokenSource? presenceCts;
@@ -42,6 +48,8 @@ public sealed class PhoneService(
     public string DisplayName { get; set; } = string.Empty;
 
     public string PusherSecret { get; set; } = string.Empty;
+
+    public bool HasStoredProfileName { get; private set; }
 
     public string? ProfileStatus { get; private set; }
 
@@ -60,6 +68,38 @@ public sealed class PhoneService(
     public string? AudioStatusMessage { get; private set; }
 
     public CallRequestPayload? IncomingCall { get; private set; }
+
+    public string? CurrentPeerId => currentPeerId;
+
+    public string? CurrentPeerName => currentPeerName;
+
+    public bool IsCallAccepted => isCallAccepted;
+
+    public bool IsCalling => currentPeerId is not null && !isCallAccepted;
+
+    public string GetContactName(string userId)
+        => contactNames.TryGetValue(userId, out var name) ? name : string.Empty;
+
+    public async Task EnsureContactNameAsync(string userId)
+    {
+        if (contactNames.ContainsKey(userId))
+        {
+            return;
+        }
+
+        var stored = await GetLocalStorageItemAsync(GetContactNameKey(userId));
+        if (!string.IsNullOrWhiteSpace(stored))
+        {
+            contactNames[userId] = stored;
+        }
+    }
+
+    public async Task SetContactNameAsync(string userId, string name)
+    {
+        contactNames[userId] = name ?? string.Empty;
+        await SetLocalStorageItemAsync(GetContactNameKey(userId), contactNames[userId]);
+        NotifyStateChanged();
+    }
 
     public IReadOnlyList<string> ReceivedMessages => receivedMessages;
 
@@ -80,6 +120,7 @@ public sealed class PhoneService(
         userId = await GetOrCreateUserIdAsync();
         DisplayName = await GetLocalStorageItemAsync("webrtc-user-name") ?? string.Empty;
         PusherSecret = await GetLocalStorageItemAsync("webrtc-pusher-secret") ?? string.Empty;
+        HasStoredProfileName = !string.IsNullOrWhiteSpace(DisplayName);
 
         if (!string.IsNullOrWhiteSpace(DisplayName) && !string.IsNullOrWhiteSpace(PusherSecret))
         {
@@ -143,6 +184,7 @@ public sealed class PhoneService(
 
         await SetLocalStorageItemAsync("webrtc-user-name", DisplayName);
         await SetLocalStorageItemAsync("webrtc-pusher-secret", PusherSecret);
+        HasStoredProfileName = true;
         ProfileStatus = "Profile saved.";
         await EnsureSignalingAsync();
         await SendPresenceAsync();
@@ -162,13 +204,19 @@ public sealed class PhoneService(
             return;
         }
 
+        if (!string.IsNullOrWhiteSpace(currentPeerId) && !string.Equals(currentPeerId, user.UserId, StringComparison.Ordinal))
+        {
+            await CancelCallAsync();
+        }
+
         currentPeerId = user.UserId;
+        currentPeerName = user.Name;
         currentSessionId = Guid.NewGuid().ToString("N");
         isCallAccepted = false;
         IncomingCall = null;
         await PrepareSessionAsync(currentSessionId);
         await EnsureAudioAsync();
-        await PublishAsync(new SignalingMessage<CallRequestPayload>("call", new CallRequestPayload(userId, DisplayName, user.UserId, currentSessionId)));
+        await PublishAsync(new SignalingMessage<CallRequestPayload>(MessageType.Call, new CallRequestPayload(userId, DisplayName, user.UserId, currentSessionId)));
         SignalingStatus = $"Calling {user.Name}...";
         LogStep("Call request sent");
         NotifyStateChanged();
@@ -183,11 +231,12 @@ public sealed class PhoneService(
         }
 
         currentPeerId = IncomingCall.FromUserId;
+        currentPeerName = IncomingCall.FromName;
         currentSessionId = IncomingCall.SessionId;
         isCallAccepted = true;
         await PrepareSessionAsync(IncomingCall.SessionId);
 
-        await PublishAsync(new SignalingMessage<CallAcceptPayload>("accept", new CallAcceptPayload(userId, DisplayName, IncomingCall.FromUserId, IncomingCall.SessionId)));
+        await PublishAsync(new SignalingMessage<CallAcceptPayload>(MessageType.Accept, new CallAcceptPayload(userId, DisplayName, IncomingCall.FromUserId, IncomingCall.SessionId)));
 
         SignalingStatus = $"Accepted call from {IncomingCall.FromName}.";
         LogStep("Call accept sent");
@@ -195,6 +244,41 @@ public sealed class PhoneService(
         NotifyStateChanged();
 
         await EnsureAudioAsync();
+    }
+
+    public async Task CancelCallAsync()
+    {
+        if (string.IsNullOrWhiteSpace(currentPeerId))
+        {
+            return;
+        }
+
+        if (isInitialized)
+        {
+            await webRtc.CloseAsync(connectionId);
+        }
+
+        currentPeerId = null;
+        currentPeerName = null;
+        currentSessionId = null;
+        isCallAccepted = false;
+        isInitialized = false;
+        isAudioStarted = false;
+        SignalingStatus = "Call canceled.";
+        NotifyStateChanged();
+    }
+
+    public Task DeclineIncomingCallAsync()
+    {
+        if (IncomingCall is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        SignalingStatus = $"Declined call from {IncomingCall.FromName}.";
+        IncomingCall = null;
+        NotifyStateChanged();
+        return Task.CompletedTask;
     }
 
     public async Task SendMessageAsync()
@@ -312,6 +396,9 @@ public sealed class PhoneService(
     private async Task SetLocalStorageItemAsync(string key, string value)
         => await jsRuntime.InvokeVoidAsync("appInterop.setLocalStorageItem", key, value);
 
+    private static string GetContactNameKey(string userId)
+        => $"webrtc-contact-name-{userId}";
+
     private async Task<string> GetOrCreateUserIdAsync()
     {
         var stored = await GetLocalStorageItemAsync("webrtc-user-id");
@@ -332,7 +419,34 @@ public sealed class PhoneService(
             return;
         }
 
-        await PublishAsync(new SignalingMessage<PresencePayload>("presence", new PresencePayload(userId, DisplayName, DateTimeOffset.UtcNow)));
+        var payload = new PresenceAnnounceRequest(userId, DisplayName, DateTimeOffset.UtcNow);
+        try
+        {
+            using var response = await httpClient.PostAsJsonAsync(presenceAnnounceUrl, payload);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Presence announce failed with status {StatusCode}", response.StatusCode);
+                return;
+            }
+
+            var users = await response.Content.ReadFromJsonAsync<List<PresenceAnnounceResponse>>() ?? [];
+            foreach (var presence in users)
+            {
+                if (string.Equals(presence.UserId, userId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                activeUsers[presence.UserId] = new UserPresence(presence.UserId, presence.Name, presence.Timestamp);
+            }
+
+            PrunePresence();
+            NotifyStateChanged();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Presence announce failed");
+        }
     }
 
     private void StartPresenceLoop()
@@ -363,20 +477,8 @@ public sealed class PhoneService(
 
     private async Task PublishAsync<TPayload>(SignalingMessage<TPayload> message)
     {
-        var eventName = BuildEventName();
-        var serverEventName = eventName.StartsWith("client-", StringComparison.OrdinalIgnoreCase)
-            ? eventName["client-".Length..]
-            : eventName;
-        var payload = JsonSerializer.SerializeToElement(new
-        {
-            appId = pusherOptions.AppId,
-            key = pusherOptions.Key,
-            cluster = pusherOptions.Cluster,
-            channel = BuildChannelName(),
-            eventName = serverEventName,
-            data = message
-        });
-        await externalChannel.Writer.WriteAsync(new WebPhone.Registration.Message("pusher", payload));
+        var payload = JsonSerializer.SerializeToElement(message);
+        await externalChannel.Writer.WriteAsync(new WebPhone.Registration.Message(MessageType.Signal, payload));
     }
 
     private void StartMessageReader()
@@ -390,8 +492,7 @@ public sealed class PhoneService(
     {
         await foreach (var message in externalChannel.Reader.ReadAllAsync(cancellationToken))
         {
-            if (!string.Equals(message.Type, BuildEventName(), StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(message.Type, "signal", StringComparison.OrdinalIgnoreCase))
+            if (message.Type != MessageType.ClientSignal && message.Type != MessageType.Signal)
             {
                 continue;
             }
@@ -410,7 +511,7 @@ public sealed class PhoneService(
     {
         switch (message.Type)
         {
-            case "presence":
+            case MessageType.Presence:
                 var presence = message.Payload.Deserialize<PresencePayload>();
                 if (presence is null || presence.UserId == userId)
                 {
@@ -422,7 +523,7 @@ public sealed class PhoneService(
                 LogStep($"Presence received from {presence.UserId}");
                 NotifyStateChanged();
                 break;
-            case "call":
+            case MessageType.Call:
                 var call = message.Payload.Deserialize<CallRequestPayload>();
                 if (call is null || call.ToUserId != userId)
                 {
@@ -430,11 +531,12 @@ public sealed class PhoneService(
                 }
 
                 IncomingCall = call;
+                currentPeerName = call.FromName;
                 SignalingStatus = $"Incoming call from {call.FromName}...";
                 LogStep("Incoming call received");
                 NotifyStateChanged();
                 break;
-            case "accept":
+            case MessageType.Accept:
                 var accept = message.Payload.Deserialize<CallAcceptPayload>();
                 if (accept is null || accept.ToUserId != userId)
                 {
@@ -451,12 +553,12 @@ public sealed class PhoneService(
                 await EnsureAudioAsync();
                 await webRtc.CreateDataChannelAsync(connectionId, "chat");
                 var offer = await webRtc.CreateOfferAsync(connectionId);
-                await PublishAsync(new SignalingMessage<OfferPayload>("offer", new OfferPayload(userId, DisplayName, accept.FromUserId, accept.SessionId, offer)));
+                await PublishAsync(new SignalingMessage<OfferPayload>(MessageType.Offer, new OfferPayload(userId, DisplayName, accept.FromUserId, accept.SessionId, offer)));
                 SignalingStatus = $"Sending offer to {accept.FromName}...";
                 LogStep("Offer sent");
                 NotifyStateChanged();
                 break;
-            case "offer":
+            case MessageType.Offer:
                 var offerPayload = message.Payload.Deserialize<OfferPayload>();
                 if (offerPayload is null || offerPayload.ToUserId != userId)
                 {
@@ -474,12 +576,12 @@ public sealed class PhoneService(
                 await EnsureAudioAsync();
                 await webRtc.SetRemoteDescriptionAsync(connectionId, offerPayload.Offer);
                 var answer = await webRtc.CreateAnswerAsync(connectionId);
-                await PublishAsync(new SignalingMessage<AnswerPayload>("answer", new AnswerPayload(userId, DisplayName, offerPayload.FromUserId, offerPayload.SessionId, answer)));
+                await PublishAsync(new SignalingMessage<AnswerPayload>(MessageType.Answer, new AnswerPayload(userId, DisplayName, offerPayload.FromUserId, offerPayload.SessionId, answer)));
                 SignalingStatus = $"Connected to {offerPayload.FromName}.";
                 LogStep("Answer sent");
                 NotifyStateChanged();
                 break;
-            case "answer":
+            case MessageType.Answer:
                 var answerPayload = message.Payload.Deserialize<AnswerPayload>();
                 if (answerPayload is null || answerPayload.ToUserId != userId)
                 {
@@ -582,4 +684,8 @@ public sealed class PhoneService(
     public sealed record OfferPayload(string FromUserId, string FromName, string ToUserId, string SessionId, WebRtcSessionDescription Offer);
 
     public sealed record AnswerPayload(string FromUserId, string FromName, string ToUserId, string SessionId, WebRtcSessionDescription Answer);
+
+    private sealed record PresenceAnnounceRequest(string UserId, string Name, DateTimeOffset Timestamp);
+
+    private sealed record PresenceAnnounceResponse(string UserId, string Name, DateTimeOffset Timestamp);
 }

@@ -4,7 +4,9 @@ public sealed class PhoneOptions
 {
     public int PollIntervalMs { get; init; } = 1000;
 
-    public string ExternalChannelBaseUrl { get; init; } = "/.netlify/functions/pusher-events";
+    public string ExternalChannelPublishUrl { get; init; } = "/api/publish-message";
 
-    public string ExternalChannelPollPath { get; init; } = "poll";
+    public string ExternalChannelReadUrl { get; init; } = "/api/read-messages";
+
+    public string PresenceAnnounceUrl { get; init; } = "/api/announce-presence";
 }

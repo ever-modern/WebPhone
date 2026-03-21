@@ -1,0 +1,29 @@
+@using WebPhone.Services
+
+@if (Phone.IncomingCall is not null)
+{
+    <section class="webrtc-card webrtc-call-highlight">
+        <h2>Incoming call</h2>
+        <p>@Phone.IncomingCall.FromName is calling you.</p>
+        <div class="webrtc-call-actions">
+            <button class="webrtc-button" @onclick="Phone.AcceptIncomingCallAsync">Accept</button>
+            <button class="webrtc-button webrtc-button--danger" @onclick="Phone.DeclineIncomingCallAsync">Decline</button>
+        </div>
+    </section>
+}
+else if (Phone.CurrentPeerId is not null)
+{
+    <section class="webrtc-card webrtc-call-highlight">
+        <h2>@(Phone.IsCallAccepted ? "Active call" : "Calling")</h2>
+        <p>@(Phone.CurrentPeerName ?? Phone.CurrentPeerId)</p>
+        @if (!Phone.IsCallAccepted)
+        {
+            <button class="webrtc-button webrtc-button--danger" @onclick="Phone.CancelCallAsync">Cancel</button>
+        }
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired]
+    public PhoneService Phone { get; set; } = default!;
+}

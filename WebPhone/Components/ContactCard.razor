@@ -1,0 +1,75 @@
+@using WebPhone.Services
+
+<div class="webrtc-card webrtc-contact-card @(IsActive ? "is-active" : string.Empty)">
+    <div class="webrtc-contact-details">
+        <strong>@User.Name</strong>
+        <span>            
+            @User.UserId
+        </span>
+        @if (!string.IsNullOrWhiteSpace(ConnectionState))
+        {
+            <span class="webrtc-contact-status">@ConnectionState</span>
+        }
+        else if (IsIncoming)
+        {
+            <span class="webrtc-contact-status">Incoming call</span>
+        }
+        else if (IsCalling)
+        {
+            <span class="webrtc-contact-status">Calling...</span>
+        }
+    </div>
+    <div class="webrtc-contact-actions">
+        @if (IsIncoming)
+        {
+            <button class="webrtc-button" @onclick="Phone.AcceptIncomingCallAsync">Accept</button>
+            <button class="webrtc-button webrtc-button--danger" @onclick="Phone.DeclineIncomingCallAsync">Decline</button>
+        }
+        else if (IsCalling)
+        {
+            <button class="webrtc-button webrtc-button--danger" @onclick="Phone.CancelCallAsync">Cancel</button>
+        }
+        else if (IsActive && Phone.IsCallAccepted)
+        {
+            <button class="webrtc-button webrtc-button--danger" @onclick="Phone.CancelCallAsync">End</button>
+        }
+        else
+        {
+            <button class="webrtc-button" @onclick="() => Phone.ConnectToUserAsync(User)">Call</button>
+        }
+    </div>
+    <details class="webrtc-chat">
+        <summary>Chat</summary>
+        <div class="webrtc-field">
+            <input class="webrtc-input" @bind="Phone.MessageToSend" placeholder="Type a message" />
+            <button class="webrtc-button" @onclick="Phone.SendMessageAsync" disabled="@(!Phone.CanSend)">Send</button>
+        </div>
+        <ul class="webrtc-messages">
+            @foreach (var message in Phone.ReceivedMessages)
+            {
+                <li>@message</li>
+            }
+        </ul>
+    </details>
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public PhoneService Phone { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public PhoneService.UserPresence User { get; set; } = default!;
+
+    [Parameter]
+    public string? ConnectionState { get; set; }
+
+    [Parameter]
+    public bool IsActive { get; set; }
+
+    [Parameter]
+    public bool IsCalling { get; set; }
+
+    [Parameter]
+    public bool IsIncoming { get; set; }
+
+}

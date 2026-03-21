@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/Solution items/" />
   <Project Path="EverModern.Blazor.DirectCommunication/EverModern.Blazor.DirectCommunication.csproj" />
+  <Project Path="WebPhone.AzureEnd/WebPhone.AzureEnd.csproj" Id="a51520e7-0866-42ba-9d91-6b66e2524e4a" />
   <Project Path="WebPhone.Registration.Pusher/WebPhone.Registration.Pusher.csproj" Id="b9053c2b-4102-41ad-94bc-755b1a8d45a3" />
   <Project Path="WebPhone.Registration/WebPhone.Registration.csproj" Id="6fd12570-2bab-4303-9e9a-e4ad54377ca5" />
   <Project Path="WebPhone/WebPhone.csproj" />

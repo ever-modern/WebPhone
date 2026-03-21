@@ -1,0 +1,56 @@
+WebPhone context summary
+
+Project goal
+- Provide a Blazor WASM WebRTC phone demo that uses Pusher for signaling via Netlify proxy functions (no Pusher secret in the browser), supports contact nicknames, and offers a clean component-based UI with global CSS styling.
+
+Current goals/state
+- Blazor WASM WebRTC demo refactored into components and global CSS (no CSS isolation).
+- Signaling uses Pusher via Netlify proxy for publishes; polling uses Pusher JS queue (pusherInterop.poll).
+- Pusher secret is hardcoded in Netlify functions (pusher-events/pusher-auth) to avoid exposing in browser.
+
+Key UI components
+- WebPhone/Pages/WebRtcDemo.razor uses:
+  - Components/ProfileSettingsCard.razor
+  - Components/ContactCardsGrid.razor
+  - Components/ContactCard.razor
+  - Components/ActiveCallCard.razor
+- Layout is a left sidebar for profile and center main area (ActiveCallCard + contact carousel).
+- Contact cards show: name, user id, nickname (editable), call/accept/decline/cancel/end, foldable chat, connection state.
+- Nicknames stored in localStorage via PhoneService.
+
+CSS
+- All WebRTC styles moved to WebPhone/wwwroot/css/app.css (no WebRtcDemo.razor.css).
+- Uses classes: webrtc-page, webrtc-shell, webrtc-sidebar, webrtc-main, webrtc-contact-carousel, webrtc-contact-card, webrtc-chat, etc.
+
+PhoneService changes
+- Tracks current peer: CurrentPeerId, CurrentPeerName, IsCalling, IsCallAccepted.
+- Methods: CancelCallAsync(), DeclineIncomingCallAsync(), EnsureContactNameAsync(), SetContactNameAsync(), GetContactName().
+- ConnectToUserAsync cancels prior call automatically.
+- Uses Metered TURN/STUN list (stun:stun.relay.metered.ca:80 and standard.relay.metered.ca TURN entries).
+
+Netlify functions
+- WebPhone/netlify/functions/pusher-events.js (and root netlify/functions/pusher-events.js) accept Message envelope; POST proxies to Pusher and pushes to in-memory queue; GET returns queue.
+- Hardcoded Pusher secret: 685d876fda68e0cfa8de in pusher-events.js and pusher-auth.js (both WebPhone/netlify and root netlify).
+
+Messaging/polling
+- IExternalChannel<Message> used; implementation is WebPhone/Services/NetlifyMessagesChannel.cs.
+  - Publishes via Netlify POST.
+  - Polls via pusherInterop.poll using IJSRuntime and channel name from DI.
+
+DI and options
+- Program.cs registers IExternalChannel<Message> with NetlifyMessagesChannel(IJSRuntime, baseUrl, channelName, pollIntervalMs).
+- PhoneOptions includes ExternalChannelBaseUrl and ExternalChannelPollPath (poll path currently unused by NetlifyMessagesChannel after JS polling change).
+- PusherOptions includes PollIntervalMs.
+
+Important files
+- WebPhone/Services/PhoneService.cs
+- WebPhone/Services/NetlifyMessagesChannel.cs
+- WebPhone/Components/*.razor
+- WebPhone/wwwroot/css/app.css
+- WebPhone/wwwroot/pusherInterop.js
+- WebPhone/netlify/functions/pusher-events.js
+- WebPhone/netlify/functions/pusher-auth.js
+
+Notes
+- User wants all publishes to go through Netlify proxy and keep Pusher secret out of browser; UI field kept for now.
+- CSS isolation should not be used; move styles into app.css.
