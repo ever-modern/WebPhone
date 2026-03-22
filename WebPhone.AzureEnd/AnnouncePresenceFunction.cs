@@ -8,6 +8,7 @@ using WebPhone.Registration;
 
 namespace WebPhone.AzureEnd;
 
+[Obsolete("Use exchange function instead.")]
 public class AnnouncePresenceFunction(ILogger<AnnouncePresenceFunction> logger, MessagesRepository repository)
 {
     private static readonly TimeSpan PresenceCutoff = TimeSpan.FromSeconds(7);
@@ -48,13 +49,13 @@ public class AnnouncePresenceFunction(ILogger<AnnouncePresenceFunction> logger, 
         {
             var timestamp = DateTimeOffset.UtcNow;
             var payload = JsonSerializer.SerializeToElement(new PresenceAnnounceRequest(request.UserId, request.Name, timestamp), JsonOptions);
-            await repository.WriteMessageAsync(MessageType.Presence, payload, cancellationToken);
+            await repository.WriteMessageAsync(MessageTypeJsonConverter.ToWireValue(MessageType.Presence), payload, cancellationToken: cancellationToken);
             logger.LogInformation("Presence stored for user {UserId} at {Timestamp}.", request.UserId, timestamp);
 
             var cutoff = DateTimeOffset.UtcNow - PresenceCutoff;
             var messages = await repository.ReadMessagesAsync(cutoff, cancellationToken);
 
-            var presentUsers = messages.Where(m => m.Type == MessageType.Presence)
+            var presentUsers = messages.Where(m => string.Equals(m.Type, MessageTypeJsonConverter.ToWireValue(MessageType.Presence), StringComparison.OrdinalIgnoreCase))
                 .Select(TryDeserializePresence)
                 .Where(m => m is not null)
                 .Select(m => m!)

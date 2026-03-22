@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Threading.Channels;
 using WebPhone.Registration;
 
-namespace WebPhone.Registration;
+namespace WebPhone.Services;
 
 public sealed class MockNetlifyMessagesChannel : IExternalChannel<Message>, IAsyncDisposable
 {

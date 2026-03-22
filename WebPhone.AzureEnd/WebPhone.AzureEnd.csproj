@@ -19,6 +19,7 @@
     <PackageReference Include="Npgsql" Version="8.0.6" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\WebPhone.Contract\WebPhone.Contract.csproj" />
     <ProjectReference Include="..\WebPhone.Registration\WebPhone.Registration.csproj" />
   </ItemGroup>
 

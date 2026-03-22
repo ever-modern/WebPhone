@@ -3,7 +3,7 @@ using System.Threading.Channels;
 using Microsoft.JSInterop;
 using WebPhone.Registration;
 
-namespace WebPhone.Registration;
+namespace WebPhone.Services;
 
 public sealed class NetlifyMessagesChannel : IExternalChannel<Message>, IAsyncDisposable
 {

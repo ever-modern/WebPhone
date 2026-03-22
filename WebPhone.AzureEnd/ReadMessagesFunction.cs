@@ -8,6 +8,7 @@ using WebPhone.Registration;
 
 namespace WebPhone.AzureEnd;
 
+[Obsolete("Use exchange function instead.")]
 public sealed class ReadMessagesFunction(ILogger<ReadMessagesFunction> logger, MessagesRepository repository)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -39,7 +40,7 @@ public sealed class ReadMessagesFunction(ILogger<ReadMessagesFunction> logger, M
 
         var messages = await repository.ReadMessagesAsync(since, cancellationToken);
         var response = messages
-            .Select(message => new MessageEnvelope(message.DateTime, message.Type, message.Payload))
+            .Select(message => new MessageEnvelope(message.DateTime, MessageTypeJsonConverter.FromWireValue(message.Type), message.Payload))
             .ToArray();
 
         logger.LogInformation("Read messages returned {MessageCount} entries.", response.Length);

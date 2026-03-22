@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Net.Http.Json;
 using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
 using Microsoft.AspNetCore.Components;
@@ -13,22 +12,18 @@ namespace WebPhone.Services;
 public sealed class PhoneService(
     WebRtcService webRtc,
     IWebRtcConfigurator channels,
-    HttpClient httpClient,
     IJSRuntime jsRuntime,
     ILogger<PhoneService> logger,
     IOptions<PhoneOptions> options,
     IOptions<PusherOptions> pusherOptions,
     IExternalChannel<Message> externalChannel) : IAsyncDisposable
 {
-    private const string PresenceAnnouncePath = "/api/announce-presence";
     private readonly Dictionary<string, UserPresence> activeUsers = new();
     private readonly Dictionary<string, string> contactNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly Stopwatch stepTimer = Stopwatch.StartNew();
     private readonly List<string> receivedMessages = [];
     private readonly int pollIntervalMs = Math.Max(options.Value.PollIntervalMs, 250);
-    private readonly string presenceAnnounceUrl = BuildExternalUri(httpClient.BaseAddress, options.Value.ExternalChannelBaseUrl, PresenceAnnouncePath);
     private readonly PusherOptions pusherOptions = pusherOptions.Value;
-    private readonly HttpClient httpClient = httpClient;
     private long lastStepTimestamp;
     private string connectionId = string.Empty;
     private bool isInitialized;
@@ -420,29 +415,10 @@ public sealed class PhoneService(
             return;
         }
 
-        var payload = new PresenceAnnounceRequest(userId, DisplayName, DateTimeOffset.UtcNow);
+        var payload = JsonSerializer.SerializeToElement(new PresencePayload(userId, DisplayName, DateTimeOffset.UtcNow));
         try
         {
-            using var response = await httpClient.PostAsJsonAsync(presenceAnnounceUrl, payload);
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Presence announce failed with status {StatusCode}", response.StatusCode);
-                return;
-            }
-
-            var users = await response.Content.ReadFromJsonAsync<List<PresenceAnnounceResponse>>() ?? [];
-            foreach (var presence in users)
-            {
-                if (string.Equals(presence.UserId, userId, StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                activeUsers[presence.UserId] = new UserPresence(presence.UserId, presence.Name, presence.Timestamp);
-            }
-
-            PrunePresence();
-            NotifyStateChanged();
+            await externalChannel.Writer.WriteAsync(new WebPhone.Registration.Message(MessageType.Presence, payload));
         }
         catch (Exception ex)
         {
@@ -493,12 +469,18 @@ public sealed class PhoneService(
     {
         await foreach (var message in externalChannel.Reader.ReadAllAsync(cancellationToken))
         {
+            if (message.Type == MessageType.Presence)
+            {
+                await HandleSignalingPayloadAsync(message);
+                continue;
+            }
+
             if (message.Type != MessageType.ClientSignal && message.Type != MessageType.Signal)
             {
                 continue;
             }
 
-            var payload = JsonSerializer.Deserialize<WebPhone.Registration.Message>(message.Payload.GetRawText());
+            var payload = JsonSerializer.Deserialize<WebPhone.Registration.Message>(message.Payload);
             if (payload is null)
             {
                 continue;
@@ -685,20 +667,4 @@ public sealed class PhoneService(
     public sealed record OfferPayload(string FromUserId, string FromName, string ToUserId, string SessionId, WebRtcSessionDescription Offer);
 
     public sealed record AnswerPayload(string FromUserId, string FromName, string ToUserId, string SessionId, WebRtcSessionDescription Answer);
-
-    private sealed record PresenceAnnounceRequest(string UserId, string Name, DateTimeOffset Timestamp);
-
-    private sealed record PresenceAnnounceResponse(string UserId, string Name, DateTimeOffset Timestamp);
-
-    private static string BuildExternalUri(Uri? appBaseAddress, string externalBaseUrl, string endpointPath)
-    {
-        if (appBaseAddress is null)
-        {
-            throw new InvalidOperationException("App base address is not configured.");
-        }
-
-        var baseUri = new Uri(appBaseAddress, externalBaseUrl);
-        var endpointUri = new Uri(baseUri, endpointPath.TrimStart('/'));
-        return endpointUri.ToString();
-    }
 }

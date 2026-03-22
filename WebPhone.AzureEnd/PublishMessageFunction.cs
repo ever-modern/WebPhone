@@ -8,6 +8,7 @@ using WebPhone.Registration;
 
 namespace WebPhone.AzureEnd;
 
+[Obsolete("Use exchange function instead.")]
 public sealed class PublishMessageFunction(ILogger<PublishMessageFunction> logger, MessagesRepository repository)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -42,7 +43,7 @@ public sealed class PublishMessageFunction(ILogger<PublishMessageFunction> logge
             return FunctionCors.BuildResult(new BadRequestObjectResult("Missing required fields."), "POST, OPTIONS");
         }
 
-        await repository.WriteMessageAsync(message.Type, message.Payload, cancellationToken);
+        await repository.WriteMessageAsync(MessageTypeJsonConverter.ToWireValue(message.Type), message.Payload, cancellationToken: cancellationToken);
         logger.LogInformation("Stored message of type {MessageType}.", message.Type);
         return FunctionCors.BuildResult(new OkResult(), "POST, OPTIONS");
     }

@@ -16,6 +16,11 @@ else if (Phone.CurrentPeerId is not null)
     <section class="webrtc-card webrtc-call-highlight">
         <h2>@(Phone.IsCallAccepted ? "Active call" : "Calling")</h2>
         <p>@(Phone.CurrentPeerName ?? Phone.CurrentPeerId)</p>
+        <audio class="webrtc-audio" @ref="remoteAudio" autoplay controls></audio>
+        @if (!string.IsNullOrWhiteSpace(Phone.AudioStatusMessage))
+        {
+            <p>@Phone.AudioStatusMessage</p>
+        }
         @if (!Phone.IsCallAccepted)
         {
             <button class="webrtc-button webrtc-button--danger" @onclick="Phone.CancelCallAsync">Cancel</button>
@@ -24,6 +29,13 @@ else if (Phone.CurrentPeerId is not null)
 }
 
 @code {
+    private ElementReference remoteAudio;
+
     [Parameter, EditorRequired]
     public PhoneService Phone { get; set; } = default!;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        Phone.RemoteAudio = remoteAudio;
+    }
 }
