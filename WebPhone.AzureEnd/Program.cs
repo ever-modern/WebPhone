@@ -10,7 +10,7 @@ var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
 
-builder.Services.AddSingleton(sp =>
+builder.Services.AddScoped(sp =>
 {
     var configuration = sp.GetRequiredService<IConfiguration>();
     var connectionString = configuration.GetValue<string>("WebPhoneDbConnectionString")
@@ -21,6 +21,6 @@ builder.Services.AddSingleton(sp =>
     return connection;
 });
 
-builder.Services.AddSingleton<MessagesRepository>();
+builder.Services.AddScoped<MessagesRepository>();
 
 builder.Build().Run();

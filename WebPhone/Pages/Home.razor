@@ -1,10 +1,39 @@
-﻿@page "/"
+@page "/"
+@implements IAsyncDisposable
+@inject WebPhone.Services.PhoneService Phone
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Web Phone</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="webrtc-page">
+   @*  <header class="webrtc-header">
+        <h1>WebRTC Demo</h1>
+        <p>Enter your name to announce your presence. Select a user to connect.</p>
+    </header> *@
 
-Welcome to your new app.
+    <div class="webrtc-shell">
+        <main class="webrtc-main">
+            <ProfileSettingsCard Phone="Phone" />
+            <ActiveCallCard Phone="Phone" />
+            <ContactCardsGrid Phone="Phone" />
+        </main>
+    </div>
+</div>
 
-<p><a href="/webrtc">Open the WebRTC demo</a></p>
-<p><a href="/webrtc/manual">Open the manual WebRTC flow</a></p>
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        Phone.StateChanged += HandlePhoneStateChanged;
+        await Phone.InitializeAsync();
+    }
+
+    private async void HandlePhoneStateChanged()
+    {
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Phone.StateChanged -= HandlePhoneStateChanged;
+        await Phone.DisposeAsync();
+    }
+}

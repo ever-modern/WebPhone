@@ -18,9 +18,9 @@ public sealed class PublishMessageFunction(ILogger<PublishMessageFunction> logge
     [Function("publish-message")]
     public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Anonymous, "post", "options")] HttpRequest req)
     {
-        if (HttpMethods.IsOptions(req.Method))
+        if (FunctionCors.TryBuildPreflightResult(req, "POST, OPTIONS") is { } preflightResult)
         {
-            return BuildCorsResult(new OkResult());
+            return preflightResult;
         }
 
         var cancellationToken = req.HttpContext.RequestAborted;
@@ -33,32 +33,17 @@ public sealed class PublishMessageFunction(ILogger<PublishMessageFunction> logge
         catch (JsonException)
         {
             logger.LogWarning("Publish message failed: invalid JSON.");
-            return BuildCorsResult(new BadRequestObjectResult("Invalid JSON."));
+            return FunctionCors.BuildResult(new BadRequestObjectResult("Invalid JSON."), "POST, OPTIONS");
         }
 
         if (message is null || message.Type == MessageType.Unknown)
         {
             logger.LogWarning("Publish message failed: missing or invalid fields.");
-            return BuildCorsResult(new BadRequestObjectResult("Missing required fields."));
+            return FunctionCors.BuildResult(new BadRequestObjectResult("Missing required fields."), "POST, OPTIONS");
         }
 
         await repository.WriteMessageAsync(message.Type, message.Payload, cancellationToken);
         logger.LogInformation("Stored message of type {MessageType}.", message.Type);
-        return BuildCorsResult(new OkResult());
-    }
-
-    private static IActionResult BuildCorsResult(IActionResult result)
-        => new CorsResult(result);
-
-    private sealed class CorsResult(IActionResult inner) : IActionResult
-    {
-        public async Task ExecuteResultAsync(ActionContext context)
-        {
-            var headers = context.HttpContext.Response.Headers;
-            headers["Access-Control-Allow-Origin"] = "*";
-            headers["Access-Control-Allow-Headers"] = "Content-Type";
-            headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-            await inner.ExecuteResultAsync(context);
-        }
+        return FunctionCors.BuildResult(new OkResult(), "POST, OPTIONS");
     }
 }

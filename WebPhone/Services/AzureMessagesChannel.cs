@@ -8,6 +8,8 @@ namespace WebPhone.Registration;
 public sealed class AzureMessagesChannel : IExternalChannel<Message>, IAsyncDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private const string PublishPath = "/api/publish-message";
+    private const string ReadPath = "/api/read-messages";
     private readonly HttpClient client = new();
     private readonly Uri publishUri;
     private readonly Uri readUri;
@@ -19,13 +21,22 @@ public sealed class AzureMessagesChannel : IExternalChannel<Message>, IAsyncDisp
     private readonly Task pollLoopTask;
     private DateTimeOffset lastReadTimestamp = DateTimeOffset.UtcNow.AddSeconds(-5);
 
-    public AzureMessagesChannel(string publishUrl, string readUrl, int pollIntervalMs = 1000)
+    public AzureMessagesChannel(string baseUrl, int pollIntervalMs = 1000)
     {
-        publishUri = new Uri(publishUrl, UriKind.Absolute);
-        readUri = new Uri(readUrl, UriKind.Absolute);
+        var baseUri = EnsureTrailingSlash(baseUrl);
+        publishUri = new Uri(baseUri, PublishPath.TrimStart('/'));
+        readUri = new Uri(baseUri, ReadPath.TrimStart('/'));
         pollTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(Math.Max(pollIntervalMs, 250)));
         sendLoopTask = RunSendLoopAsync(cts.Token);
         pollLoopTask = RunPollLoopAsync(cts.Token);
+    }
+
+    private static Uri EnsureTrailingSlash(string baseUrl)
+    {
+        var normalized = baseUrl.EndsWith("/", StringComparison.Ordinal)
+            ? baseUrl
+            : $"{baseUrl}/";
+        return new Uri(normalized, UriKind.Absolute);
     }
 
     public ChannelWriter<Message> Writer => outgoingChannel.Writer;

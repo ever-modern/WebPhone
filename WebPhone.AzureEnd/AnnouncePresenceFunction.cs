@@ -10,7 +10,7 @@ namespace WebPhone.AzureEnd;
 
 public class AnnouncePresenceFunction(ILogger<AnnouncePresenceFunction> logger, MessagesRepository repository)
 {
-    private static readonly TimeSpan PresenceCutoff = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PresenceCutoff = TimeSpan.FromSeconds(7);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true,
@@ -19,9 +19,9 @@ public class AnnouncePresenceFunction(ILogger<AnnouncePresenceFunction> logger, 
     [Function("announce-presence")]
     public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Anonymous, "post", "options")] HttpRequest req)
     {
-        if (HttpMethods.IsOptions(req.Method))
+        if (FunctionCors.TryBuildPreflightResult(req, "POST, OPTIONS") is { } preflightResult)
         {
-            return BuildCorsResult(new OkResult());
+            return preflightResult;
         }
 
         logger.LogInformation("Presence announce request received.");
@@ -35,49 +35,63 @@ public class AnnouncePresenceFunction(ILogger<AnnouncePresenceFunction> logger, 
         catch (JsonException)
         {
             logger.LogWarning("Presence announce failed: invalid JSON.");
-            return BuildCorsResult(new BadRequestObjectResult("Invalid JSON."));
+            return FunctionCors.BuildResult(new BadRequestObjectResult("Invalid JSON."), "POST, OPTIONS");
         }
 
         if (request is null || string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.Name))
         {
             logger.LogWarning("Presence announce failed: missing fields.");
-            return BuildCorsResult(new BadRequestObjectResult("Missing required fields."));
+            return FunctionCors.BuildResult(new BadRequestObjectResult("Missing required fields."), "POST, OPTIONS");
         }
 
-        var timestamp = DateTimeOffset.UtcNow;
-        var payload = JsonSerializer.SerializeToElement(new PresenceAnnounceRequest(request.UserId, request.Name, timestamp), JsonOptions);
-        await repository.WriteMessageAsync(MessageType.Presence, payload, cancellationToken);
-        logger.LogInformation("Presence stored for user {UserId} at {Timestamp}.", request.UserId, timestamp);
+        try
+        {
+            var timestamp = DateTimeOffset.UtcNow;
+            var payload = JsonSerializer.SerializeToElement(new PresenceAnnounceRequest(request.UserId, request.Name, timestamp), JsonOptions);
+            await repository.WriteMessageAsync(MessageType.Presence, payload, cancellationToken);
+            logger.LogInformation("Presence stored for user {UserId} at {Timestamp}.", request.UserId, timestamp);
 
-        var cutoff = DateTimeOffset.UtcNow - PresenceCutoff;
-        var messages = await repository.ReadMessagesAsync(cutoff, cancellationToken);
+            var cutoff = DateTimeOffset.UtcNow - PresenceCutoff;
+            var messages = await repository.ReadMessagesAsync(cutoff, cancellationToken);
 
-        var presentUsers = messages.Where(m => m.Type == MessageType.Presence)
-            .Select(m => JsonSerializer.Deserialize<PresenceAnnounceRequest>(m.Payload, JsonOptions))
-            .DistinctBy(m => m.UserId)
-            .Where(m => m.UserId != request.UserId)
-            .ToArray();
+            var presentUsers = messages.Where(m => m.Type == MessageType.Presence)
+                .Select(TryDeserializePresence)
+                .Where(m => m is not null)
+                .Select(m => m!)
+                .OrderByDescending(m => m.Timestamp)
+                .DistinctBy(m => m.UserId)
+                .Where(m => m.UserId != request.UserId)
+                .Select(m => new PresenceAnnounceResponse(m.UserId, m.Name, m.Timestamp))
+                .ToArray();
 
-        logger.LogInformation("Presence announce response contains {UserCount} users.", presentUsers.Length);
-        return BuildCorsResult(new OkObjectResult(presentUsers));
+            logger.LogInformation("Presence announce response contains {UserCount} users.", presentUsers.Length);
+            return FunctionCors.BuildResult(new OkObjectResult(presentUsers), "POST, OPTIONS");
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Presence announce failed.");
+            return FunctionCors.BuildResult(new ObjectResult("Presence announce failed.")
+            {
+                StatusCode = StatusCodes.Status500InternalServerError,
+            }, "POST, OPTIONS");
+        }
     }
 
     private sealed record PresenceAnnounceRequest(string UserId, string Name, DateTimeOffset Timestamp);
 
     private sealed record PresenceAnnounceResponse(string UserId, string Name, DateTimeOffset Timestamp);
 
-    private static IActionResult BuildCorsResult(IActionResult result)
-        => new CorsResult(result);
-
-    private sealed class CorsResult(IActionResult inner) : IActionResult
+    private PresenceAnnounceRequest? TryDeserializePresence(StoredMessage message)
     {
-        public async Task ExecuteResultAsync(ActionContext context)
+        try
         {
-            var headers = context.HttpContext.Response.Headers;
-            headers["Access-Control-Allow-Origin"] = "*";
-            headers["Access-Control-Allow-Headers"] = "Content-Type";
-            headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
-            await inner.ExecuteResultAsync(context);
+            return JsonSerializer.Deserialize<PresenceAnnounceRequest>(message.Payload, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            logger.LogWarning(ex, "Skipping invalid presence payload from {Timestamp}.", message.DateTime);
+            return null;
         }
     }
+
 }

@@ -20,12 +20,13 @@ public sealed class PhoneService(
     IOptions<PusherOptions> pusherOptions,
     IExternalChannel<Message> externalChannel) : IAsyncDisposable
 {
+    private const string PresenceAnnouncePath = "/api/announce-presence";
     private readonly Dictionary<string, UserPresence> activeUsers = new();
     private readonly Dictionary<string, string> contactNames = new(StringComparer.OrdinalIgnoreCase);
     private readonly Stopwatch stepTimer = Stopwatch.StartNew();
     private readonly List<string> receivedMessages = [];
     private readonly int pollIntervalMs = Math.Max(options.Value.PollIntervalMs, 250);
-    private readonly string presenceAnnounceUrl = options.Value.PresenceAnnounceUrl;
+    private readonly string presenceAnnounceUrl = BuildExternalUri(httpClient.BaseAddress, options.Value.ExternalChannelBaseUrl, PresenceAnnouncePath);
     private readonly PusherOptions pusherOptions = pusherOptions.Value;
     private readonly HttpClient httpClient = httpClient;
     private long lastStepTimestamp;
@@ -122,7 +123,7 @@ public sealed class PhoneService(
         PusherSecret = await GetLocalStorageItemAsync("webrtc-pusher-secret") ?? string.Empty;
         HasStoredProfileName = !string.IsNullOrWhiteSpace(DisplayName);
 
-        if (!string.IsNullOrWhiteSpace(DisplayName) && !string.IsNullOrWhiteSpace(PusherSecret))
+        if (!string.IsNullOrWhiteSpace(DisplayName))
         {
             await SaveProfileAsync();
         }
@@ -453,7 +454,7 @@ public sealed class PhoneService(
     {
         presenceCts?.Cancel();
         presenceCts = new CancellationTokenSource();
-        presenceTimer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        presenceTimer = new PeriodicTimer(TimeSpan.FromSeconds(5));
         _ = RunPresenceLoopAsync(presenceCts.Token);
     }
 
@@ -688,4 +689,16 @@ public sealed class PhoneService(
     private sealed record PresenceAnnounceRequest(string UserId, string Name, DateTimeOffset Timestamp);
 
     private sealed record PresenceAnnounceResponse(string UserId, string Name, DateTimeOffset Timestamp);
+
+    private static string BuildExternalUri(Uri? appBaseAddress, string externalBaseUrl, string endpointPath)
+    {
+        if (appBaseAddress is null)
+        {
+            throw new InvalidOperationException("App base address is not configured.");
+        }
+
+        var baseUri = new Uri(appBaseAddress, externalBaseUrl);
+        var endpointUri = new Uri(baseUri, endpointPath.TrimStart('/'));
+        return endpointUri.ToString();
+    }
 }

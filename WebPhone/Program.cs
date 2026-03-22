@@ -26,9 +26,8 @@ builder.Services.AddScoped<IExternalChannel<Message>>(sp =>
 {
     var options = sp.GetRequiredService<IOptions<PhoneOptions>>().Value;
     var baseAddress = builder.HostEnvironment.BaseAddress;
-    var publishUrl = new Uri(new Uri(baseAddress), options.ExternalChannelPublishUrl).ToString();
-    var readUrl = new Uri(new Uri(baseAddress), options.ExternalChannelReadUrl).ToString();
-    return new AzureMessagesChannel(publishUrl, readUrl, options.PollIntervalMs);
+    var externalChannelBaseUrl = new Uri(new Uri(baseAddress), options.ExternalChannelBaseUrl).ToString();
+    return new AzureMessagesChannel(externalChannelBaseUrl, options.PollIntervalMs);
 });
 #endif
 builder.Services.Configure<PusherOptions>(builder.Configuration.GetSection("Pusher"));

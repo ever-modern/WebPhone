@@ -18,9 +18,9 @@ public sealed class ReadMessagesFunction(ILogger<ReadMessagesFunction> logger, M
     [Function("read-messages")]
     public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Anonymous, "get", "options")] HttpRequest req)
     {
-        if (HttpMethods.IsOptions(req.Method))
+        if (FunctionCors.TryBuildPreflightResult(req, "GET, OPTIONS") is { } preflightResult)
         {
-            return BuildCorsResult(new OkResult());
+            return preflightResult;
         }
 
         var cancellationToken = req.HttpContext.RequestAborted;
@@ -31,7 +31,7 @@ public sealed class ReadMessagesFunction(ILogger<ReadMessagesFunction> logger, M
             if (!DateTimeOffset.TryParse(sinceValues.ToString(), out var parsedSince))
             {
                 logger.LogWarning("Read messages failed: invalid since parameter {Since}.", sinceValues.ToString());
-                return BuildCorsResult(new BadRequestObjectResult("Invalid since parameter."));
+                return FunctionCors.BuildResult(new BadRequestObjectResult("Invalid since parameter."), "GET, OPTIONS");
             }
 
             since = parsedSince;
@@ -43,23 +43,8 @@ public sealed class ReadMessagesFunction(ILogger<ReadMessagesFunction> logger, M
             .ToArray();
 
         logger.LogInformation("Read messages returned {MessageCount} entries.", response.Length);
-        return BuildCorsResult(new OkObjectResult(response));
+        return FunctionCors.BuildResult(new OkObjectResult(response), "GET, OPTIONS");
     }
 
     private sealed record MessageEnvelope(DateTimeOffset DateTime, MessageType Type, JsonElement Payload);
-
-    private static IActionResult BuildCorsResult(IActionResult result)
-        => new CorsResult(result);
-
-    private sealed class CorsResult(IActionResult inner) : IActionResult
-    {
-        public async Task ExecuteResultAsync(ActionContext context)
-        {
-            var headers = context.HttpContext.Response.Headers;
-            headers["Access-Control-Allow-Origin"] = "*";
-            headers["Access-Control-Allow-Headers"] = "Content-Type";
-            headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
-            await inner.ExecuteResultAsync(context);
-        }
-    }
 }
