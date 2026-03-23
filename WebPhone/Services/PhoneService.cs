@@ -24,6 +24,7 @@ public sealed class PhoneService(
     private readonly List<string> receivedMessages = [];
     private readonly int pollIntervalMs = Math.Max(options.Value.PollIntervalMs, 250);
     private readonly PusherOptions pusherOptions = pusherOptions.Value;
+    private DateTimeOffset lastOutgoingTimestamp = DateTimeOffset.UtcNow;
     private long lastStepTimestamp;
     private string connectionId = string.Empty;
     private bool isInitialized;
@@ -242,7 +243,10 @@ public sealed class PhoneService(
         await EnsureAudioAsync();
     }
 
-    public async Task CancelCallAsync()
+    public Task CancelCallAsync()
+        => CancelCallAsync(notifyRemote: true);
+
+    public async Task CancelCallAsync(bool notifyRemote = true)
     {
         if (string.IsNullOrWhiteSpace(currentPeerId))
         {
@@ -252,6 +256,12 @@ public sealed class PhoneService(
         if (isInitialized)
         {
             await webRtc.CloseAsync(connectionId);
+        }
+
+        if (notifyRemote && !string.IsNullOrWhiteSpace(currentPeerId))
+        {
+            // notify remote side about hangup using typed payload
+            await PublishAsync(new SignalingMessage<HangupPayload>(MessageType.Hangup, new HangupPayload(userId, currentPeerId)));
         }
 
         currentPeerId = null;
@@ -419,6 +429,7 @@ public sealed class PhoneService(
         try
         {
             await externalChannel.Writer.WriteAsync(new WebPhone.Registration.Message(MessageType.Presence, payload));
+            lastOutgoingTimestamp = DateTimeOffset.UtcNow;
         }
         catch (Exception ex)
         {
@@ -443,7 +454,12 @@ public sealed class PhoneService(
 
         while (await presenceTimer.WaitForNextTickAsync(cancellationToken))
         {
-            await SendPresenceAsync();
+            // Only send presence if no outgoing messages have been pushed within the configured poll interval
+            var elapsed = DateTimeOffset.UtcNow - lastOutgoingTimestamp;
+            if (elapsed >= TimeSpan.FromMilliseconds(pollIntervalMs))
+            {
+                await SendPresenceAsync();
+            }
         }
     }
 
@@ -456,6 +472,7 @@ public sealed class PhoneService(
     {
         var payload = JsonSerializer.SerializeToElement(message);
         await externalChannel.Writer.WriteAsync(new WebPhone.Registration.Message(MessageType.Signal, payload));
+        lastOutgoingTimestamp = DateTimeOffset.UtcNow;
     }
 
     private void StartMessageReader()
@@ -480,7 +497,8 @@ public sealed class PhoneService(
                 continue;
             }
 
-            var payload = JsonSerializer.Deserialize<WebPhone.Registration.Message>(message.Payload);
+            var opts = new JsonSerializerOptions(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true };
+            var payload = JsonSerializer.Deserialize<WebPhone.Registration.Message>(message.Payload, opts);
             if (payload is null)
             {
                 continue;
@@ -581,6 +599,26 @@ public sealed class PhoneService(
                 LogStep("Answer received");
                 NotifyStateChanged();
                 break;
+            case MessageType.Hangup:
+                // remote hangup - end the call locally without re-notifying remote
+                try
+                {
+                    var opts = new JsonSerializerOptions(JsonSerializerDefaults.Web) { PropertyNameCaseInsensitive = true };
+                    var hangup = message.Payload.Deserialize<HangupPayload>(opts);
+                    if (hangup is null || hangup.ToUserId != userId)
+                    {
+                        return;
+                    }
+                }
+                catch
+                {
+                    // ignore deserialization errors and still cancel
+                }
+
+                await CancelCallAsync(notifyRemote: false);
+                LogStep("Remote hangup received");
+                NotifyStateChanged();
+                break;
         }
     }
 
@@ -659,6 +697,8 @@ public sealed class PhoneService(
     public sealed record UserPresence(string UserId, string Name, DateTimeOffset LastSeen);
 
     public sealed record PresencePayload(string UserId, string Name, DateTimeOffset Timestamp);
+
+    public sealed record HangupPayload(string FromUserId, string ToUserId);
 
     public sealed record CallRequestPayload(string FromUserId, string FromName, string ToUserId, string SessionId);
 

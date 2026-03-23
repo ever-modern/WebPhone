@@ -26,7 +26,11 @@ builder.Services.AddScoped<IExternalChannel<Message>>(sp =>
 {
     var options = sp.GetRequiredService<IOptions<PhoneOptions>>().Value;
     var baseAddress = builder.HostEnvironment.BaseAddress;
-    var externalChannelBaseUrl = new Uri(new Uri(baseAddress), options.ExternalChannelBaseUrl).ToString();
+    var baseUrl = options.ExternalChannelBaseUrl;
+#if DEBUG
+    baseUrl = "http://localhost:7272";
+#endif
+    var externalChannelBaseUrl = new Uri(new Uri(baseAddress), baseUrl).ToString();
     return new AzureMessagesChannel(externalChannelBaseUrl, options.PollIntervalMs);
 });
 #endif

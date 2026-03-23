@@ -76,6 +76,7 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
             WHERE (@Since IS NULL OR "DateTime" > @Since)
               AND (@Type IS NULL OR "Type" = @Type)
               AND (@PublisherId IS NULL OR "PublisherId" = @PublisherId)
+              AND (@ExcludedIds IS NULL OR NOT ("PublisherId" = ANY(@ExcludedIds)))
               AND (
                     @ReceiverId IS NULL
                     OR "ReceiverId" = @ReceiverId
@@ -90,6 +91,7 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
             .Add("Since", filter.Since)
             .Add("Type", filter.Type)
             .Add("PublisherId", filter.PublisherId)
+            .Add("ExcludedIds", filter.ExcludedIds is null ? null : filter.ExcludedIds.ToArray())
             .Add("ReceiverId", filter.ReceiverId)
             .Add("Limit", MaxReadResults);
 
@@ -120,15 +122,14 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
 
         return [.. result];
     }
-
-
 }
 
 public record MessagesFilter(
     string? Type = null,
     string? ReceiverId = null,
     string? PublisherId = null,
-    DateTimeOffset? Since = null);
+    DateTimeOffset? Since = null,
+    IReadOnlyList<string>? ExcludedIds = null);
 
 public record MessageWriteEntry(
     string Type,

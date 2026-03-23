@@ -21,7 +21,7 @@ internal static class FunctionCors
         {
             var headers = context.HttpContext.Response.Headers;
             headers["Access-Control-Allow-Origin"] = "*";
-            headers["Access-Control-Allow-Headers"] = "Content-Type";
+            headers["Access-Control-Allow-Headers"] = "Content-Type, X-Client-Id";
             headers["Access-Control-Allow-Methods"] = allowedMethods;
             await inner.ExecuteResultAsync(context);
         }

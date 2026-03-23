@@ -60,7 +60,20 @@ public sealed class AzureMessagesChannel : IExternalChannel<Message>, IAsyncDisp
                 continue;
             }
 
-            await SendExchangeAsync([], cancellationToken);
+            // No longer send an empty message; presence messages are now sent by the phone service.
+            // Avoid tight loop: if GetIdleDelay is already zero (we would have sent an empty heartbeat),
+            // pause for the configured idle interval to prevent busy-spinning.
+            if (GetIdleDelay() <= TimeSpan.Zero)
+            {
+                try
+                {
+                    await Task.Delay(idleSendInterval, cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // cancellation requested - break the loop on next iteration
+                }
+            }
         }
     }
 

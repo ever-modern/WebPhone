@@ -39,12 +39,11 @@ public sealed record ExchangeFunction(ILogger<ExchangeFunction> logger, Messages
 
         await repository.WriteMessagesAsync(
             [.. request.Messages?.Select(
-                    m => new MessageWriteEntry(m.Type, m.Payload, clientId, m.TargetClientId, now)) ?? [],
-                new MessageWriteEntry("Presence", null, clientId, null, now)
+                    m => new MessageWriteEntry(m.Type, m.Payload, clientId, m.TargetClientId, now)) ?? []
             ]);
 
         var relevantMessages = await repository.ReadMessagesAsync(new MessagesFilter(
-            ReceiverId: clientId, Since: request.MessagesActualityCutoffDate), cancellationToken);
+            ReceiverId: clientId, Since: request.MessagesActualityCutoffDate, ExcludedIds: [clientId]), cancellationToken);
 
         var response = new ExchangeResponse(
             [.. relevantMessages.Select(m => new MessageResponse(m.PublisherId, m.Type, m.DateTime, m.Payload))]);
