@@ -1,5 +1,6 @@
 using EverModern.Blazor.DirectCommunication;
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.Primitives;
 using Microsoft.JSInterop;
 using System.Collections.Concurrent;
 using System.Data;
@@ -13,38 +14,16 @@ public record User(string Id, string Name);
 
 public record UserConnection(User OtherUser, IRtcConnection RtcConnection);
 
-public record OuterUser(string Id, string Name, DateTimeOffset LastSeen) : User(Id, Name);
+public record OuterUser(string Id, string Name, DateTimeOffset LastSeen, RtcConnectionState ConnectionState) : User(Id, Name);
 
 public record CallInfo(string ConnectionId, string RemotePeerId, string RemotePeerName);
 
-public enum CallState
-{
-    New,
-    Ringing,
-    Active,
-    Paused,
-    Ended,
-    Broken
-}
+public record RtcTextMessage(string Text, bool IsSystem);
 
-public class CallAgent(WebRtcInterop webRtc, IMessagesChannel messagesChannel, IRtcConnection rtcConnection) : IDisposable
-{
-    public string Id => rtcConnection.Id;
-
-    public CallState CallState { get; private set; } = CallState.New;
-
-
-
-    public void Dispose()
-    {
-    
-    }
-}
-
-public sealed class Phone(
+public sealed class Phon(
     WebRtcInterop webRtc,
     IJSRuntime jsRuntime,
-    ILogger<Phone> logger,
+    ILogger<Phon> logger,
     PhoneOptions options,
     IMessagesChannel externalChannel,
     RtcConnector rtcConnector,
@@ -52,10 +31,6 @@ public sealed class Phone(
     User thisUser,
     EventCallback<IncomingMessage<ConnectionRequestPayload>> onIncomingCall) : IAsyncDisposable
 {
-    const string BuildChannelName = "private-webrtc-lobby";
-
-    const string BuildEventName = "client-signal";
-
     private readonly Stopwatch stepTimer = Stopwatch.StartNew();
     private readonly List<string> receivedMessages = [];
     private readonly int pollIntervalMs = Math.Max(options.PollIntervalMs, 250);
@@ -88,6 +63,8 @@ public sealed class Phone(
 
     public IReadOnlyList<CallInfo> IncomingCalls { get; private set; } = [];
 
+    public IReadOnlyList<OuterUser> Users => [.. _presences.Values];
+
     public async Task InitializeAsync()
     {
         await SubscribeForPushAsync(default).ContinueWith(t =>
@@ -97,68 +74,16 @@ public sealed class Phone(
             else
                 logger.LogInformation("Push subscription successful");
         });
+
+        StartMessageReader();
+        StartPresenceLoop();
     }
 
     public Task<IRtcConnection> ConnectToUserAsync(string userId, CancellationToken cancellationToken)
         => rtcConnector.InitiateConnectionAsync(userId, thisUser.Name, cancellationToken);
 
-    public async Task AcceptCallAsync(string callId)
-    {
-        LogStep("Incoming call accepted");
-        if (CurrentCall is null)
-        {
-            return;
-        }
 
-        isCallAccepted = true;
-        await PublishAsync(new OutgoingMessage<RtcOfferPayload>(
-            MessageType.RtcOffer, new CallAcceptPayload(userId, DisplayName, CurrentCall.FromUserId, CurrentCall.SessionId)));
-
-        SignalingStatus = $"Accepted call from {CurrentCall.FromName}.";
-        LogStep("Call accept sent");
-        CurrentCall = null;
-        NotifyStateChanged();
-
-        await EnsureAudioAsync();
-    }
-
-    public Task CancelCallAsync()
-        => CancelCallAsync(notifyRemote: true);
-
-    public async Task CancelCallAsync(bool notifyRemote = true)
-    {
-        if (string.IsNullOrWhiteSpace(currentPeerId))
-        {
-            return;
-        }
-
-        if (isInitialized)
-        {
-            await webRtc.CloseAsync(connectionId);
-        }
-
-        if (notifyRemote && !string.IsNullOrWhiteSpace(currentPeerId))
-        {
-            // notify remote side about hangup using typed payload
-            await PublishAsync(new SignalingMessage<HungupPayload>(MessageType.Hangup, new HangupPayload(userId, currentPeerId)));
-        }
-
-        SignalingStatus = "Call canceled.";
-        NotifyStateChanged();
-    }
-
-    public Task DeclineIncomingCallAsync()
-    {
-        if (CurrentCall is null)
-        {
-            return Task.CompletedTask;
-        }
-
-        SignalingStatus = $"Declined call from {CurrentCall.Payload.FromName}.";
-        CurrentCall = null;
-        NotifyStateChanged();
-        return Task.CompletedTask;
-    }
+    // Call control methods are now handled by CallAgent
 
     public async Task SendMessageAsync(string connectionId, string message)
     {
@@ -176,18 +101,16 @@ public sealed class Phone(
     {
         var resultJson = await jsRuntime.InvokeAsync<string>("registerPush", [Contract.VapidKeys.Public]);
 
-        var obj = JsonSerializer.Deserialize<object>(resultJson);
-
         await backendClient.RegisterPushSubscriptionAsync(resultJson, cancellationToken);
+    }
+
+    public async Task<IBroadcastChannel<RtcTextMessage, RtcTextMessage>> StartTextingAsync(string userId, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
     }
 
     private async Task EnsureAudioAsync(string connectionId)
     {
-        if (isAudioStarted)
-        {
-            return;
-        }
-
         LogStep("Starting audio capture");
         try
         {
@@ -202,7 +125,6 @@ public sealed class Phone(
                 video = false
             });
             await webRtc.AddLocalTracksAsync(connectionId);
-            isAudioStarted = true;
             AudioStatusMessage = null;
             LogStep("Audio capture started");
         }
@@ -272,7 +194,8 @@ public sealed class Phone(
                 var presence = message.SpecifyPayload<PresencePayload>();
                 if (presence is null)
                     break;
-                _presences[presence.SenderClientId] = new OuterUser(presence.SenderClientId, presence.Payload.Name, presence.DateTime);
+                var connection = _userConnections.GetValueOrDefault(presence.SenderClientId);
+                _presences[presence.SenderClientId] = new OuterUser(presence.SenderClientId, presence.Payload.Name, presence.DateTime, connection?.State ?? RtcConnectionState.Closed);
                 PrunePresence();
                 LogStep($"Presence received from {presence.SenderClientId}");
                 NotifyStateChanged();
@@ -289,22 +212,10 @@ public sealed class Phone(
                 LogStep("Incoming call received");
                 NotifyStateChanged();
                 break;
-            case MessageType.Hangup:
-                var hangup = message.SpecifyPayload<HungupPayload>();
-                if (hangup is null || hangup.Payload.CallId != CurrentCall.Payload.ConnectionId)
-                {
-                    return;
-                }
-                await CancelCallAsync(notifyRemote: false);
-                LogStep("Remote hangup received");
-                NotifyStateChanged();
-                break;
             case MessageType.Call:
                 var callRequest = message.SpecifyPayload<InitiateCallPayload>();
                 if (callRequest is null)
                     break;
-
-
                 break;
         }
     }

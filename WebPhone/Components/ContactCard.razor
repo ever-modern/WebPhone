@@ -4,7 +4,7 @@
     <div class="webrtc-contact-details">
         <strong>@User.Name</strong>
         <span>            
-            @User.UserId
+            @User.Id
         </span>
         @if (!string.IsNullOrWhiteSpace(ConnectionState))
         {
@@ -19,31 +19,13 @@
             <span class="webrtc-contact-status">Calling...</span>
         }
     </div>
-    <div class="webrtc-contact-actions">
-        @if (IsIncoming)
-        {
-            <button class="webrtc-button" @onclick="Phone.AcceptCallAsync">Accept</button>
-            <button class="webrtc-button webrtc-button--danger" @onclick="Phone.DeclineIncomingCallAsync">Decline</button>
-        }
-        else if (IsCalling)
-        {
-            <button class="webrtc-button webrtc-button--danger" @onclick="Phone.CancelCallAsync">Cancel</button>
-        }
-        else if (IsActive && Phone.IsCallAccepted)
-        {
-            <button class="webrtc-button webrtc-button--danger" @onclick="Phone.CancelCallAsync">End</button>
-        }
-        else
-        {
-            <button class="webrtc-button" @onclick="() => Phone.ConnectToUserAsync(User)">Call</button>
-        }
-    </div>
+    
     <details class="webrtc-chat">
         <summary>Chat</summary>
-        <div class="webrtc-field">
+       @*  <div class="webrtc-field">
             <input class="webrtc-input" @bind="Phone.MessageToSend" placeholder="Type a message" />
             <button class="webrtc-button" @onclick="Phone.SendMessageAsync" disabled="@(!Phone.CanSend)">Send</button>
-        </div>
+        </div> *@
         <ul class="webrtc-messages">
             @foreach (var message in Phone.ReceivedMessages)
             {
@@ -55,10 +37,10 @@
 
 @code {
     [Parameter, EditorRequired]
-    public Phone Phone { get; set; } = default!;
+    public Phon Phone { get; set; } = default!;
 
     [Parameter, EditorRequired]
-    public Phone.UserPresence User { get; set; } = default!;
+    public User User { get; set; } = default!;
 
     [Parameter]
     public string? ConnectionState { get; set; }

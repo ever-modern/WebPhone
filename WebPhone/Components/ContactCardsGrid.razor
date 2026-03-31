@@ -1,5 +1,7 @@
 @using WebPhone.Services
 
+@implements IDisposable
+
 <section class="webrtc-contacts-card">
     <h2>Contacts</h2>
     @if (!string.IsNullOrWhiteSpace(Phone.SignalingStatus))
@@ -7,30 +9,30 @@
         <p>@Phone.SignalingStatus</p>
     }
     <div class="webrtc-contact-carousel">
-        @foreach (var user in Phone.AvailableUsers)
+        @foreach (var user in Phone.Users)
         {
-            var isActive = Phone.CurrentPeerId == user.UserId;
-            var isCalling = Phone.IsCalling && isActive;
-            var isIncoming = Phone.CurrentCall?.FromUserId == user.UserId;
             <ContactCard Phone="Phone"
                          User="user"
-                         IsActive="isActive"
-                         IsCalling="isCalling"
-                         IsIncoming="isIncoming"
-                         ConnectionState="@(isActive ? Phone.ConnectionState : null)" />
+                         ConnectionState="@(user.ConnectionState.ToString())" />
         }
     </div>
 </section>
 
 @code {
     [Parameter, EditorRequired]
-    public Phone Phone { get; set; } = default!;
-
-    protected override async Task OnParametersSetAsync()
+    public Phon Phone { get; set; } = default!;
+    protected override void OnAfterRender(bool firstRender)
     {
-        foreach (var user in Phone.AvailableUsers)
+        base.OnAfterRender(firstRender);
+
+        if (firstRender)
         {
-            await Phone.EnsureContactNameAsync(user.UserId);
+            Phone.StateChanged += StateHasChanged;
         }
+    }
+
+    public void Dispose()
+    {
+        Phone.StateChanged -= StateHasChanged;
     }
 }

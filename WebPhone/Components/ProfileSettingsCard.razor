@@ -1,18 +1,31 @@
 @using WebPhone.Services
 
+@inject Profile profile
+
+@if (_user is null)
+{
+    return;
+}
+
 <section class="webrtc-card webrtc-profile-card">
     <div class="webrtc-field webrtc-field-inline">
-       @*  <label>Name</label> *@
-        <input class="webrtc-input" @bind="Phone.DisplayName" placeholder="Your name" />
-        <button class="webrtc-button" @onclick="Phone.SaveProfileAsync">@(Phone.HasStoredProfileName ? "Change name" : "Register")</button>
+        @*  <label>Name</label> *@
+        <input class="webrtc-input" @bind="Name" placeholder="Your name" />
+        <button class="webrtc-button" @onclick="() => profile.SaveUserInfoAsync(_user)">@(Phone.HasStoredProfileName ? "Change name" : "Register")</button>
     </div>
-    @if (!string.IsNullOrWhiteSpace(Phone.ProfileStatus))
-    {
-        <p>@Phone.ProfileStatus</p>
-    }
 </section>
 
 @code {
     [Parameter, EditorRequired]
-    public Phone Phone { get; set; } = default!;
+    public Phon Phone { get; set; } = default!;
+
+    User _user = default!;
+
+    string Name { get => _user?.Name ?? ""; set => _user = _user with { Name = value }; }
+
+    async protected override Task OnInitializedAsync()
+    {
+        if (_user is null)
+            _user = _user ?? await profile.GetUserInfoAsync() ?? new(Guid.NewGuid().ToString("N"), "");
+    }
 }
