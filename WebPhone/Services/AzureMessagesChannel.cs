@@ -1,45 +1,46 @@
-using System.Net.Http.Json;
-using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
 using System.Threading.Channels;
 using WebPhone.Contract;
 using WebPhone.Registration;
 
 namespace WebPhone.Services;
 
-public sealed class AzureMessagesChannel : IExternalChannel<Message>, IAsyncDisposable
+public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private const string ExchangePath = "/api/exchange";
-    private readonly HttpClient client = new();
-    private readonly Uri exchangeUri;
-    private readonly Channel<Message> incomingChannel = Channel.CreateUnbounded<Message>();
-    private readonly Channel<Message> outgoingChannel = Channel.CreateUnbounded<Message>();
+    private readonly List<Channel<IncomingMessage>> incomingChannels = [];
+    private readonly Channel<OutgoingMessage> outgoingChannel = Channel.CreateUnbounded<OutgoingMessage>();
     private readonly TimeSpan idleSendInterval;
     private readonly CancellationTokenSource cts = new();
     private readonly Task sendLoopTask;
     private DateTimeOffset lastReadTimestamp = DateTimeOffset.UtcNow.AddSeconds(-5);
     private DateTimeOffset lastSentTimestamp = DateTimeOffset.UtcNow;
-    private string clientId = string.Empty;
-
-    public AzureMessagesChannel(string baseUrl, int pollIntervalMs = 1000)
+    readonly BackendClient _client;
+    
+    public AzureMessagesChannel(BackendClient client, int pollIntervalMs = 1000)
     {
-        var baseUri = EnsureTrailingSlash(baseUrl);
-        exchangeUri = new Uri(baseUri, ExchangePath.TrimStart('/'));
+        _client = client;
         idleSendInterval = TimeSpan.FromMilliseconds(Math.Max(pollIntervalMs, 250));
         sendLoopTask = RunSendLoopAsync(cts.Token);
     }
 
-    private static Uri EnsureTrailingSlash(string baseUrl)
+    public ChannelWriter<OutgoingMessage> Writer => outgoingChannel.Writer;
+
+    public IChannelSubscription<IncomingMessage> Subscribe()
+        => Subscribe(null);
+
+    public IChannelSubscription<IncomingMessage> Subscribe(Func<IncomingMessage, bool>? filter)
     {
-        var normalized = baseUrl.EndsWith("/", StringComparison.Ordinal)
-            ? baseUrl
-            : $"{baseUrl}/";
-        return new Uri(normalized, UriKind.Absolute);
+        var channel = Channel.CreateUnbounded<IncomingMessage>();
+
+        var result = new ChannelSubscription<IncomingMessage>(
+            channel.Reader,
+            (self) => incomingChannels.Remove(channel),
+            filter);
+
+        incomingChannels.Add(channel);
+
+        return result;
     }
-
-    public ChannelWriter<Message> Writer => outgoingChannel.Writer;
-
-    public ChannelReader<Message> Reader => incomingChannel.Reader;
 
     private async Task RunSendLoopAsync(CancellationToken cancellationToken)
     {
@@ -90,27 +91,8 @@ public sealed class AzureMessagesChannel : IExternalChannel<Message>, IAsyncDisp
 
     private async Task SendExchangeAsync(MessageRequest[] outgoingMessages, CancellationToken cancellationToken)
     {
-        foreach (var outgoingMessage in outgoingMessages)
-        {
-            UpdateClientId(outgoingMessage);
-        }
-
         var requestStartTimestamp = DateTimeOffset.UtcNow;
-        if (string.IsNullOrWhiteSpace(clientId))
-        {
-            clientId = Guid.NewGuid().ToString("N");
-        }
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, exchangeUri)
-        {
-            Content = JsonContent.Create(new ExchangeRequest(clientId, lastReadTimestamp, outgoingMessages), options: JsonOptions)
-        };
-        request.Headers.Add("X-Client-Id", clientId);
-
-        using var response = await client.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var exchangeResponse = await response.Content.ReadFromJsonAsync<ExchangeResponse>(JsonOptions, cancellationToken);
+        var exchangeResponse = await _client.ExchangeAsync(outgoingMessages, lastReadTimestamp, cancellationToken);
         var messages = exchangeResponse?.RelevantMessages;
         if (messages is null)
         {
@@ -121,7 +103,16 @@ public sealed class AzureMessagesChannel : IExternalChannel<Message>, IAsyncDisp
 
         foreach (var message in messages)
         {
-            await incomingChannel.Writer.WriteAsync(new Message(MessageTypeJsonConverter.FromWireValue(message.Type), message.Payload), cancellationToken);
+            foreach (var incomingChannel in incomingChannels)
+            {
+                IncomingMessage incomingMessage = new(
+                    MessageTypeJsonConverter.FromWireValue(message.Type),
+                    message.Payload,
+                    _client.ClientId,
+                    message.DateTime);
+
+                await incomingChannel.Writer.WriteAsync(incomingMessage, cancellationToken);
+            }
         }
 
         lastReadTimestamp = requestStartTimestamp;
@@ -133,81 +124,19 @@ public sealed class AzureMessagesChannel : IExternalChannel<Message>, IAsyncDisp
         var messages = new List<MessageRequest>();
         while (outgoingChannel.Reader.TryRead(out var message))
         {
-            var targetClientId = TryGetTargetClientId(message);
+            var targetClientId = message.TargetClientId;
             messages.Add(new MessageRequest(MessageTypeJsonConverter.ToWireValue(message.Type), message.Payload, targetClientId));
         }
 
         return [.. messages];
     }
 
-    private void UpdateClientId(MessageRequest message)
-    {
-        if (!string.IsNullOrWhiteSpace(clientId))
-        {
-            return;
-        }
-
-        if (TryGetClientId(message.Payload) is { } payloadClientId)
-        {
-            clientId = payloadClientId;
-        }
-    }
-
-    private static string? TryGetTargetClientId(Message message)
-    {
-        if ((message.Type != MessageType.Signal && message.Type != MessageType.ClientSignal) || message.Payload.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        if (!message.Payload.TryGetProperty("payload", out var innerPayload) || innerPayload.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        return TryGetPropertyValue(innerPayload, "toUserId");
-    }
-
-    private static string? TryGetClientId(JsonElement payload)
-    {
-        if (payload.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        if (TryGetPropertyValue(payload, "userId") is { } userId)
-        {
-            return userId;
-        }
-
-        if (payload.TryGetProperty("payload", out var innerPayload) && innerPayload.ValueKind == JsonValueKind.Object)
-        {
-            return TryGetPropertyValue(innerPayload, "fromUserId") ?? TryGetPropertyValue(innerPayload, "userId");
-        }
-
-        return null;
-    }
-
-    private static string? TryGetPropertyValue(JsonElement element, string propertyName)
-    {
-        foreach (var property in element.EnumerateObject())
-        {
-            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase)
-                && property.Value.ValueKind == JsonValueKind.String)
-            {
-                return property.Value.GetString();
-            }
-        }
-
-        return null;
-    }
-
     public async ValueTask DisposeAsync()
     {
+        _client.Dispose();
         cts.Cancel();
         outgoingChannel.Writer.TryComplete();
-        incomingChannel.Writer.TryComplete();
-        client.Dispose();
+        incomingChannels.ForEach(ch => ch.Writer.TryComplete());
 
         await sendLoopTask.ContinueWith(_ => Task.CompletedTask);
 

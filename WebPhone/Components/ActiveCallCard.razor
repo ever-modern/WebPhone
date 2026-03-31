@@ -1,12 +1,12 @@
 @using WebPhone.Services
 
-@if (Phone.IncomingCall is not null)
+@if (Phone.CurrentCall is not null)
 {
     <section class="webrtc-card webrtc-call-highlight">
         <h2>Incoming call</h2>
-        <p>@Phone.IncomingCall.FromName is calling you.</p>
+        <p>@Phone.CurrentCall.FromName is calling you.</p>
         <div class="webrtc-call-actions">
-            <button class="webrtc-button" @onclick="Phone.AcceptIncomingCallAsync">Accept</button>
+            <button class="webrtc-button" @onclick="Phone.AcceptCallAsync">Accept</button>
             <button class="webrtc-button webrtc-button--danger" @onclick="Phone.DeclineIncomingCallAsync">Decline</button>
         </div>
     </section>
@@ -32,7 +32,7 @@ else if (Phone.CurrentPeerId is not null)
     private ElementReference remoteAudio;
 
     [Parameter, EditorRequired]
-    public PhoneService Phone { get; set; } = default!;
+    public Phone Phone { get; set; } = default!;
 
     protected override void OnAfterRender(bool firstRender)
     {

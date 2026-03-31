@@ -3,7 +3,7 @@
 @using WebPhone.Registration
 @using Microsoft.AspNetCore.Components
 @implements IAsyncDisposable
-@inject WebRtcService WebRtc
+@inject WebRtcInterop WebRtc
 @inject IWebRtcConfigurator Configurator
 @inject IWebRtcConnector Connector
 
@@ -185,7 +185,7 @@
         }
 
         var message = DeserializeSignalingMessage(args.PayloadJson);
-        if (message is null || message.Type != MessageType.Offer)
+        if (message is null || message.Type != MessageType.RtcOffer)
         {
             return;
         }
@@ -204,7 +204,7 @@
         isOfferHandled = true;
         await WebRtc.SetRemoteDescriptionAsync(connectionId, offer);
         var answer = await WebRtc.CreateAnswerAsync(connectionId);
-        await Connector.PublishAsync(BuildChannelName(), BuildEventName(), new SignalingMessage<WebRtcSessionDescription>(MessageType.Answer, answer));
+        await Connector.PublishAsync(BuildChannelName(), BuildEventName(), new SignalingMessage<WebRtcSessionDescription>(MessageType.RtcAnswer, answer));
         statusMessage = "Answer sent.";
         await InvokeAsync(StateHasChanged);
     }
@@ -249,14 +249,14 @@
         }
     }
 
-    private static WebPhone.Registration.Message? DeserializeSignalingMessage(string payloadJson)
+    private static WebPhone.Registration.OutgoingMessage? DeserializeSignalingMessage(string payloadJson)
     {
         if (string.IsNullOrWhiteSpace(payloadJson))
         {
             return null;
         }
 
-        return JsonSerializer.Deserialize<WebPhone.Registration.Message>(payloadJson);
+        return JsonSerializer.Deserialize<WebPhone.Registration.OutgoingMessage>(payloadJson);
     }
 
     private string BuildChannelName()

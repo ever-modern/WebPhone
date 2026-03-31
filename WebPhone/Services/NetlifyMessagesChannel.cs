@@ -5,13 +5,13 @@ using WebPhone.Registration;
 
 namespace WebPhone.Services;
 
-public sealed class NetlifyMessagesChannel : IExternalChannel<Message>, IAsyncDisposable
+public sealed class NetlifyMessagesChannel : IBroadcastChannel<IncomingMessage, OutgoingMessage>, IAsyncDisposable
 {
     private readonly HttpClient client;
     private readonly IJSRuntime jsRuntime;
     private readonly string pollChannelName;
-    private readonly Channel<Message> incomingChannel = Channel.CreateUnbounded<Message>();
-    private readonly Channel<Message> outgoingChannel = Channel.CreateUnbounded<Message>();
+    private readonly Channel<IncomingMessage> incomingChannel = Channel.CreateUnbounded<IncomingMessage>();
+    private readonly Channel<OutgoingMessage> outgoingChannel = Channel.CreateUnbounded<OutgoingMessage>();
     private readonly PeriodicTimer pollTimer;
     private readonly CancellationTokenSource cts = new();
     private readonly Task sendLoopTask;
@@ -30,9 +30,12 @@ public sealed class NetlifyMessagesChannel : IExternalChannel<Message>, IAsyncDi
         pollLoopTask = RunPollLoopAsync(cts.Token);
     }
 
-    public ChannelWriter<Message> Writer => outgoingChannel.Writer;
+    public ChannelWriter<OutgoingMessage> Writer => outgoingChannel.Writer;
 
-    public ChannelReader<Message> Reader => incomingChannel.Reader;
+    public ChannelReader<IncomingMessage> GetIndependentReader()
+    {
+        return incomingChannel.Reader;
+    }
 
     private async Task RunSendLoopAsync(CancellationToken cancellationToken)
     {
@@ -53,7 +56,7 @@ public sealed class NetlifyMessagesChannel : IExternalChannel<Message>, IAsyncDi
 
     private async Task PollAsync(CancellationToken cancellationToken)
     {
-        var messages = await jsRuntime.InvokeAsync<Message[]>("pusherInterop.poll", cancellationToken, pollChannelName);
+        var messages = await jsRuntime.InvokeAsync<IncomingMessage[]>("pusherInterop.poll", cancellationToken, pollChannelName);
         if (messages is null || messages.Length == 0)
         {
             return;

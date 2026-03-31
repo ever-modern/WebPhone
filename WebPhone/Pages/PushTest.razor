@@ -1,0 +1,37 @@
+@page "/push-test"
+@inject HttpClient Http
+
+<h3>Push Notification Test</h3>
+
+<div>
+    <label>Client ID: <input @bind="ClientId" /></label>
+</div>
+<div>
+    <label>Payload: <input @bind="Payload" /></label>
+</div>
+<button @onclick="SendPush">Send Push Notification</button>
+
+@if (Result is not null)
+{
+    <div>Result: @Result</div>
+}
+
+@code {
+    private string ClientId { get; set; } = string.Empty;
+    private string Payload { get; set; } = "Test push from Blazor";
+    private string? Result;
+
+    private async Task SendPush()
+    {
+        try
+        {
+            var req = new { ClientId, Payload };
+            var response = await Http.PostAsJsonAsync("/api/send-push", req);
+            Result = response.IsSuccessStatusCode ? "Success" : $"Failed: {response.StatusCode}";
+        }
+        catch (Exception ex)
+        {
+            Result = $"Error: {ex.Message}";
+        }
+    }
+}

@@ -96,9 +96,9 @@ public sealed class PusherChannelsRegistrator(
     private string? GetSecret()
         => string.IsNullOrWhiteSpace(secretOverride) ? options.Secret : secretOverride;
 
-    public async ValueTask<IReadOnlyList<Message>> PollMessagesAsync(string channelName, CancellationToken cancellationToken = default)
+    public async ValueTask<IReadOnlyList<OutgoingMessage>> PollMessagesAsync(string channelName, CancellationToken cancellationToken = default)
     {
-        var messages = await jsRuntime.InvokeAsync<Message[]>("pusherInterop.poll", cancellationToken, channelName);
+        var messages = await jsRuntime.InvokeAsync<OutgoingMessage[]>("pusherInterop.poll", cancellationToken, channelName);
         return messages;
     }
 

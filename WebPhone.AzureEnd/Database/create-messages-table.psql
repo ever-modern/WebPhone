@@ -1,7 +1,9 @@
-CREATE TABLE IF NOT EXISTS "Messages" (
-    "DateTime" timestamptz NOT NULL,
-    "Type" text NOT NULL,
-    "Payload" jsonb NOT NULL
+CREATE TABLE IF NOT EXISTS messages (
+    date_time timestamptz NOT NULL,
+    type text NOT NULL,
+    payload jsonb NOT NULL,
+    publisher_id text,
+    receiver_id text
 );
 
-CREATE INDEX IF NOT EXISTS "IX_Messages_DateTime" ON "Messages" ("DateTime");
+CREATE INDEX IF NOT EXISTS ix_messages_date_time ON messages (date_time);

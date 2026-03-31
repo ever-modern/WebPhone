@@ -11,7 +11,7 @@
         {
             var isActive = Phone.CurrentPeerId == user.UserId;
             var isCalling = Phone.IsCalling && isActive;
-            var isIncoming = Phone.IncomingCall?.FromUserId == user.UserId;
+            var isIncoming = Phone.CurrentCall?.FromUserId == user.UserId;
             <ContactCard Phone="Phone"
                          User="user"
                          IsActive="isActive"
@@ -24,7 +24,7 @@
 
 @code {
     [Parameter, EditorRequired]
-    public PhoneService Phone { get; set; } = default!;
+    public Phone Phone { get; set; } = default!;
 
     protected override async Task OnParametersSetAsync()
     {

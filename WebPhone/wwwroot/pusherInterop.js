@@ -103,3 +103,35 @@ window.pusherInterop = {
   publish,
   poll
 };
+
+const vapid = "BAiq6rrhzDW-4cNSZW7fghLxcfha3Bw5wJg_tVZru-GV9pTC0vcQe-XFm_COMEpHlb1K7hKJZBMn6FAbiZMbzEc";
+
+async function registerPush(_) {
+    // Register service worker
+    const registration = await navigator.serviceWorker.register("/service-worker.js");
+
+    console.log("Service Worker registered");
+
+    // Subscribe to push
+    const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(vapid)
+    });
+
+    const subscriptionJson = JSON.stringify(subscription);
+
+    return subscriptionJson;
+}
+
+// Helper
+function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+        .replace(/-/g, "+")
+        .replace(/_/g, "/");
+
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+}
+
+window.registerPush = registerPush;

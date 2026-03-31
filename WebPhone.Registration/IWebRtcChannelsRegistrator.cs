@@ -11,5 +11,5 @@ public interface IWebRtcConnector
 {
     ValueTask PublishAsync(string channelName, string eventName, object payload, CancellationToken cancellationToken = default);
 
-    ValueTask<IReadOnlyList<Message>> PollMessagesAsync(string channelName, CancellationToken cancellationToken = default);
+    ValueTask<IReadOnlyList<OutgoingMessage>> PollMessagesAsync(string channelName, CancellationToken cancellationToken = default);
 }

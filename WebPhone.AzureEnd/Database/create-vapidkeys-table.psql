@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS vapid_keys (
+    public_key text NOT NULL,
+    private_key text NOT NULL,
+    created_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_vapid_keys_created_at ON vapid_keys (created_at);

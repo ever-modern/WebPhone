@@ -4,10 +4,10 @@ using WebPhone.Registration;
 
 namespace WebPhone.Services;
 
-public sealed class MockNetlifyMessagesChannel : IExternalChannel<Message>, IAsyncDisposable
+public sealed class MockNetlifyMessagesChannel : IBroadcastChannel<IncomingMessage, OutgoingMessage>, IAsyncDisposable
 {
-    private readonly Channel<Message> incomingChannel = Channel.CreateUnbounded<Message>();
-    private readonly Channel<Message> outgoingChannel = Channel.CreateUnbounded<Message>();
+    private readonly Channel<IncomingMessage> incomingChannel = Channel.CreateUnbounded<IncomingMessage>();
+    private readonly Channel<OutgoingMessage> outgoingChannel = Channel.CreateUnbounded<OutgoingMessage>();
     private readonly CancellationTokenSource cts = new();
     private readonly PeriodicTimer presenceTimer = new(TimeSpan.FromSeconds(10));
     private readonly Task presenceLoopTask;
@@ -19,9 +19,12 @@ public sealed class MockNetlifyMessagesChannel : IExternalChannel<Message>, IAsy
         outgoingLoopTask = RunOutgoingLoopAsync(cts.Token);
     }
 
-    public ChannelWriter<Message> Writer => outgoingChannel.Writer;
+    public ChannelWriter<OutgoingMessage> Writer => outgoingChannel.Writer;
 
-    public ChannelReader<Message> Reader => incomingChannel.Reader;
+    public ChannelReader<IncomingMessage> GetIndependentReader()
+    {
+        return incomingChannel.Reader;
+    }
 
     private async Task RunOutgoingLoopAsync(CancellationToken cancellationToken)
     {
@@ -72,8 +75,8 @@ public sealed class MockNetlifyMessagesChannel : IExternalChannel<Message>, IAsy
     private async Task PublishPresenceAsync(MockUser user, DateTimeOffset timestamp, CancellationToken cancellationToken)
     {
         var presencePayload = new PresencePayload(user.UserId, user.Name, timestamp);
-        var signalPayload = new Message(MessageType.Presence, JsonSerializer.SerializeToElement(presencePayload));
-        var message = new Message(MessageType.Signal, JsonSerializer.SerializeToElement(signalPayload));
+        var signalPayload = new IncomingMessage(MessageType.Presence, JsonSerializer.SerializeToElement(presencePayload), user.UserId, timestamp);
+        var message = new IncomingMessage(MessageType.Signal, JsonSerializer.SerializeToElement(signalPayload), user.UserId, timestamp);
         await incomingChannel.Writer.WriteAsync(message, cancellationToken);
     }
 

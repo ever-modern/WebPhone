@@ -22,7 +22,7 @@
     <div class="webrtc-contact-actions">
         @if (IsIncoming)
         {
-            <button class="webrtc-button" @onclick="Phone.AcceptIncomingCallAsync">Accept</button>
+            <button class="webrtc-button" @onclick="Phone.AcceptCallAsync">Accept</button>
             <button class="webrtc-button webrtc-button--danger" @onclick="Phone.DeclineIncomingCallAsync">Decline</button>
         }
         else if (IsCalling)
@@ -55,10 +55,10 @@
 
 @code {
     [Parameter, EditorRequired]
-    public PhoneService Phone { get; set; } = default!;
+    public Phone Phone { get; set; } = default!;
 
     [Parameter, EditorRequired]
-    public PhoneService.UserPresence User { get; set; } = default!;
+    public Phone.UserPresence User { get; set; } = default!;
 
     [Parameter]
     public string? ConnectionState { get; set; }

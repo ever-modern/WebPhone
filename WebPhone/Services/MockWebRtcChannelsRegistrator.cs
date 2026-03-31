@@ -13,8 +13,8 @@ public sealed class MockWebRtcChannelsRegistrator : IWebRtcConfigurator, IWebRtc
     public ValueTask PublishAsync(string channelName, string eventName, object payload, CancellationToken cancellationToken = default)
         => ValueTask.CompletedTask;
 
-    public ValueTask<IReadOnlyList<Message>> PollMessagesAsync(string channelName, CancellationToken cancellationToken = default)
-        => ValueTask.FromResult<IReadOnlyList<Message>>(Array.Empty<Message>());
+    public ValueTask<IReadOnlyList<OutgoingMessage>> PollMessagesAsync(string channelName, CancellationToken cancellationToken = default)
+        => ValueTask.FromResult<IReadOnlyList<OutgoingMessage>>(Array.Empty<OutgoingMessage>());
 
     public ValueTask DisposeAsync()
         => ValueTask.CompletedTask;

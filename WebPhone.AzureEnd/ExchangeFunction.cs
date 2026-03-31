@@ -3,13 +3,14 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
+using WebPhone.AzureEnd.Services;
 using WebPhone.AzureEnd.Storage;
 using WebPhone.Contract;
 using WebPhone.Registration;
 
 namespace WebPhone.AzureEnd;
 
-public sealed record ExchangeFunction(ILogger<ExchangeFunction> logger, MessagesRepository repository)
+public sealed class ExchangeFunction(ILogger<ExchangeFunction> logger, MessagesRepository repository, PushNotificationService pushNotificationService)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -47,6 +48,11 @@ public sealed record ExchangeFunction(ILogger<ExchangeFunction> logger, Messages
 
         var response = new ExchangeResponse(
             [.. relevantMessages.Select(m => new MessageResponse(m.PublisherId, m.Type, m.DateTime, m.Payload))]);
+
+        foreach (var message in request.Messages.Where(m => m.TargetClientId is not null))
+        {
+            await pushNotificationService.PushToClientAsync(message.TargetClientId!, $"Incoming message from {clientId}.", cancellationToken);
+        }
 
         return FunctionCors.BuildResult(new ObjectResult(response), "POST, OPTIONS");
     }

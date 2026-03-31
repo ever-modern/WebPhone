@@ -5,10 +5,10 @@ namespace EverModern.Blazor.DirectCommunication;
 
 
 
-public sealed class WebRtcService(IJSRuntime jsRuntime) : IAsyncDisposable
+public sealed class WebRtcInterop(IJSRuntime jsRuntime) : IAsyncDisposable
 {
     private readonly IJSRuntime jsRuntime = jsRuntime;
-    private DotNetObjectReference<WebRtcService>? dotNetReference;
+    private DotNetObjectReference<WebRtcInterop>? dotNetReference;
 
     public event EventHandler<WebRtcIceCandidateEventArgs>? IceCandidateReceived;
 
@@ -41,14 +41,14 @@ public sealed class WebRtcService(IJSRuntime jsRuntime) : IAsyncDisposable
         await jsRuntime.InvokeVoidAsync("webrtcInterop.createDataChannel", connectionId, label, options);
     }
 
-    public async ValueTask<WebRtcSessionDescription> CreateOfferAsync(string connectionId)
+    public async ValueTask<WebRtcOffer> CreateOfferAsync(string connectionId)
     {
-        return await jsRuntime.InvokeAsync<WebRtcSessionDescription>("webrtcInterop.createOffer", connectionId);
+        return await jsRuntime.InvokeAsync<WebRtcOffer>("webrtcInterop.createOffer", connectionId);
     }
 
-    public async ValueTask<WebRtcSessionDescription> CreateAnswerAsync(string connectionId)
+    public async ValueTask<WebRtcAnswer> CreateAnswerAsync(string connectionId)
     {
-        return await jsRuntime.InvokeAsync<WebRtcSessionDescription>("webrtcInterop.createAnswer", connectionId);
+        return await jsRuntime.InvokeAsync<WebRtcAnswer>("webrtcInterop.createAnswer", connectionId);
     }
 
     public async ValueTask SetRemoteDescriptionAsync(string connectionId, WebRtcSessionDescription description)

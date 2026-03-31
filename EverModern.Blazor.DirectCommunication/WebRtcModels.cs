@@ -2,14 +2,15 @@ using System.Text.Json.Serialization;
 
 namespace EverModern.Blazor.DirectCommunication;
 
-public sealed record WebRtcSessionDescription
-{
-    [JsonPropertyName("type")]
-    public string? Type { get; init; }
+public abstract record WebRtcSessionDescription(
+    [property: JsonPropertyName("type")] string? Type,
+    [property: JsonPropertyName("sdp")] string? Sdp);
 
-    [JsonPropertyName("sdp")]
-    public string? Sdp { get; init; }
-}
+public record WebRtcOffer([property: JsonPropertyName("type")] string? Type, [property: JsonPropertyName("sdp")] string? Sdp)
+    : WebRtcSessionDescription(Type, Sdp);
+
+public record WebRtcAnswer([property: JsonPropertyName("type")] string? Type, [property: JsonPropertyName("sdp")] string? Sdp)
+    : WebRtcSessionDescription(Type, Sdp);
 
 public sealed record WebRtcIceCandidate
 {
