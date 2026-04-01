@@ -2,7 +2,7 @@ using WebPhone.Registration;
 
 namespace WebPhone.Services;
 
-public sealed class AzureWebRtcChannelsRegistrator : IWebRtcConfigurator, IWebRtcConnector
+public sealed class AzureWebRtcChannelsRegistrator : IWebRtcConfigurator, IWebRtcRegistrator
 {
     public ValueTask ConfigureAsync(ChannelsConfiguration configuration, CancellationToken cancellationToken = default)
         => ValueTask.CompletedTask;

@@ -2,12 +2,11 @@
 
 @implements IDisposable
 
+@inject Phone Phone
+
 <section class="webrtc-contacts-card">
     <h2>Contacts</h2>
-    @if (!string.IsNullOrWhiteSpace(Phone.SignalingStatus))
-    {
-        <p>@Phone.SignalingStatus</p>
-    }
+   
     <div class="webrtc-contact-carousel">
         @foreach (var user in Phone.Users)
         {
@@ -19,20 +18,20 @@
 </section>
 
 @code {
-    [Parameter, EditorRequired]
-    public Phon Phone { get; set; } = default!;
-    protected override void OnAfterRender(bool firstRender)
-    {
-        base.OnAfterRender(firstRender);
-
-        if (firstRender)
-        {
-            Phone.StateChanged += StateHasChanged;
-        }
-    }
-
     public void Dispose()
     {
         Phone.StateChanged -= StateHasChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        Phone.StateChanged += HandlePhoneStateChanged;
+        await Phone.InitializeAsync();
+        HandlePhoneStateChanged();
+    }
+
+    private async void HandlePhoneStateChanged()
+    {
+        await InvokeAsync(StateHasChanged);
     }
 }

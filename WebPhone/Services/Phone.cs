@@ -20,16 +20,15 @@ public record CallInfo(string ConnectionId, string RemotePeerId, string RemotePe
 
 public record RtcTextMessage(string Text, bool IsSystem);
 
-public sealed class Phon(
+public sealed class Phone(
     WebRtcInterop webRtc,
     IJSRuntime jsRuntime,
-    ILogger<Phon> logger,
+    ILogger<Phone> logger,
     PhoneOptions options,
     IMessagesChannel externalChannel,
     RtcConnector rtcConnector,
     BackendClient backendClient,
-    User thisUser,
-    EventCallback<IncomingMessage<ConnectionRequestPayload>> onIncomingCall) : IAsyncDisposable
+    IProfile profile) : IAsyncDisposable
 {
     private readonly Stopwatch stepTimer = Stopwatch.StartNew();
     private readonly List<string> receivedMessages = [];
@@ -47,7 +46,7 @@ public sealed class Phon(
     readonly ConcurrentDictionary<string, OuterUser> _presences = [];
     readonly ConcurrentDictionary<string, List<string>> _chats = [];
 
-    public string DisplayName => thisUser.Name;
+    public string DisplayName => profile.User.Name;
 
     public bool HasStoredProfileName { get; private set; }
 
@@ -80,7 +79,7 @@ public sealed class Phon(
     }
 
     public Task<IRtcConnection> ConnectToUserAsync(string userId, CancellationToken cancellationToken)
-        => rtcConnector.InitiateConnectionAsync(userId, thisUser.Name, cancellationToken);
+        => rtcConnector.InitiateConnectionAsync(userId, DisplayName, cancellationToken);
 
 
     // Call control methods are now handled by CallAgent
@@ -205,7 +204,7 @@ public sealed class Phon(
                 if (call is null)
                     break;
                 SignalingStatus = $"Incoming connection request from {call.Payload.FromName}...";
-                _ = rtcConnector.AcceptConnectionAsync(call.SenderClientId, thisUser.Name, call.Payload.Offer).ContinueWith(t =>
+                _ = rtcConnector.AcceptConnectionAsync(call.SenderClientId, DisplayName, call.Payload.Offer).ContinueWith(t =>
                 {
                     _userConnections[call.SenderClientId] = t.Result;
                 });
@@ -260,8 +259,6 @@ public sealed class Phon(
         foreach (var (_, connection) in _userConnections)
             connection.Dispose();
     }
-
-
 }
 
 public sealed record UserPresence(string UserId, string Name, DateTimeOffset LastSeen);

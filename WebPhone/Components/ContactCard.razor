@@ -18,6 +18,12 @@
         {
             <span class="webrtc-contact-status">Calling...</span>
         }
+        @if (ConnectionState == "Closed")
+        {
+            <button @onclick="async () => { var connection = await Phone.ConnectToUserAsync(User.Id, default); StateHasChanged(); }">
+                Connect
+            </button>
+        }
     </div>
     
     <details class="webrtc-chat">
@@ -37,7 +43,7 @@
 
 @code {
     [Parameter, EditorRequired]
-    public Phon Phone { get; set; } = default!;
+    public Phone Phone { get; set; } = default!;
 
     [Parameter, EditorRequired]
     public User User { get; set; } = default!;

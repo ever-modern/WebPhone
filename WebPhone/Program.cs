@@ -7,7 +7,6 @@ using WebPhone.Registration.Pusher;
 using WebPhone.Services;
 using Microsoft.Extensions.Options;
 
-string clientId = Guid.NewGuid().ToString("N");
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.RootComponents.Add<App>("#app");
@@ -16,13 +15,17 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 IServiceCollection services = builder.Services;
 
 services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-services.AddScoped<WebRtcInterop>();
-services.AddScoped<Phon>();
+services.AddSingleton<WebRtcInterop>();
+services.AddScoped<Phone>();
 services.AddScoped<IWebRtcConfigurator, AzureWebRtcChannelsRegistrator>();
-services.AddScoped<IWebRtcConnector, AzureWebRtcChannelsRegistrator>();
+services.AddScoped<IWebRtcRegistrator, AzureWebRtcChannelsRegistrator>();
 services.AddSingleton<PhoneOptions>(sp => sp.GetRequiredService<IOptions<PhoneOptions>>().Value);
+
+services.AddSingleton<RtcConnector>();
+
 services.AddSingleton<BackendClient>(sp => 
 {
+    var clientId = sp.GetRequiredService<IProfile>().User.Id;
     var options = sp.GetRequiredService<PhoneOptions>();
     var baseUrl = options.ExternalChannelBaseUrl;
 #if DEBUG
@@ -31,7 +34,7 @@ services.AddSingleton<BackendClient>(sp =>
     var externalChannelBaseUrl = new BackendClient(baseUrl, clientId);
     return externalChannelBaseUrl;
 });
-services.AddScoped<IMessagesChannel>(sp =>
+services.AddSingleton<IMessagesChannel>(sp =>
 {
     var options = sp.GetRequiredService<PhoneOptions>();
     return new AzureMessagesChannel(sp.GetRequiredService<BackendClient>(), options.PollIntervalMs);
@@ -40,14 +43,9 @@ services.Configure<PusherOptions>(builder.Configuration.GetSection("Pusher"));
 services.Configure<PhoneOptions>(builder.Configuration.GetSection("Phone"));
 
 services.AddSingleton<ILocalStore, BrowserLocalStore>();
-services.AddSingleton<Profile>();
+services.AddSingleton<ProfileStore>();
+services.AddSingleton<IProfile>(sp => sp.GetRequiredService<ProfileStore>());
 
 var host = builder.Build();
-
-var js = host.Services.GetRequiredService<Profile>();
-
-var user = await js.GetUserInfoAsync();
-
-clientId = user?.Id ?? clientId;
 
 await host.RunAsync();

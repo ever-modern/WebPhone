@@ -38,20 +38,20 @@ public sealed class RtcConnector(WebRtcInterop webRtc, IMessagesChannel messages
     readonly ConcurrentDictionary<string, RtcConnection> _connections = [];
 
     public async Task<IRtcConnection> InitiateConnectionAsync(
-        string targetUserId,
+        string targetPeerId,
         string ownName,
         CancellationToken cancellationToken = default)
     {
-        var value = await TryFindExistingConnectionAsync(targetUserId);
+        var value = await TryFindExistingConnectionAsync(targetPeerId);
         if (value is not null)
         {
             return value;
         }
 
         var connectionId = Guid.NewGuid().ToString("N");
-        var connection = new RtcConnection(targetUserId, connectionId, () => { _ = webRtc.CloseAsync(connectionId); });
+        var connection = new RtcConnection(targetPeerId, connectionId, () => { _ = webRtc.CloseAsync(connectionId); });
 
-        _connections[targetUserId] = connection;
+        _connections[targetPeerId] = connection;
 
         var offer = await webRtc.CreateOfferAsync(connectionId);
 
@@ -59,19 +59,19 @@ public sealed class RtcConnector(WebRtcInterop webRtc, IMessagesChannel messages
             new OutgoingMessage(
                 Type: MessageType.ConnectionAttempt,
                 Payload: JsonSerializer.SerializeToElement(new ConnectionRequestPayload(connectionId, ownName, offer)),
-                TargetClientId: targetUserId),
+                TargetClientId: targetPeerId),
             cancellationToken
         );
 
         using var channelReader = messagesChannel
             .Subscribe(m =>
             {
-                if (m.Type is MessageType.ConnectionRejected && m.SenderClientId == targetUserId)
+                if (m.Type is MessageType.ConnectionRejected && m.SenderClientId == targetPeerId)
                 {
                     return true;
                 }
 
-                if (m.Type != MessageType.ConnectionAccepted || m.SenderClientId != targetUserId)
+                if (m.Type != MessageType.ConnectionAccepted || m.SenderClientId != targetPeerId)
                 {
                     return false;
                 }
@@ -91,7 +91,7 @@ public sealed class RtcConnector(WebRtcInterop webRtc, IMessagesChannel messages
 
         if (connectionResponse.Type is MessageType.ConnectionRejected)
         {
-            InvalidOperationException rejectedException = new($"Connection request to {targetUserId} has been rejected.");
+            InvalidOperationException rejectedException = new($"Connection request to {targetPeerId} has been rejected.");
             connection.Connected.TrySetException(rejectedException);
             throw rejectedException;
         }

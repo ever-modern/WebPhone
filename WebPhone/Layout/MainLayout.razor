@@ -1,3 +1,27 @@
-﻿@inherits LayoutComponentBase
+﻿@using WebPhone.Services
+@inherits LayoutComponentBase
 
-@Body
+@inject ProfileStore profileStore
+
+@if (ready)
+{
+    @Body    
+}
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await base.OnInitializedAsync();
+
+        var user = await profileStore.GetUserFromStoreAsync();
+
+        if (user is not null)
+        {
+            profileStore.SetUser(user);
+        }
+        ready = true;
+        StateHasChanged();
+    }
+
+    bool ready;
+}

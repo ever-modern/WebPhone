@@ -10,7 +10,7 @@ namespace WebPhone.Registration.Pusher;
 public sealed class PusherChannelsRegistrator(
     IJSRuntime jsRuntime,
     HttpClient httpClient,
-    IOptions<PusherOptions> options) : IWebRtcConfigurator, IWebRtcConnector
+    IOptions<PusherOptions> options) : IWebRtcConfigurator, IWebRtcRegistrator
 {
     private readonly IJSRuntime jsRuntime = jsRuntime;
     private readonly HttpClient httpClient = httpClient;

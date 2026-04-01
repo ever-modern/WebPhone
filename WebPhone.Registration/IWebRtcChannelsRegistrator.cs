@@ -7,7 +7,7 @@ public interface IWebRtcConfigurator : IAsyncDisposable
     ValueTask InitializeAsync(string channelName, string eventName, CancellationToken cancellationToken = default);
 }
 
-public interface IWebRtcConnector
+public interface IWebRtcRegistrator
 {
     ValueTask PublishAsync(string channelName, string eventName, object payload, CancellationToken cancellationToken = default);
 
