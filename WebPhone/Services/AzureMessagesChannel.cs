@@ -7,6 +7,7 @@ namespace WebPhone.Services;
 
 public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
 {
+    private static readonly MessageRequest[] EmptyMessages = [];
     private readonly List<Channel<IncomingMessage>> incomingChannels = [];
     private readonly Channel<OutgoingMessage> outgoingChannel = Channel.CreateUnbounded<OutgoingMessage>();
     private readonly TimeSpan idleSendInterval;
@@ -20,6 +21,7 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
     {
         _client = client;
         idleSendInterval = TimeSpan.FromMilliseconds(Math.Max(pollIntervalMs, 250));
+        lastSentTimestamp = DateTimeOffset.UtcNow - idleSendInterval;
         sendLoopTask = RunSendLoopAsync(cts.Token);
     }
 
@@ -61,20 +63,7 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
                 continue;
             }
 
-            // No longer send an empty message; presence messages are now sent by the phone service.
-            // Avoid tight loop: if GetIdleDelay is already zero (we would have sent an empty heartbeat),
-            // pause for the configured idle interval to prevent busy-spinning.
-            if (GetIdleDelay() <= TimeSpan.Zero)
-            {
-                try
-                {
-                    await Task.Delay(idleSendInterval, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    // cancellation requested - break the loop on next iteration
-                }
-            }
+            await SendExchangeAsync(EmptyMessages, cancellationToken);
         }
     }
 
@@ -108,7 +97,7 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
                 IncomingMessage incomingMessage = new(
                     MessageTypeJsonConverter.FromWireValue(message.Type),
                     message.Payload,
-                    _client.ClientId,
+                    message.PublisherClientId,
                     message.DateTime);
 
                 await incomingChannel.Writer.WriteAsync(incomingMessage, cancellationToken);

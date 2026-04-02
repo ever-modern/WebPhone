@@ -221,6 +221,18 @@ code {
     color: #2563eb;
 }
 
+.webrtc-contact-status.is-connected {
+    color: #16a34a;
+}
+
+.webrtc-contact-status.is-connecting {
+    color: #d97706;
+}
+
+.webrtc-contact-status.is-failed {
+    color: #dc2626;
+}
+
 .webrtc-contact-actions {
     display: flex;
     gap: 0.5rem;
@@ -229,6 +241,13 @@ code {
 
 .webrtc-button--danger {
     background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.webrtc-contact-connect-button {
+    align-self: flex-start;
+    margin-top: 0.35rem;
+    font-weight: 600;
+    box-shadow: 0 8px 18px rgba(37, 99, 235, 0.25);
 }
 
 .webrtc-call-highlight {
@@ -352,11 +371,28 @@ code {
     gap: 0.5rem;
 }
 
-.webrtc-messages li {
+.webrtc-message-bubble {
     padding: 0.6rem 0.85rem;
     border-radius: 10px;
     background: #f1f5f9;
     border: 1px solid #e2e8f0;
+    max-width: 85%;
+}
+
+.webrtc-message-bubble.is-own {
+    align-self: flex-end;
+    background: #dbeafe;
+    border-color: #93c5fd;
+}
+
+.webrtc-message-bubble.is-peer {
+    align-self: flex-start;
+    background: #f8fafc;
+    border-color: #e2e8f0;
+}
+
+.webrtc-chat-input-row {
+    margin: 0.5rem 0;
 }
 
 .webrtc-users {

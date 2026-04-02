@@ -57,6 +57,8 @@ public sealed record WebRtcDataChannelStateChangedEventArgs(string ConnectionId,
 
 public sealed record WebRtcDataMessageEventArgs(string ConnectionId, string Message);
 
+public sealed record WebRtcDataBytesMessageEventArgs(string ConnectionId, byte[] Message);
+
 public sealed record WebRtcRemoteStreamEventArgs(string ConnectionId);
 
 public sealed record WebRtcIceCandidateEventArgs(string ConnectionId, WebRtcIceCandidate Candidate);

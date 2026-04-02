@@ -3,6 +3,7 @@ const dotNetReferences = new Map();
 const dataChannels = new Map();
 const localStreams = new Map();
 const remoteStreams = new Map();
+const pendingRemoteAudioElements = new Map();
 
 function getConnection(id) {
   const connection = connections.get(id);
@@ -27,8 +28,24 @@ function wireDataChannel(id, channel) {
   }
 
   dataChannels.set(id, channel);
+  channel.binaryType = "arraybuffer";
   channel.onmessage = (event) => {
-    dotNetReference.invokeMethodAsync("OnDataChannelMessage", id, event.data);
+    const data = event.data;
+    if (typeof data === "string") {
+      dotNetReference.invokeMethodAsync("OnDataChannelMessage", id, data);
+      return;
+    }
+
+    if (data instanceof ArrayBuffer) {
+      dotNetReference.invokeMethodAsync("OnDataChannelBytesMessage", id, new Uint8Array(data));
+      return;
+    }
+
+    if (data instanceof Blob) {
+      data.arrayBuffer().then((buffer) => {
+        dotNetReference.invokeMethodAsync("OnDataChannelBytesMessage", id, new Uint8Array(buffer));
+      });
+    }
   };
 
   channel.onopen = () => {
@@ -92,6 +109,7 @@ async function createConnection(id, dotNetReference, iceServers) {
   }
 
   const peerConnection = new RTCPeerConnection(configuration);
+  peerConnection.addTransceiver("audio", { direction: "sendrecv" });
 
   peerConnection.onicecandidate = (event) => {
     if (event.candidate) {
@@ -104,11 +122,29 @@ async function createConnection(id, dotNetReference, iceServers) {
   };
 
   peerConnection.ontrack = (event) => {
-    const stream = event.streams[0];
-    if (stream) {
-      remoteStreams.set(id, stream);
-      dotNetReference.invokeMethodAsync("OnRemoteStream", id);
+    const streamFromEvent = event.streams && event.streams.length > 0
+      ? event.streams[0]
+      : null;
+
+    const stream = streamFromEvent ?? remoteStreams.get(id) ?? new MediaStream();
+    if (!streamFromEvent) {
+      stream.addTrack(event.track);
     }
+
+    remoteStreams.set(id, stream);
+
+    const pendingElement = pendingRemoteAudioElements.get(id);
+    if (pendingElement) {
+      pendingElement.srcObject = stream;
+      pendingElement.muted = false;
+      pendingElement.volume = 1;
+      if (typeof pendingElement.play === "function") {
+        pendingElement.play().catch(() => { });
+      }
+      pendingRemoteAudioElements.delete(id);
+    }
+
+    dotNetReference.invokeMethodAsync("OnRemoteStream", id);
   };
 
   peerConnection.ondatachannel = (event) => {
@@ -122,6 +158,11 @@ async function createConnection(id, dotNetReference, iceServers) {
 function attachRemoteStream(id, element) {
   const stream = remoteStreams.get(id);
   if (!stream) {
+    if (element) {
+      pendingRemoteAudioElements.set(id, element);
+      return;
+    }
+
     throw new Error(`No remote stream found for id '${id}'.`);
   }
 
@@ -130,8 +171,10 @@ function attachRemoteStream(id, element) {
   }
 
   element.srcObject = stream;
+  element.muted = false;
+  element.volume = 1;
   if (typeof element.play === "function") {
-    element.play();
+    element.play().catch(() => { });
   }
 }
 
@@ -157,7 +200,15 @@ function addLocalTracks(id) {
     throw new Error(`No local stream found for id '${id}'.`);
   }
 
-  stream.getTracks().forEach((track) => connection.addTrack(track, stream));
+  stream.getTracks().forEach((track) => {
+    const existingSender = connection.getSenders().find((sender) => sender.track?.kind === track.kind || (!sender.track && track.kind === "audio"));
+    if (existingSender) {
+      existingSender.replaceTrack(track);
+      return;
+    }
+
+    connection.addTrack(track, stream);
+  });
 }
 
 function createDataChannel(id, label, options) {
@@ -197,11 +248,41 @@ async function addIceCandidate(id, candidate) {
   await connection.addIceCandidate(new RTCIceCandidate(candidate));
 }
 
-function sendData(id, message) {
-  const channel = getDataChannel(id);
-  if (channel.readyState !== "open") {
-    throw new Error(`RTCDataChannel for id '${id}' is not open.`);
+async function waitForDataChannelOpen(channel, timeoutMs = 5000) {
+  if (channel.readyState === "open") {
+    return;
   }
+
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("RTCDataChannel open timeout."));
+    }, timeoutMs);
+
+    const onOpen = () => {
+      cleanup();
+      resolve();
+    };
+
+    const onClose = () => {
+      cleanup();
+      reject(new Error("RTCDataChannel closed before opening."));
+    };
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      channel.removeEventListener("open", onOpen);
+      channel.removeEventListener("close", onClose);
+    };
+
+    channel.addEventListener("open", onOpen);
+    channel.addEventListener("close", onClose);
+  });
+}
+
+async function sendData(id, message) {
+  const channel = getDataChannel(id);
+  await waitForDataChannelOpen(channel);
 
   channel.send(message);
 }
@@ -231,6 +312,7 @@ function closeConnection(id) {
 
   dotNetReferences.delete(id);
   remoteStreams.delete(id);
+  pendingRemoteAudioElements.delete(id);
 
   stopLocalStream(id);
 }

@@ -104,23 +104,34 @@ window.pusherInterop = {
   poll
 };
 
-const vapid = "BAiq6rrhzDW-4cNSZW7fghLxcfha3Bw5wJg_tVZru-GV9pTC0vcQe-XFm_COMEpHlb1K7hKJZBMn6FAbiZMbzEc";
+async function registerPush(vapid) {
+    if (!vapid || !navigator?.serviceWorker || !window?.PushManager) {
+        return null;
+    }
 
-async function registerPush(_) {
-    // Register service worker
-    const registration = await navigator.serviceWorker.register("/service-worker.js");
+    try {
+        const registration = await navigator.serviceWorker.register("/service-worker.js");
 
-    console.log("Service Worker registered");
+        if (typeof Notification !== "undefined" && Notification.permission === "default") {
+            await Notification.requestPermission();
+        }
 
-    // Subscribe to push
-    const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapid)
-    });
+        if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
+            return null;
+        }
 
-    const subscriptionJson = JSON.stringify(subscription);
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+            subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(vapid)
+            });
+        }
 
-    return subscriptionJson;
+        return JSON.stringify(subscription);
+    } catch {
+        return null;
+    }
 }
 
 // Helper

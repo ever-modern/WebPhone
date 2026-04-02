@@ -1,5 +1,6 @@
 @page "/"
 @using WebPhone.Services
+@implements IDisposable
 
 @inject IProfile Profile
 
@@ -21,4 +22,21 @@
             }            
         </main>
     </div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Profile.UserChanged += HandleUserChanged;
+    }
+
+    private async void HandleUserChanged(User _)
+    {
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        Profile.UserChanged -= HandleUserChanged;
+    }
+}
 </div>

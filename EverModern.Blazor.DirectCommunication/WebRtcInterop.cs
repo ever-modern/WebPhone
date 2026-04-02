@@ -18,6 +18,8 @@ public sealed class WebRtcInterop(IJSRuntime jsRuntime) : IAsyncDisposable
 
     public event EventHandler<WebRtcDataMessageEventArgs>? DataMessageReceived;
 
+    public event EventHandler<WebRtcDataBytesMessageEventArgs>? DataBytesMessageReceived;
+
     public event EventHandler<WebRtcRemoteStreamEventArgs>? RemoteStreamAvailable;
 
     public async ValueTask InitializeAsync(string connectionId, IEnumerable<WebRtcIceServer>? iceServers = null)
@@ -66,6 +68,11 @@ public sealed class WebRtcInterop(IJSRuntime jsRuntime) : IAsyncDisposable
         await jsRuntime.InvokeVoidAsync("webrtcInterop.sendData", connectionId, message);
     }
 
+    public async ValueTask SendMessageBytesAsync(string connectionId, byte[] message)
+    {
+        await jsRuntime.InvokeVoidAsync("webrtcInterop.sendData", connectionId, message);
+    }
+
     public async ValueTask CloseAsync(string connectionId)
     {
         await jsRuntime.InvokeVoidAsync("webrtcInterop.closeConnection", connectionId);
@@ -101,6 +108,13 @@ public sealed class WebRtcInterop(IJSRuntime jsRuntime) : IAsyncDisposable
     public Task OnDataChannelMessage(string connectionId, string message)
     {
         DataMessageReceived?.Invoke(this, new WebRtcDataMessageEventArgs(connectionId, message));
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnDataChannelBytesMessage(string connectionId, byte[] message)
+    {
+        DataBytesMessageReceived?.Invoke(this, new WebRtcDataBytesMessageEventArgs(connectionId, message));
         return Task.CompletedTask;
     }
 

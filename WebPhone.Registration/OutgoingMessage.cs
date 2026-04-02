@@ -5,15 +5,29 @@ namespace WebPhone.Registration;
 
 public record OutgoingMessage<T>(MessageType Type, T Payload, string? TargetClientId)
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     public static implicit operator OutgoingMessage(OutgoingMessage<T> self) 
-        => new(self.Type, JsonSerializer.SerializeToElement(self.Payload), self.TargetClientId);
+        => new(self.Type, JsonSerializer.SerializeToElement(self.Payload, SerializerOptions), self.TargetClientId);
 }
 
 public record OutgoingMessage(MessageType Type, JsonElement Payload, string? TargetClientId)
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     public OutgoingMessage<T>? SpecifyPayload<T>()
     {
-        try { return new(Type, JsonSerializer.Deserialize<T>(Payload), TargetClientId); }
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<T>(Payload, SerializerOptions);
+            return parsed is null ? default : new(Type, parsed, TargetClientId);
+        }
         catch { return default; }
     }
 }
@@ -22,9 +36,18 @@ public record IncomingMessage<T>(MessageType Type, T Payload, string SenderClien
 
 public record IncomingMessage(MessageType Type, JsonElement Payload, string SenderClientId, DateTimeOffset DateTime)
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     public IncomingMessage<T>? SpecifyPayload<T>()
     {
-        try { return new(Type, JsonSerializer.Deserialize<T>(Payload), SenderClientId, DateTime); }
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<T>(Payload, SerializerOptions);
+            return parsed is null ? default : new(Type, parsed, SenderClientId, DateTime);
+        }
         catch { return default; }
     }
 }

@@ -3,6 +3,8 @@ namespace WebPhone.Services;
 public interface IProfile
 {
     public User User { get; }
+
+    public event Action<User>? UserChanged;
 }
 
 public class ProfileStore(ILocalStore localStore) : IProfile
@@ -12,6 +14,7 @@ public class ProfileStore(ILocalStore localStore) : IProfile
     public void SetUser(User user)
     {
         User = user;
+        UserChanged?.Invoke(user);
         _ = SaveUserInfoAsync(user);
     }
 

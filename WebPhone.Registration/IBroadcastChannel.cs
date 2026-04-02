@@ -27,9 +27,32 @@ public class ChannelSubscription<T>(ChannelReader<T> reader, Action<ChannelSubsc
 {
     public Func<T, bool>? Filter => filter;
 
-    public ValueTask<T> ReadAsync(CancellationToken cancellationToken = default) => reader.ReadAsync(cancellationToken);
-    public IAsyncEnumerable<T> ReadAllAsync(CancellationToken cancellationToken = default)
-        => reader.ReadAllAsync(cancellationToken);
+    public async ValueTask<T> ReadAsync(CancellationToken cancellationToken = default)
+    {
+        while (await reader.WaitToReadAsync(cancellationToken))
+        {
+            while (reader.TryRead(out var item))
+            {
+                if (Filter is null || Filter(item))
+                {
+                    return item;
+                }
+            }
+        }
+
+        throw new ChannelClosedException();
+    }
+
+    public async IAsyncEnumerable<T> ReadAllAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        await foreach (var item in reader.ReadAllAsync(cancellationToken))
+        {
+            if (Filter is null || Filter(item))
+            {
+                yield return item;
+            }
+        }
+    }
 
     public void Dispose()
         => onDisposed(this);

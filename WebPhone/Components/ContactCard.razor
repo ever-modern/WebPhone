@@ -1,47 +1,66 @@
 @using WebPhone.Services
+@using System.Threading.Channels
+
+@implements IAsyncDisposable
 
 <div class="webrtc-card webrtc-contact-card @(IsActive ? "is-active" : string.Empty)">
     <div class="webrtc-contact-details">
         <strong>@User.Name</strong>
-        <span>            
-            @User.Id
-        </span>
+        <span>@User.Id</span>
         @if (!string.IsNullOrWhiteSpace(ConnectionState))
         {
-            <span class="webrtc-contact-status">@ConnectionState</span>
+            <span class="webrtc-contact-status @GetConnectionStatusCssClass()">@GetConnectionStatusText()</span>
         }
-        else if (IsIncoming)
-        {
-            <span class="webrtc-contact-status">Incoming call</span>
-        }
-        else if (IsCalling)
-        {
-            <span class="webrtc-contact-status">Calling...</span>
-        }
-        @if (ConnectionState == "Closed")
-        {
-            <button @onclick="async () => { var connection = await Phone.ConnectToUserAsync(User.Id, default); StateHasChanged(); }">
-                Connect
-            </button>
-        }
-    </div>
-    
-    <details class="webrtc-chat">
-        <summary>Chat</summary>
-       @*  <div class="webrtc-field">
-            <input class="webrtc-input" @bind="Phone.MessageToSend" placeholder="Type a message" />
-            <button class="webrtc-button" @onclick="Phone.SendMessageAsync" disabled="@(!Phone.CanSend)">Send</button>
-        </div> *@
-        <ul class="webrtc-messages">
-            @foreach (var message in Phone.ReceivedMessages)
+
+        <div class="webrtc-contact-actions">
+            @if (IsConnecting())
             {
-                <li>@message</li>
+                <button class="webrtc-button webrtc-button--danger" @onclick="CancelConnectAsync">Cancel</button>
+            }
+            else if (IsConnected())
+            {
+                <button class="webrtc-button webrtc-contact-connect-button" @onclick="DisconnectAsync">Disconnect</button>
+            }
+            else if (CanConnect())
+            {
+                <button class="webrtc-button webrtc-contact-connect-button" @onclick="ConnectAsync">Connect</button>
+            }
+
+            @if (IsConnected())
+            {
+                @if (HasIncomingCallOffer && !IsCallActive)
+                {
+                    <button class="webrtc-button" @onclick="AcceptIncomingCallAsync">Accept call</button>
+                }
+                else
+                {
+                    <button class="webrtc-button" @onclick="ToggleCallAsync">@(IsCallActive ? "Hang up" : "Call")</button>
+                }
+            }
+        </div>
+    </div>
+
+    <details class="webrtc-chat" open="@IsConnected()">
+        <summary>Chat</summary>
+        <div class="webrtc-field webrtc-chat-input-row">
+            <input class="webrtc-input" @bind="MessageToSend" placeholder="Type a message" disabled="@(!IsConnected())" />
+            <button class="webrtc-button" @onclick="SendMessageAsync" disabled="@(!IsConnected())">Send</button>
+        </div>
+        <ul class="webrtc-messages">
+            @foreach (var message in _messages.Where(x => !x.IsSystem))
+            {
+                <li class="webrtc-message-bubble @(message.IsOwn ? "is-own" : "is-peer")">@message.Text</li>
             }
         </ul>
     </details>
+
+    <audio class="webrtc-audio" autoplay playsinline @ref="_remoteAudio"></audio>
 </div>
 
 @code {
+    private const string CallPingMessage = "call:ping";
+    private static readonly TimeSpan IncomingCallPingTimeout = TimeSpan.FromSeconds(3);
+
     [Parameter, EditorRequired]
     public Phone Phone { get; set; } = default!;
 
@@ -60,4 +79,251 @@
     [Parameter]
     public bool IsIncoming { get; set; }
 
+    private string MessageToSend { get; set; } = string.Empty;
+    private readonly List<ChatDialogMessage> _messages = [];
+    private CancellationTokenSource _cts = new();
+    private CancellationTokenSource? _chatCts;
+    private CancellationTokenSource? _connectCts;
+    private Task? _chatPump;
+    private Task? _callPingMonitorTask;
+    private RtcMessageChannel? _channel;
+    private CallAgent? _callAgent;
+    private ElementReference _remoteAudio;
+    private DateTimeOffset _lastCallPingAt;
+
+    private bool IsCallActive => _callAgent?.CallState is CallState.Active or CallState.Ringing;
+
+    private bool HasIncomingCallOffer => DateTimeOffset.UtcNow - _lastCallPingAt <= IncomingCallPingTimeout;
+
+    protected override Task OnInitializedAsync()
+    {
+        _callPingMonitorTask = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+            while (await timer.WaitForNextTickAsync(_cts.Token))
+            {
+                if (!HasIncomingCallOffer)
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }, _cts.Token);
+
+        return Task.CompletedTask;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsConnected() && _chatPump is null)
+        {
+            await EnsureChatSubscriptionAsync();
+        }
+
+        if (!IsConnected() && _chatPump is not null)
+        {
+            _chatPump = null;
+        }
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (IsConnecting() || IsConnected())
+        {
+            return;
+        }
+
+        _connectCts?.Cancel();
+        _connectCts?.Dispose();
+        _connectCts = new CancellationTokenSource();
+
+        try
+        {
+            await Phone.ConnectToUserAsync(User.Id, _connectCts.Token);
+            await EnsureChatSubscriptionAsync();
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private async Task CancelConnectAsync()
+    {
+        _connectCts?.Cancel();
+        await Phone.CancelConnectionAsync(User.Id);
+        ResetChatChannelState();
+    }
+
+    private async Task DisconnectAsync()
+    {
+        await StopCallIfNeededAsync();
+        await Phone.CancelConnectionAsync(User.Id);
+        ResetChatChannelState();
+    }
+
+    private async Task ToggleCallAsync()
+    {
+        if (IsCallActive)
+        {
+            await StopCallIfNeededAsync();
+            return;
+        }
+
+        _callAgent = await Phone.CreateCallAgentAsync(User.Id, _cts.Token);
+        _callAgent.StateChanged -= HandleCallStateChanged;
+        _callAgent.StateChanged += HandleCallStateChanged;
+        await _callAgent.StartOutgoingCallAsync(_remoteAudio, _cts.Token);
+    }
+
+    private async Task AcceptIncomingCallAsync()
+    {
+        _callAgent ??= await Phone.CreateCallAgentAsync(User.Id, _cts.Token);
+        _callAgent.StateChanged -= HandleCallStateChanged;
+        _callAgent.StateChanged += HandleCallStateChanged;
+        await _callAgent.AcceptCallAsync(_remoteAudio);
+        _lastCallPingAt = DateTimeOffset.MinValue;
+    }
+
+    private async Task StopCallIfNeededAsync()
+    {
+        if (_callAgent is null)
+        {
+            return;
+        }
+
+        _callAgent.StateChanged -= HandleCallStateChanged;
+        await _callAgent.CancelCallAsync();
+        _callAgent = null;
+    }
+
+    private async Task SendMessageAsync()
+    {
+        if (_channel is null || string.IsNullOrWhiteSpace(MessageToSend) || !IsConnected())
+        {
+            return;
+        }
+
+        var message = new RtcTextMessage(MessageToSend, false);
+        try
+        {
+            await _channel.Writer.WriteAsync(message, _cts.Token);
+            _messages.Add(new ChatDialogMessage(MessageToSend, true, false, DateTimeOffset.UtcNow));
+            MessageToSend = string.Empty;
+        }
+        catch (ChannelClosedException)
+        {
+            ResetChatChannelState();
+            await EnsureChatSubscriptionAsync();
+            await _channel!.Writer.WriteAsync(message, _cts.Token);
+            _messages.Add(new ChatDialogMessage(MessageToSend, true, false, DateTimeOffset.UtcNow));
+            MessageToSend = string.Empty;
+        }
+    }
+
+    private async Task EnsureChatSubscriptionAsync()
+    {
+        _chatCts ??= CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        _channel ??= await Phone.GetTextChannelAsync(User.Id, _chatCts.Token);
+        if (_chatPump is not null)
+        {
+            return;
+        }
+
+        _chatPump = Task.Run(async () =>
+        {
+            using var subscription = _channel.Subscribe();
+            await foreach (var message in subscription.ReadAllAsync(_chatCts.Token))
+            {
+                if (message.IsSystem && message.Text == CallPingMessage)
+                {
+                    _lastCallPingAt = DateTimeOffset.UtcNow;
+                    await InvokeAsync(StateHasChanged);
+                    continue;
+                }
+
+                _messages.Add(new ChatDialogMessage(message.Text, false, message.IsSystem, DateTimeOffset.UtcNow));
+                await InvokeAsync(StateHasChanged);
+            }
+        }, _cts.Token);
+    }
+
+    private void ResetChatChannelState()
+    {
+        _chatCts?.Cancel();
+        _chatCts?.Dispose();
+        _chatCts = null;
+        _chatPump = null;
+        _channel = null;
+    }
+
+    private async void HandleCallStateChanged()
+    {
+        await InvokeAsync(StateHasChanged);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _connectCts?.Cancel();
+        _connectCts?.Dispose();
+        await StopCallIfNeededAsync();
+
+        _cts.Cancel();
+        _chatCts?.Cancel();
+        _chatCts?.Dispose();
+        if (_chatPump is not null)
+        {
+            try
+            {
+                await _chatPump;
+            }
+            catch
+            {
+            }
+        }
+
+        if (_callPingMonitorTask is not null)
+        {
+            try
+            {
+                await _callPingMonitorTask;
+            }
+            catch
+            {
+            }
+        }
+
+        _cts.Dispose();
+    }
+
+    private string GetConnectionStatusText()
+        => ConnectionState switch
+        {
+            nameof(RtcConnectionState.Connected) => "Connected",
+            nameof(RtcConnectionState.Connecting) => "Connecting...",
+            nameof(RtcConnectionState.Disconnected) => "Disconnected",
+            nameof(RtcConnectionState.Failed) => "Connection failed",
+            nameof(RtcConnectionState.New) => "Ready to connect",
+            nameof(RtcConnectionState.Closed) => "Offline",
+            _ => ConnectionState ?? string.Empty
+        };
+
+    private string GetConnectionStatusCssClass()
+        => ConnectionState switch
+        {
+            nameof(RtcConnectionState.Connected) => "is-connected",
+            nameof(RtcConnectionState.Connecting) => "is-connecting",
+            nameof(RtcConnectionState.Failed) => "is-failed",
+            _ => string.Empty
+        };
+
+    private bool CanConnect()
+        => ConnectionState is nameof(RtcConnectionState.Closed)
+            or nameof(RtcConnectionState.Disconnected)
+            or nameof(RtcConnectionState.Failed)
+            or nameof(RtcConnectionState.New);
+
+    private bool IsConnecting() => ConnectionState == nameof(RtcConnectionState.Connecting);
+
+    private bool IsConnected() => ConnectionState == nameof(RtcConnectionState.Connected);
+
+    private record ChatDialogMessage(string Text, bool IsOwn, bool IsSystem, DateTimeOffset Timestamp);
 }
