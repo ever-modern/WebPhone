@@ -11,6 +11,7 @@ public enum RtcConnectionState
     Connecting,
     Connected,
     Disconnected,
+    Recovering,
     Failed,
     Closed
 }
@@ -30,6 +31,8 @@ public interface IRtcConnection : IDisposable
 
     RtcConnectionState State { get; }
 
+    void SetState(RtcConnectionState state);
+
     event Action<RtcConnectionState> StateChanged;
 }
 
@@ -37,12 +40,14 @@ public sealed class RtcConnector
 {
     readonly WebRtcInterop webRtc;
     readonly IMessagesChannel messagesChannel;
+    readonly PhoneOptions _options;
     readonly ConcurrentDictionary<string, RtcConnection> _connections = [];
 
-    public RtcConnector(WebRtcInterop webRtc, IMessagesChannel messagesChannel)
+    public RtcConnector(WebRtcInterop webRtc, IMessagesChannel messagesChannel, PhoneOptions options)
     {
         this.webRtc = webRtc;
         this.messagesChannel = messagesChannel;
+        _options = options;
         webRtc.ConnectionStateChanged += HandleConnectionStateChanged;
     }
 
@@ -51,89 +56,19 @@ public sealed class RtcConnector
         string ownName,
         CancellationToken cancellationToken = default)
     {
-        var value = await TryFindExistingConnectionAsync(targetPeerId);
-        if (value is not null)
-        {
-            return value;
-        }
+        var existing = await TryFindExistingConnectionAsync(targetPeerId, cancellationToken);
+        if (existing is not null)
+            return existing;
 
-        var connectionId = Guid.NewGuid().ToString("N");
-        var connection = new RtcConnection(targetPeerId, connectionId, () => { _ = webRtc.CloseAsync(connectionId); });
-        connection.SetState(RtcConnectionState.Connecting);
-
+        var connection = await CreateRawInitiatedConnectionAsync(targetPeerId, ownName, cancellationToken);
         _connections[targetPeerId] = connection;
-
-        await webRtc.InitializeAsync(connectionId, null).AsTask();
-        await webRtc.CreateDataChannelAsync(connectionId, "chat");
-
-        var offer = await webRtc.CreateOfferAsync(connectionId);
-
-        await messagesChannel.Writer.WriteAsync(
-            new OutgoingMessage(
-                Type: MessageType.ConnectionAttempt,
-                Payload: JsonSerializer.SerializeToElement(new ConnectionRequestPayload(connectionId, ownName, offer)),
-                TargetClientId: targetPeerId),
-            cancellationToken
-        );
-
-        using var channelReader = messagesChannel
-            .Subscribe(m =>
-            {
-                if (m.Type is MessageType.ConnectionRejected && m.SenderClientId == targetPeerId)
-                {
-                    return true;
-                }
-
-                if (m.Type != MessageType.ConnectionAccepted || m.SenderClientId != targetPeerId)
-                {
-                    return false;
-                }
-
-                var specific = m.SpecifyPayload<AnswerPayload>();
-
-                if (specific?.Payload.ConnectionId != connectionId)
-                {
-                    return false;
-                }
-
-                return true;
-            });
-
-
-        var connectionResponse = await channelReader.ReadAsync(cancellationToken);
-
-        if (connectionResponse.Type is MessageType.ConnectionRejected)
-        {
-            InvalidOperationException rejectedException = new($"Connection request to {targetPeerId} has been rejected.");
-            connection.Connected.TrySetException(rejectedException);
-            throw rejectedException;
-        }
-
-        var payload = connectionResponse.SpecifyPayload<AnswerPayload>()?.Payload;
-        if (payload is null || payload.Answer is null || string.IsNullOrWhiteSpace(payload.Answer.Type) || string.IsNullOrWhiteSpace(payload.Answer.Sdp))
-        {
-            var ex = new InvalidOperationException($"Connection response from {targetPeerId} does not contain a valid answer.");
-            connection.Connected.TrySetException(ex);
-            throw ex;
-        }
-
-        await webRtc.SetRemoteDescriptionAsync(connectionId, payload.Answer);
-
-        connection.SetState(RtcConnectionState.Connected);
-        connection.Connected.TrySetResult();
-
         return connection;
     }
 
     public Task CancelConnectionAsync(string targetUserId)
     {
-        if (_connections.TryRemove(targetUserId, out var connection))
-        {
-            connection.SetState(RtcConnectionState.Closed);
-            connection.Connected.TrySetCanceled();
-            connection.Dispose();
-        }
-
+        if (_connections.TryRemove(targetUserId, out var retained))
+            retained.Dispose();
         return Task.CompletedTask;
     }
 
@@ -146,24 +81,80 @@ public sealed class RtcConnector
         if (_connections.TryGetValue(targetUserId, out var existingConnection) && existingConnection.Id != connectionId)
         {
             _connections.TryRemove(targetUserId, out _);
-            existingConnection.SetState(RtcConnectionState.Closed);
             existingConnection.Connected.TrySetCanceled();
             existingConnection.Dispose();
         }
 
-        var value = await TryFindExistingConnectionAsync(targetUserId);
-        if (value is not null)
+        var existing = await TryFindExistingConnectionAsync(targetUserId, cancellationToken);
+        if (existing is not null)
+            return existing;
+
+        var connection = await CreateRawAcceptedConnectionAsync(targetUserId, connectionId, offer, cancellationToken);
+        _connections[targetUserId] = connection;
+        return connection;
+    }
+
+    private async Task<RtcConnection> CreateRawInitiatedConnectionAsync(
+        string targetPeerId,
+        string ownName,
+        CancellationToken cancellationToken)
+    {
+        var connectionId = Guid.NewGuid().ToString("N");
+        var connection = new RtcConnection(targetPeerId, connectionId, () => { _ = webRtc.CloseAsync(connectionId); });
+        connection.SetState(RtcConnectionState.Connecting);
+
+        await webRtc.InitializeAsync(connectionId, _options.WebRtcIceServers).AsTask();
+        await webRtc.CreateDataChannelAsync(connectionId, "chat");
+
+        var offer = await webRtc.CreateOfferAsync(connectionId);
+
+        await messagesChannel.Writer.WriteAsync(
+            new OutgoingMessage(
+                Type: MessageType.ConnectionAttempt,
+                Payload: JsonSerializer.SerializeToElement(new ConnectionRequestPayload(connectionId, ownName, offer)),
+                TargetClientId: targetPeerId),
+            cancellationToken);
+
+        using var channelReader = messagesChannel.Subscribe(m =>
         {
-            return value;
+            if (m.Type is MessageType.ConnectionRejected && m.SenderClientId == targetPeerId)
+                return true;
+            if (m.Type != MessageType.ConnectionAccepted || m.SenderClientId != targetPeerId)
+                return false;
+            var specific = m.SpecifyPayload<AnswerPayload>();
+            return specific?.Payload.ConnectionId == connectionId;
+        });
+
+        var connectionResponse = await channelReader.ReadAsync(cancellationToken);
+
+        if (connectionResponse.Type is MessageType.ConnectionRejected)
+            throw new InvalidOperationException($"Connection request to {targetPeerId} has been rejected.");
+
+        var payload = connectionResponse.SpecifyPayload<AnswerPayload>()?.Payload;
+        if (payload is null || payload.Answer is null
+            || string.IsNullOrWhiteSpace(payload.Answer.Type)
+            || string.IsNullOrWhiteSpace(payload.Answer.Sdp))
+        {
+            throw new InvalidOperationException($"Connection response from {targetPeerId} does not contain a valid answer.");
         }
 
+        await webRtc.SetRemoteDescriptionAsync(connectionId, payload.Answer);
+
+        connection.SetState(RtcConnectionState.Connected);
+        connection.Connected.TrySetResult();
+        return connection;
+    }
+
+    private async Task<RtcConnection> CreateRawAcceptedConnectionAsync(
+        string targetUserId,
+        string connectionId,
+        WebRtcOffer offer,
+        CancellationToken cancellationToken)
+    {
         var connection = new RtcConnection(targetUserId, connectionId, () => { _ = webRtc.CloseAsync(connectionId); });
         connection.SetState(RtcConnectionState.Connecting);
 
-        _connections[targetUserId] = connection;
-
-        await webRtc.InitializeAsync(connectionId, null).AsTask();
-
+        await webRtc.InitializeAsync(connectionId, _options.WebRtcIceServers).AsTask();
         await webRtc.SetRemoteDescriptionAsync(connectionId, offer);
 
         var answer = await webRtc.CreateAnswerAsync(connectionId);
@@ -173,12 +164,10 @@ public sealed class RtcConnector
                 Type: MessageType.ConnectionAccepted,
                 Payload: new(connectionId, answer),
                 TargetClientId: targetUserId),
-            cancellationToken
-        );
+            cancellationToken);
 
         connection.SetState(RtcConnectionState.Connected);
         connection.Connected.TrySetResult();
-
         return connection;
     }
 
@@ -188,9 +177,7 @@ public sealed class RtcConnector
         var key = found.Key;
         var connection = found.Value;
         if (connection is null)
-        {
             return;
-        }
 
         var mapped = e.State.ToLowerInvariant() switch
         {
@@ -205,51 +192,43 @@ public sealed class RtcConnector
 
         connection.SetState(mapped);
         if (mapped is RtcConnectionState.Connected)
-        {
             connection.Connected.TrySetResult();
-        }
         else if (mapped is RtcConnectionState.Failed)
-        {
             connection.Connected.TrySetException(new InvalidOperationException("WebRTC connection failed."));
-        }
-        else if (mapped is RtcConnectionState.Disconnected or RtcConnectionState.Closed)
+        else if (mapped is RtcConnectionState.Closed)
         {
             connection.Connected.TrySetCanceled();
             if (!string.IsNullOrWhiteSpace(key))
-            {
                 _connections.TryRemove(key, out _);
-            }
         }
     }
 
-    private async Task<IRtcConnection?> TryFindExistingConnectionAsync(string targetUserId)
+    private async Task<IRtcConnection?> TryFindExistingConnectionAsync(
+        string targetUserId,
+        CancellationToken cancellationToken = default)
     {
-        if (_connections.TryGetValue(targetUserId, out var readyConnection))
+        if (!_connections.TryGetValue(targetUserId, out var connection))
+            return null;
+
+        if (connection.State is RtcConnectionState.Connected or RtcConnectionState.Disconnected)
+            return connection;
+
+        if (connection.State is RtcConnectionState.Connecting or RtcConnectionState.New)
         {
-            if (readyConnection.State is RtcConnectionState.Connected)
-            {
-                return readyConnection;
-            }
-
-            if (readyConnection.State is RtcConnectionState.Connecting or RtcConnectionState.New)
-            {
-                await readyConnection.Connected.Task;
-                return readyConnection;
-            }
-
-            if (readyConnection.State is RtcConnectionState.Disconnected or RtcConnectionState.Closed or RtcConnectionState.Failed)
-            {
-                _connections.TryRemove(targetUserId, out _);
-            }
+            await connection.Connected.Task.WaitAsync(cancellationToken);
+            return connection;
         }
+
+        if (connection.State is RtcConnectionState.Failed or RtcConnectionState.Closed)
+            _connections.TryRemove(targetUserId, out _);
 
         return null;
     }
 
-    record RtcConnection(
+    sealed record RtcConnection(
         string RemotePeer,
         string Id,
-        Action Dispose) : IRtcConnection
+        Action DisposeAction) : IRtcConnection
     {
         public RtcConnectionState State { get; private set; } = RtcConnectionState.New;
 
@@ -260,16 +239,11 @@ public sealed class RtcConnector
         public void SetState(RtcConnectionState state)
         {
             if (State == state)
-            {
                 return;
-            }
-
             State = state;
             StateChanged(state);
         }
 
-        void IDisposable.Dispose()
-            => Dispose();
+        public void Dispose() => DisposeAction();
     }
-
 }

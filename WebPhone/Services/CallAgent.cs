@@ -64,10 +64,6 @@ public class CallAgent
 
         pingLoopCts?.Cancel();
         pingLoopCts?.Dispose();
-        pingLoopCts = null;
-
-        pingLoopCts?.Cancel();
-        pingLoopCts?.Dispose();
         pingLoopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         pingLoopTask = RunCallPingLoopAsync(pingLoopCts.Token);
 
@@ -90,6 +86,23 @@ public class CallAgent
         this.remoteAudioElement = remoteAudioElement;
         hasRemoteAudioElement = true;
         await TryAttachRemoteAudioAsync();
+
+        pingLoopCts?.Cancel();
+        pingLoopCts?.Dispose();
+        pingLoopCts = null;
+
+        if (pingLoopTask is not null)
+        {
+            try
+            {
+                await pingLoopTask;
+            }
+            catch
+            {
+            }
+        }
+
+        await textChannel.Writer.WriteAsync(new RtcTextMessage("call:accepted", true));
 
         if (string.IsNullOrWhiteSpace(AudioStatusMessage))
         {
@@ -228,6 +241,13 @@ public class CallAgent
         {
             await textChannel.Writer.WriteAsync(new RtcTextMessage(CallPingMessage, true), cancellationToken);
         }
+    }
+
+    public async Task AttachRemoteAudioAsync(ElementReference remoteAudioElement)
+    {
+        this.remoteAudioElement = remoteAudioElement;
+        hasRemoteAudioElement = true;
+        await TryAttachRemoteAudioAsync();
     }
 
     private void LogStep(string step)

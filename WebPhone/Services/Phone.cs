@@ -8,7 +8,6 @@ using WebPhone.Registration;
 
 namespace WebPhone.Services;
 
-
 public sealed class Phone(
     WebRtcInterop webRtc,
     IJSRuntime jsRuntime,
@@ -17,14 +16,13 @@ public sealed class Phone(
     IMessagesChannel externalChannel,
     RtcConnector rtcConnector,
     BackendClient backendClient,
-    IProfile profile) : IAsyncDisposable
+    IProfile profile,
+    ContactsRepository contactsTracker,
+    PresenceAnnouncer presenceAnnouncer,
+    IncomingConnectionsHandler incomingConnectionHandler) : IAsyncDisposable
 {
     private readonly Stopwatch stepTimer = Stopwatch.StartNew();
-    private readonly int pollIntervalMs = Math.Max(options.PollIntervalMs, 250);
-    private DateTimeOffset lastOutgoingTimestamp = DateTimeOffset.UtcNow;
     private long lastStepTimestamp;
-    private PeriodicTimer? presenceTimer;
-    private CancellationTokenSource? presenceCts;
     private Task? messageReaderTask;
     private CancellationTokenSource? messageReaderCts;
     private bool dataMessageSubscribed;
@@ -32,9 +30,8 @@ public sealed class Phone(
     public event Action? StateChanged;
 
     readonly ConcurrentDictionary<string, IRtcConnection> _userConnections = [];
-    readonly ConcurrentDictionary<string, OuterUser> _presences = [];
     readonly ConcurrentDictionary<string, RtcMessageChannel> _textChannels = [];
-    readonly  ILogger<Phone> _logger = loggerFactory.CreateLogger<Phone>();
+    readonly ILogger<Phone> _logger = loggerFactory.CreateLogger<Phone>();
 
     public string DisplayName => profile.User.Name;
 
@@ -50,10 +47,14 @@ public sealed class Phone(
 
     public IReadOnlyList<CallInfo> IncomingCalls { get; private set; } = [];
 
-    public IReadOnlyList<OuterUser> Users => [.. _presences.Values];
+    public IReadOnlyList<Contact> Users => contactsTracker.Contacts;
 
-    public async Task InitializeAsync()
+    public Task InitializeAsync()
     {
+        contactsTracker.StateChanged += NotifyStateChanged;
+        incomingConnectionHandler.ConnectionEstablished += OnConnectionEstablished;
+        StartMessageReader();
+
         _ = SubscribeForPushAsync(default).ContinueWith(t =>
         {
             if (t.IsFaulted)
@@ -64,9 +65,6 @@ public sealed class Phone(
             return 0;
         });
 
-        StartMessageReader();
-        StartPresenceLoop();
-
         if (!dataMessageSubscribed)
         {
             webRtc.DataMessageReceived += HandleDataMessageReceived;
@@ -74,10 +72,7 @@ public sealed class Phone(
             dataMessageSubscribed = true;
         }
 
-        if (!string.IsNullOrWhiteSpace(DisplayName))
-        {
-            await SendPresenceAsync();
-        }
+        return Task.CompletedTask;
     }
 
     public async Task<IRtcConnection> ConnectToUserAsync(string userId, CancellationToken cancellationToken)
@@ -89,24 +84,16 @@ public sealed class Phone(
 
     public async Task CancelConnectionAsync(string userId)
     {
-        await rtcConnector.CancelConnectionAsync(userId);
-
-        if (_textChannels.TryRemove(userId, out var textChannel))
+        try
         {
-            await textChannel.DisposeAsync();
+            await externalChannel.Writer.WriteAsync(new OutgoingMessage(
+                MessageType.ConnectionClosed,
+                JsonSerializer.SerializeToElement(new { }),
+                userId));
         }
+        catch { }
 
-        if (_userConnections.TryRemove(userId, out var connection))
-        {
-            connection.Dispose();
-        }
-
-        if (_presences.TryGetValue(userId, out var existingPresence))
-        {
-            _presences[userId] = existingPresence with { ConnectionState = RtcConnectionState.Closed };
-        }
-
-        NotifyStateChanged();
+        await CleanupPeerConnectionAsync(userId);
     }
 
     public async Task<CallAgent> CreateCallAgentAsync(string targetClientId, CancellationToken cancellationToken = default)
@@ -116,6 +103,14 @@ public sealed class Phone(
         var callAgent = new CallAgent(webRtc, externalChannel, textChannel, connection, loggerFactory.CreateLogger<CallAgent>());
         return callAgent;
     }
+
+    public async Task NotifyClientAsync(string targetClientId, string? message = null, CancellationToken cancellationToken = default)
+    {
+        await backendClient.NotifyAsync(targetClientId, message, cancellationToken);
+    }
+
+    public Task NotifySelfAsync(string? message = null, CancellationToken cancellationToken = default)
+        => backendClient.NotifyAsync(null, message, cancellationToken);
 
     public async Task SubscribeForPushAsync(CancellationToken cancellationToken)
     {
@@ -134,7 +129,14 @@ public sealed class Phone(
     {
         if (_textChannels.TryGetValue(userId, out var existingChannel))
         {
+            if (existingChannel.IsDisposed)
+            {
+                _textChannels.TryRemove(userId, out _);
+            }
+            else
+            {
             return existingChannel;
+            }
         }
 
         var connection = await ConnectToUserAsync(userId, cancellationToken);
@@ -155,34 +157,6 @@ public sealed class Phone(
         }
     }
 
-    private async Task SendPresenceAsync()
-    {
-        var payload = JsonSerializer.SerializeToElement(new PresencePayload(DisplayName));
-        await externalChannel.Writer.WriteAsync(new WebPhone.Registration.OutgoingMessage(MessageType.Presence, payload, null));
-        lastOutgoingTimestamp = DateTimeOffset.UtcNow;
-    }
-
-    void StartPresenceLoop()
-    {
-        presenceCts?.Cancel();
-        presenceCts = new CancellationTokenSource();
-        presenceTimer = new PeriodicTimer(TimeSpan.FromSeconds(5));
-        _ = RunPresenceLoopAsync(presenceCts.Token);
-    }
-
-    async Task RunPresenceLoopAsync(CancellationToken cancellationToken)
-    {
-        while (await presenceTimer.WaitForNextTickAsync(cancellationToken))
-        {
-            // Only send presence if no outgoing messages have been pushed within the configured poll interval
-            var elapsed = DateTimeOffset.UtcNow - lastOutgoingTimestamp;
-            if (elapsed >= TimeSpan.FromMilliseconds(pollIntervalMs))
-            {
-                await SendPresenceAsync();
-            }
-        }
-    }
-
     private void StartMessageReader()
     {
         messageReaderCts?.Cancel();
@@ -192,7 +166,7 @@ public sealed class Phone(
 
     private async Task ReadMessagesAsync(CancellationToken cancellationToken)
     {
-        using var reader = externalChannel.Subscribe();
+        using var reader = externalChannel.Subscribe(m => m.Type is MessageType.ConnectionClosed or MessageType.Call);
         await foreach (var message in reader.ReadAllAsync(cancellationToken))
         {
             await HandleSignalingPayloadAsync(message);
@@ -203,25 +177,8 @@ public sealed class Phone(
     {
         switch (message.Type)
         {
-            case MessageType.Presence:
-                var presence = message.SpecifyPayload<PresencePayload>();
-                if (presence is null)
-                    break;
-                var connection = _userConnections.GetValueOrDefault(presence.SenderClientId);
-                _presences[presence.SenderClientId] = new OuterUser(presence.SenderClientId, presence.Payload.Name, presence.DateTime, connection?.State ?? RtcConnectionState.Closed);
-                PrunePresence();
-                LogStep($"Presence received from {presence.SenderClientId}");
-                NotifyStateChanged();
-                break;
-            case MessageType.ConnectionAttempt:
-                var call = message.SpecifyPayload<ConnectionRequestPayload>();
-                if (call is null)
-                    break;
-                SignalingStatus = $"Incoming connection request from {call.Payload.FromName}...";
-                var acceptedConnection = await rtcConnector.AcceptConnectionAsync(call.SenderClientId, call.Payload.ConnectionId, call.Payload.Offer);
-                TrackConnection(call.SenderClientId, acceptedConnection);
-                LogStep("Incoming call received");
-                NotifyStateChanged();
+            case MessageType.ConnectionClosed:
+                await CleanupPeerConnectionAsync(message.SenderClientId);
                 break;
             case MessageType.Call:
                 var callRequest = message.SpecifyPayload<InitiateCallPayload>();
@@ -231,13 +188,12 @@ public sealed class Phone(
         }
     }
 
-    private void PrunePresence()
+    private void OnConnectionEstablished(string userId, string fromName, IRtcConnection connection)
     {
-        var cutoff = DateTimeOffset.UtcNow.AddSeconds(-30);
-        foreach (var (key, value) in _presences.Where(user => user.Value.LastSeen < cutoff).ToArray())
-        {
-            _presences.TryRemove(key, out var _);
-        }
+        SignalingStatus = $"Incoming connection request from {fromName}...";
+        TrackConnection(userId, connection);
+        LogStep("Incoming call received");
+        NotifyStateChanged();
     }
 
     private void LogStep(string step)
@@ -258,6 +214,33 @@ public sealed class Phone(
 
     private void NotifyStateChanged() => StateChanged?.Invoke();
 
+    private async Task CleanupPeerConnectionAsync(string userId)
+    {
+        await rtcConnector.CancelConnectionAsync(userId);
+
+        if (_textChannels.TryRemove(userId, out var textChannel))
+            await textChannel.DisposeAsync();
+
+        if (_userConnections.TryRemove(userId, out var connection))
+            connection.Dispose();
+
+        contactsTracker.UpdateConnectionState(userId, RtcConnectionState.Closed);
+
+        NotifyStateChanged();
+    }
+
+    private async Task AutoConnectFavoriteAsync(string userId)
+    {
+        try
+        {
+            await ConnectToUserAsync(userId, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Auto-connect to favourite {UserId} failed", userId);
+        }
+    }
+
     private void HandleDataMessageReceived(object? sender, WebRtcDataMessageEventArgs e)
     {
         var textChannel = ResolveTextChannelByConnectionId(e.ConnectionId);
@@ -275,6 +258,17 @@ public sealed class Phone(
         var existing = _textChannels.FirstOrDefault(x => x.Value.ConnectionId == connectionId).Value;
         if (existing is not null)
         {
+            if (existing.IsDisposed)
+            {
+                var deadEntry = _textChannels.FirstOrDefault(x => x.Value == existing);
+                if (!string.IsNullOrWhiteSpace(deadEntry.Key))
+                {
+                    _textChannels.TryRemove(deadEntry.Key, out _);
+                }
+
+                return null;
+            }
+
             return existing;
         }
 
@@ -299,26 +293,16 @@ public sealed class Phone(
         _userConnections[userId] = connection;
         connection.StateChanged += state =>
         {
-            if (_presences.TryGetValue(userId, out var userPresence))
-            {
-                _presences[userId] = userPresence with { ConnectionState = state };
-            }
-
+            contactsTracker.UpdateConnectionState(userId, state);
             NotifyStateChanged();
         };
 
-        if (_presences.TryGetValue(userId, out var existingPresence))
-        {
-            _presences[userId] = existingPresence with { ConnectionState = connection.State };
-        }
-
+        contactsTracker.UpdateConnectionState(userId, connection.State);
         NotifyStateChanged();
     }
 
     public async ValueTask DisposeAsync()
     {
-        presenceCts?.Cancel();
-        presenceTimer?.Dispose();
         messageReaderCts?.Cancel();
         if (messageReaderTask is not null)
         {
@@ -347,11 +331,13 @@ public record User(string Id, string Name);
 
 public record UserConnection(User OtherUser, IRtcConnection RtcConnection);
 
-public record OuterUser(string Id, string Name, DateTimeOffset LastSeen, RtcConnectionState ConnectionState) : User(Id, Name);
+public record Contact(string Id, string Name, DateTimeOffset LastSeen, RtcConnectionState ConnectionState, bool IsFavorite = false) : User(Id, Name);
 
 public record CallInfo(string ConnectionId, string RemotePeerId, string RemotePeerName);
 
 public record RtcTextMessage(string Text, bool IsSystem);
+
+public record FavoriteContact(string Id, string Name);
 
 public sealed record UserPresence(string UserId, string Name, DateTimeOffset LastSeen);
 

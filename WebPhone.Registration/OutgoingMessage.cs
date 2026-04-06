@@ -63,6 +63,7 @@ public enum MessageType
     ConnectionAttempt,
     ConnectionAccepted,
     ConnectionRejected,
+    ConnectionClosed,
     Call,
     CallResponse
 }
@@ -77,6 +78,7 @@ public sealed class MessageTypeJsonConverter : JsonConverter<MessageType>
             MessageType.ConnectionAttempt => "connection-attempt",
             MessageType.ConnectionAccepted => "connection-accepted",
             MessageType.ConnectionRejected => "connection-rejected",
+            MessageType.ConnectionClosed => "connection-closed",
             _ => "unknown"
         };
 
@@ -88,6 +90,7 @@ public sealed class MessageTypeJsonConverter : JsonConverter<MessageType>
             "connection-attempt" => MessageType.ConnectionAttempt,
             "connection-accepted" => MessageType.ConnectionAccepted,
             "connection-rejected" => MessageType.ConnectionRejected,
+            "connection-closed" => MessageType.ConnectionClosed,
             _ => MessageType.Unknown
         };
 

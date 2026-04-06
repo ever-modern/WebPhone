@@ -57,7 +57,7 @@ function wireDataChannel(id, channel) {
   };
 }
 
-function waitForIceGatheringComplete(peerConnection, timeoutMs = 2000) {
+function waitForIceGatheringComplete(peerConnection, timeoutMs = 5000) {
   if (peerConnection.iceGatheringState === "complete") {
     return Promise.resolve();
   }
@@ -281,10 +281,29 @@ async function waitForDataChannelOpen(channel, timeoutMs = 5000) {
 }
 
 async function sendData(id, message) {
-  const channel = getDataChannel(id);
-  await waitForDataChannelOpen(channel);
+  const channel = dataChannels.get(id);
+  if (!channel) {
+    console.warn(`sendData: no data channel for id '${id}', dropping message.`);
+    return;
+  }
 
-  channel.send(message);
+  try {
+    await waitForDataChannelOpen(channel);
+  } catch (e) {
+    console.warn(`sendData: data channel not ready for id '${id}': ${e.message}`);
+    return;
+  }
+
+  if (channel.readyState !== "open") {
+    console.warn(`sendData: channel not open for id '${id}', dropping message.`);
+    return;
+  }
+
+  try {
+    channel.send(message);
+  } catch (e) {
+    console.warn(`sendData: send failed for id '${id}': ${e.message}`);
+  }
 }
 
 function stopLocalStream(id) {

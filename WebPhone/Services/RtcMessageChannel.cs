@@ -15,6 +15,8 @@ public class RtcMessageChannel : IBroadcastChannel<RtcTextMessage, RtcTextMessag
     private readonly Task _sendLoopTask;
     private bool _isDisposed;
 
+    public bool IsDisposed => _isDisposed;
+
     public RtcMessageChannel(IRtcConnection connection, WebRtcInterop webRtc)
     {
         this.connection = connection;
@@ -82,7 +84,11 @@ public class RtcMessageChannel : IBroadcastChannel<RtcTextMessage, RtcTextMessag
         {
             await foreach (var msg in _outgoing.Reader.ReadAllAsync(cancellationToken))
             {
-                await webRtc.SendMessageBytesAsync(connection.Id, ToWireMessage(msg));
+                try
+                {
+                    await webRtc.SendMessageBytesAsync(connection.Id, ToWireMessage(msg));
+                }
+                catch (Exception) { }
             }
         }
         catch (OperationCanceledException) { }

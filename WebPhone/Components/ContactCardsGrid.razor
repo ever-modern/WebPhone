@@ -3,15 +3,20 @@
 @implements IDisposable
 
 @inject Phone Phone
+@inject NicknamesRepository Nicknames
 
 <section class="webrtc-contacts-card">
-    <h2>Contacts</h2>
-   
+    <div class="webrtc-field">
+        <h2>Contacts</h2>
+        <button class="webrtc-button" @onclick="NotifySelfAsync">Notify self</button>
+    </div>
+
     <div class="webrtc-contact-carousel">
         @foreach (var user in Phone.Users)
         {
             <ContactCard Phone="Phone"
                          User="user"
+                         IsFavorite="@user.IsFavorite"
                          ConnectionState="@(user.ConnectionState.ToString())" />
         }
     </div>
@@ -23,15 +28,17 @@
         Phone.StateChanged -= StateHasChanged;
     }
 
-    protected override async Task OnInitializedAsync()
+    protected override Task OnInitializedAsync()
     {
         Phone.StateChanged += HandlePhoneStateChanged;
-        await Phone.InitializeAsync();
-        HandlePhoneStateChanged();
+        return Task.CompletedTask;
     }
 
     private async void HandlePhoneStateChanged()
     {
         await InvokeAsync(StateHasChanged);
     }
+
+    private Task NotifySelfAsync()
+        => Phone.NotifySelfAsync("Self test notification");
 }

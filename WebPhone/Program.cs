@@ -17,6 +17,9 @@ IServiceCollection services = builder.Services;
 services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 services.AddSingleton<WebRtcInterop>();
 services.AddScoped<Phone>();
+services.AddScoped<ContactsRepository>();
+services.AddScoped<PresenceAnnouncer>();
+services.AddScoped<IncomingConnectionsHandler>();
 services.AddScoped<IWebRtcConfigurator, AzureWebRtcChannelsRegistrator>();
 services.AddScoped<IWebRtcRegistrator, AzureWebRtcChannelsRegistrator>();
 services.AddSingleton<PhoneOptions>(sp => sp.GetRequiredService<IOptions<PhoneOptions>>().Value);
@@ -43,6 +46,7 @@ services.Configure<PusherOptions>(builder.Configuration.GetSection("Pusher"));
 services.Configure<PhoneOptions>(builder.Configuration.GetSection("Phone"));
 
 services.AddSingleton<ILocalStore, BrowserLocalStore>();
+services.AddSingleton<NicknamesRepository>();
 services.AddSingleton<ProfileStore>();
 services.AddSingleton<IProfile>(sp => sp.GetRequiredService<ProfileStore>());
 

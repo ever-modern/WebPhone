@@ -1,6 +1,5 @@
 using Dapper;
 using Npgsql;
-using System.Text.Json;
 
 namespace WebPhone.AzureEnd.Storage;
 
@@ -10,6 +9,9 @@ public sealed record PushSubscriptionDto(string Endpoint, PushSubscriptionKeys? 
 
 public sealed class PushSubscriptionsRepository(NpgsqlConnection connection)
 {
+    private static readonly SemaphoreSlim _schemaGate = new(1, 1);
+    private static volatile bool _schemaChecked;
+
     public async Task InsertOrUpdateAsync(string clientId, PushSubscriptionDto subscription, CancellationToken cancellationToken = default)
     {
         var endpoint = subscription.Endpoint;
@@ -17,11 +19,19 @@ public sealed class PushSubscriptionsRepository(NpgsqlConnection connection)
         var auth = subscription.Keys?.Auth;
         var encoding = subscription.ContentEncoding;
 
-        var sql = @"INSERT INTO push_subscriptions (client_id, endpoint, p256dh, auth, content_encoding, created_at, last_seen)
-VALUES (@ClientId, @Endpoint, @P256dh, @Auth, @ContentEncoding, now(), now())
-ON CONFLICT (endpoint) DO UPDATE SET client_id = @ClientId, p256dh = @P256dh, auth = @Auth, content_encoding = @ContentEncoding, last_seen = now();";
+        var sql = @"INSERT INTO push_subscriptions
+(client_id, endpoint, p256dh, auth, content_encoding, created_at, last_seen)
+VALUES 
+(@ClientId, @Endpoint, @P256dh, @Auth, @ContentEncoding, now(), now())
+ON CONFLICT (client_id) DO UPDATE SET
+    p256dh = @P256dh,
+    auth = @Auth,
+    content_encoding = @ContentEncoding,
+    last_seen = now();";
 
-        await connection.ExecuteAsync(sql, new { ClientId = clientId, Endpoint = endpoint, P256dh = p256dh, Auth = auth, ContentEncoding = encoding });
+        await connection.ExecuteAsync(
+            sql,
+            new { ClientId = clientId, Endpoint = endpoint, P256dh = p256dh, Auth = auth, ContentEncoding = encoding });
     }
 
     public async Task<bool> RemoveByEndpointAsync(string endpoint, CancellationToken cancellationToken = default)

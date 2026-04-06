@@ -14,6 +14,7 @@ public class BackendClient(string baseUrl, string clientId) : IDisposable
     readonly HttpClient _httpClient = new();    
     readonly string _exchangeEndpoint = $"{baseUrl.TrimEnd('/')}/api/exchange";
     readonly string _pushSubscriptionEndpoint = $"{baseUrl.TrimEnd('/')}/api/subscribe-for-push";
+    readonly string _notifyEndpoint = $"{baseUrl.TrimEnd('/')}/api/notify";
 
     public string ClientId => clientId;
 
@@ -41,6 +42,18 @@ public class BackendClient(string baseUrl, string clientId) : IDisposable
         var body = subscriptionPayload;//JsonSerializer.Serialize(subscriptionPayload, JsonOptions);
         using var request = new HttpRequestMessage(HttpMethod.Post, _pushSubscriptionEndpoint);
         request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+        request.Headers.Add("X-Client-Id", clientId);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task NotifyAsync(string? targetClientId, string? message, CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, _notifyEndpoint)
+        {
+            Content = JsonContent.Create(new NotifyRequest(targetClientId, message), options: JsonOptions)
+        };
         request.Headers.Add("X-Client-Id", clientId);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);

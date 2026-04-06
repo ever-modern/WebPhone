@@ -14,6 +14,7 @@
     <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png" />
     <script type="importmap"></script>
     <script src="https://js.pusher.com/8.4.0/pusher.min.js"></script>
+    <script src="tabGuard.js"></script>
     <script src="appInterop.js"></script>
     <script src="pusherInterop.js"></script>
 </head>
@@ -33,8 +34,27 @@
         <span class="dismiss">🗙</span>
     </div>
     <script src="_content/EverModern.Blazor.DirectCommunication/webrtcInterop.js"></script>
-    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
-    <script>navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });</script>
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js" autostart="false"></script>
+    <script>
+        window.addEventListener('unhandledrejection', (event) => {
+            const message = event?.reason?.message ?? '';
+            if (typeof message === 'string' && message.includes('message channel closed before a response was received')) {
+                event.preventDefault();
+            }
+        });
+
+        (async function () {
+            const allowed = await window.tabGuard.check();
+            if (!allowed) {
+                window.tabGuard.showBlocked();
+                return;
+            }
+            await Blazor.start();
+            if (navigator?.serviceWorker) {
+                navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' }).catch(() => { });
+            }
+        })();
+    </script>
 </body>
 
 </html>

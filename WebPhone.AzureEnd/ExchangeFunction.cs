@@ -49,11 +49,6 @@ public sealed class ExchangeFunction(ILogger<ExchangeFunction> logger, MessagesR
         var response = new ExchangeResponse(
             [.. relevantMessages.Select(m => new MessageResponse(m.PublisherId, m.Type, m.DateTime, m.Payload))]);
 
-        foreach (var message in request.Messages.Where(m => m.TargetClientId is not null))
-        {
-            await pushNotificationService.PushToClientAsync(message.TargetClientId!, $"Incoming message from {clientId}.", cancellationToken);
-        }
-
         return FunctionCors.BuildResult(new ObjectResult(response), "POST, OPTIONS");
     }
 

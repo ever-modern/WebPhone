@@ -1,0 +1,116 @@
+@using System.Runtime.CompilerServices
+@implements IAsyncDisposable
+
+<details class="webrtc-chat" open="@IsOpen">
+    <summary>Chat</summary>
+    <div class="webrtc-chat-compose">
+        <input class="webrtc-chat-input" @bind="_text" @bind:event="oninput" @onkeydown="HandleKeyDownAsync" placeholder="Type a message..." disabled="@(!IsEnabled)" />
+        <button class="webrtc-send-btn" @onclick="HandleSendAsync" disabled="@(!IsEnabled)" title="Send">&#10148;</button>
+    </div>
+    <ul class="webrtc-messages">
+        @foreach (var (text, isOwn) in _messages)
+        {
+            <li class="webrtc-message-bubble @(isOwn ? "is-own" : "is-peer")">@text</li>
+        }
+    </ul>
+</details>
+
+@code {
+    [Parameter, EditorRequired]
+    public Func<string, CancellationToken, Task> OnSend { get; set; } = default!;
+
+    [Parameter, EditorRequired]
+    public Func<CancellationToken, IAsyncEnumerable<(string Sender, string Text)>> MessageSource { get; set; } = default!;
+
+    [Parameter]
+    public bool IsEnabled { get; set; }
+
+    [Parameter]
+    public bool IsOpen { get; set; }
+
+    [Parameter]
+    public EventCallback<string> OnSystemMessage { get; set; }
+
+    private string _text = string.Empty;
+    private readonly List<(string Text, bool IsOwn)> _messages = [];
+    private CancellationTokenSource? _cts;
+    private Task? _readTask;
+    private bool _wasEnabled;
+
+    protected override Task OnParametersSetAsync()
+    {
+        if (IsEnabled && !_wasEnabled)
+        {
+            _wasEnabled = true;
+            StartReadLoop();
+        }
+        else if (!IsEnabled && _wasEnabled)
+        {
+            _wasEnabled = false;
+            StopReadLoop();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private void StartReadLoop()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource();
+        var ct = _cts.Token;
+
+        _readTask = Task.Run(async () =>
+        {
+            try
+            {
+                await foreach (var (sender, text) in MessageSource(ct))
+                {
+                    if (sender == "system")
+                    {
+                        await InvokeAsync(() => OnSystemMessage.InvokeAsync(text));
+                        continue;
+                    }
+
+                    _messages.Add((text, sender == "self"));
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (OperationCanceledException) { }
+        }, ct);
+    }
+
+    private void StopReadLoop()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = null;
+    }
+
+    private async Task HandleSendAsync()
+    {
+        if (!IsEnabled || string.IsNullOrWhiteSpace(_text)) return;
+
+        var text = _text;
+        _text = string.Empty;
+        _messages.Add((text, true));
+
+        await OnSend(text, CancellationToken.None);
+    }
+
+    private async Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+            await HandleSendAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        var task = _readTask;
+        StopReadLoop();
+        if (task is not null)
+        {
+            try { await task; } catch { }
+        }
+    }
+}
