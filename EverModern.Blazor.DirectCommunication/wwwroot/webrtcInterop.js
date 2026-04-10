@@ -198,7 +198,7 @@ async function startLocalStream(id, constraints) {
   return stream;
 }
 
-function addLocalTracks(id) {
+async function addLocalTracks(id) {
   const connection = getConnection(id);
   const stream = localStreams.get(id);
   if (!stream) {
@@ -207,22 +207,25 @@ function addLocalTracks(id) {
 
   console.log(`[WebRTC] Adding local tracks for connection ${id}`);
   const addedTracks = [];
-  stream.getTracks().forEach((track) => {
+  for (const track of stream.getTracks()) {
     console.log(`[WebRTC] Processing track: ${track.kind}, id: ${track.id}, enabled: ${track.enabled}`);
 
-    // Find sender for this track type
-    const existingSender = connection.getSenders().find((sender) => {
-      // Match by track kind, or find an empty sender that can take this track
-      return sender.track?.kind === track.kind || (!sender.track && sender.transport !== null);
-    });
+    // Prefer sender that already carries this kind; otherwise take the first empty sender.
+    // Do NOT require sender.transport !== null here; during setup it's frequently null,
+    // and failing to reuse that sender makes addTrack create a new m-line that needs
+    // renegotiation (which we don't do for call start).
+    const existingSender =
+      connection.getSenders().find((sender) => sender.track?.kind === track.kind)
+      ?? connection.getSenders().find((sender) => !sender.track);
 
     if (existingSender) {
       console.log(`[WebRTC] Replacing track in existing sender for ${track.kind}`);
-      existingSender.replaceTrack(track).then(() => {
+      try {
+        await existingSender.replaceTrack(track);
         console.log(`[WebRTC] Successfully replaced ${track.kind} track`);
-      }).catch(err => {
+      } catch (err) {
         console.error(`[WebRTC] Failed to replace ${track.kind} track:`, err);
-      });
+      }
       addedTracks.push(track.kind);
     } else {
       console.log(`[WebRTC] Adding new sender for ${track.kind} track`);
@@ -230,7 +233,7 @@ function addLocalTracks(id) {
       console.log(`[WebRTC] Added sender:`, sender);
       addedTracks.push(track.kind);
     }
-  });
+  }
 
   console.log(`[WebRTC] Processed tracks: ${addedTracks.join(', ')}`);
   console.log(`[WebRTC] Total senders on connection: ${connection.getSenders().length}`);
