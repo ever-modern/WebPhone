@@ -1,9 +1,13 @@
 using System.Collections.Concurrent;
-using WebPhone.Registration;
+using EverModern.Events;
 
 namespace WebPhone.Services;
 
-public class ContactsRepository(IMessagesChannel messagesChannel, ILocalStore localStore) : IAsyncDisposable
+public class ContactsRepository(
+    IMessagesChannel messagesChannel,
+    ILocalStore localStore,
+    NicknamesRepository nicknamesRepository
+) : IAsyncDisposable
 {
     private const string FavoriteContactsStorageKey = "favorite-contacts";
     private readonly ConcurrentDictionary<string, Contact> _presences = [];
@@ -13,11 +17,16 @@ public class ContactsRepository(IMessagesChannel messagesChannel, ILocalStore lo
 
     public IReadOnlyList<Contact> Contacts { get; private set; } = [];
 
-    public event Action? StateChanged;
+    readonly EventSource _stateChanged = new();
+    public INotifier StateChanged => _stateChanged;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        var favorites = await localStore.GetAsync<List<FavoriteContact>>(FavoriteContactsStorageKey, cancellationToken) ?? [];
+        var favorites =
+            await localStore.GetAsync<List<FavoriteContact>>(
+                FavoriteContactsStorageKey,
+                cancellationToken
+            ) ?? [];
         foreach (var f in favorites)
         {
             if (!string.IsNullOrWhiteSpace(f.Id))
@@ -26,30 +35,24 @@ public class ContactsRepository(IMessagesChannel messagesChannel, ILocalStore lo
         RebuildContacts();
     }
 
-    public void Start()
+    public void StartTracking()
     {
         _cts = new CancellationTokenSource();
         _readerTask = ReadPresenceAsync(_cts.Token);
     }
 
-    public void UpdateConnectionState(string userId, RtcConnectionState state)
-    {
-        if (_presences.TryGetValue(userId, out var user))
-        {
-            _presences[userId] = user with { ConnectionState = state };
-            RebuildContacts();
-            StateChanged?.Invoke();
-        }
-    }
-
-    public async Task ToggleFavoriteAsync(string userId, string userName, CancellationToken cancellationToken = default)
+    public async Task ToggleFavoriteAsync(
+        string userId,
+        string userName,
+        CancellationToken cancellationToken = default
+    )
     {
         if (!_favorites.TryRemove(userId, out _))
             _favorites[userId] = userName;
 
         await SaveFavoritesAsync(cancellationToken);
         RebuildContacts();
-        StateChanged?.Invoke();
+        _stateChanged.Invoke();
     }
 
     private async Task ReadPresenceAsync(CancellationToken ct)
@@ -58,27 +61,40 @@ public class ContactsRepository(IMessagesChannel messagesChannel, ILocalStore lo
         await foreach (var message in reader.ReadAllAsync(ct))
         {
             var payload = message.SpecifyPayload<PresencePayload>();
-            if (payload is null) continue;
+            if (payload is null)
+                continue;
 
-            var prev = _presences.TryGetValue(message.SenderClientId, out var existing) ? existing : null;
+            var nickname = nicknamesRepository.GetNickname(message.SenderClientId);
+
+            var prev = _presences.TryGetValue(message.SenderClientId, out var existing)
+                ? existing
+                : null;
+
             _presences[message.SenderClientId] = new Contact(
-                message.SenderClientId,
-                payload.Payload.Name,
-                DateTimeOffset.UtcNow,
-                prev?.ConnectionState ?? RtcConnectionState.New,
-                _favorites.ContainsKey(message.SenderClientId));
+                Id: message.SenderClientId,
+                Name: payload.Payload.Name,
+                LastSeen: DateTimeOffset.UtcNow,
+                IsFavorite: _favorites.ContainsKey(message.SenderClientId),
+                Nickname: nickname
+            );
 
             PrunePresence();
             RebuildContacts();
-            StateChanged?.Invoke();
+            _stateChanged.Invoke();
         }
     }
 
-    private void PrunePresence()
+    private bool PrunePresence()
     {
+        var result = false;
         var cutoff = DateTimeOffset.UtcNow.AddSeconds(-30);
         foreach (var (key, _) in _presences.Where(u => u.Value.LastSeen < cutoff).ToArray())
+        {
+            result = true;
             _presences.TryRemove(key, out _);
+        }
+
+        return result;
     }
 
     private void RebuildContacts()
@@ -88,16 +104,26 @@ public class ContactsRepository(IMessagesChannel messagesChannel, ILocalStore lo
         foreach (var (id, contact) in _presences)
             merged[id] = contact with { IsFavorite = _favorites.ContainsKey(id) };
 
-        foreach (var (id, name) in _favorites)
+        foreach (var (id, name) in _favorites.Where(f => merged.ContainsKey(f.Key) is false))
         {
-            if (!merged.ContainsKey(id))
-                merged[id] = new Contact(id, name, DateTimeOffset.MinValue, RtcConnectionState.Closed, true);
+            var nickname = nicknamesRepository.GetNickname(id);
+            merged[id] = new Contact(
+                id,
+                name,
+                DateTimeOffset.MinValue,
+                true,
+                nickname
+            );
         }
 
-        Contacts = [.. merged.Values
-            .OrderByDescending(u => u.IsFavorite)
-            .ThenByDescending(u => u.LastSeen)
-            .ThenBy(u => u.Name)];
+        Contacts =
+        [
+            .. merged
+                .Values.OrderByDescending(v => v.IsFavorite)
+                .ThenByDescending(v => v.Nickname is not null)
+                .ThenBy(v => v.Nickname)
+                .ThenBy(v => v.Name),
+        ];
     }
 
     private async Task SaveFavoritesAsync(CancellationToken cancellationToken = default)

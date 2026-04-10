@@ -1,14 +1,9 @@
 @using WebPhone.Services
-@using System.Threading.Channels
-@using System.Runtime.CompilerServices
 
-@implements IAsyncDisposable
+@inherits DisposableComponent
 
-@inject NicknamesRepository Nicknames
-@inject ContactsRepository Contacts
-
-<div class="webrtc-card webrtc-contact-card @(IsActive ? "is-active" : string.Empty)">
-    <button class="webrtc-favorite-btn @(IsFavorite ? "is-favorite" : string.Empty)" @onclick="ToggleFavoriteAsync" title="@(IsFavorite ? "Remove favourite" : "Add favourite")">★</button>
+<div class="webrtc-card webrtc-contact-card">
+    <button class="webrtc-favorite-btn @(Vm.Contact.IsFavorite ? "is-favorite" : string.Empty)" @onclick="ToggleFavoriteAsync" title="@(Vm.Contact.IsFavorite ? "Remove favourite" : "Add favourite")">★</button>
     <div class="webrtc-contact-details">
         @if (_editingNickname)
         {
@@ -21,199 +16,100 @@
         else
         {
             <div class="webrtc-contact-name-row">
-                <strong>@(string.IsNullOrWhiteSpace(Nickname) ? User.Name : Nickname)</strong>
+                <strong>@(string.IsNullOrWhiteSpace(Nickname) ? Vm.Contact.Name : Nickname)</strong>
                 @if (!string.IsNullOrWhiteSpace(Nickname))
                 {
-                    <span class="webrtc-contact-real-name">(@User.Name)</span>
+                    <span class="webrtc-contact-real-name">(@Vm.Contact.Name)</span>
                 }
                 <button class="webrtc-icon-btn webrtc-nickname-edit-btn" @onclick="StartNicknameEdit" title="@(string.IsNullOrWhiteSpace(Nickname) ? "Set nickname" : "Edit nickname")">✏</button>
             </div>
         }
-        <span>@User.Id</span>
-        @if (!string.IsNullOrWhiteSpace(ConnectionState))
+        <span>@Vm.Contact.Id</span>
+        @if (!string.IsNullOrWhiteSpace(Vm.ConnectionStateText))
         {
-            <span class="webrtc-contact-status @GetConnectionStatusCssClass()">@GetConnectionStatusText()</span>
-        }
-
-        <div class="webrtc-contact-actions">
-            <button class="webrtc-button" @onclick="NotifyPeerAsync">Notify</button>
-
-            @if (!IsFavorite)
-            {
-                @if (IsConnecting())
+            <span class="webrtc-contact-status @GetConnectionStatusCssClass()">
+                @if (Vm.IsConnecting())
                 {
-                    <button class="webrtc-button webrtc-button--danger" @onclick="CancelConnectAsync">Cancel</button>
-                }
-                else if (IsConnected())
-                {
-                    <button class="webrtc-button webrtc-contact-connect-button" @onclick="DisconnectAsync">Disconnect</button>
-                }
-                else if (CanConnect())
-                {
-                    <button class="webrtc-button webrtc-contact-connect-button" @onclick="ConnectAsync">Connect</button>
-                }
-            }
-
-            @if (IsConnected())
-            {
-                @if (HasIncomingCallOffer && !IsCallActive)
-                {
-                    <button class="webrtc-button" @onclick="AcceptIncomingCallAsync">Accept call</button>
+                    <span>Connecting<span class="webrtc-dots-animation"></span></span>
                 }
                 else
                 {
-                    <button class="webrtc-button" @onclick="ToggleCallAsync">@(IsCallActive ? "Hang up" : "Call")</button>
+                    @GetConnectionStatusText()
+                }
+            </span>
+        }
+
+        <div class="webrtc-contact-actions">
+            <button class="webrtc-button" @onclick="Vm.NotifyPeerAsync">Notify</button>
+
+            @if (!Vm.Contact.IsFavorite)
+            {
+                @if (Vm.IsConnecting())
+                {
+                    <button class="webrtc-button webrtc-button--danger" @onclick="Vm.CancelConnectAsync">Cancel</button>
+                }
+                else if (Vm.IsConnected())
+                {
+                    <button class="webrtc-button webrtc-contact-connect-button" @onclick="Vm.DisconnectAsync">Disconnect</button>
+                }
+                else if (Vm.CanConnect())
+                {
+                    <button class="webrtc-button webrtc-contact-connect-button" @onclick="Vm.ConnectAsync">Connect</button>
+                }
+            }
+
+            @if (Vm.IsConnected())
+            {
+                @if (Vm.HasIncomingCallOffer && !Vm.IsCallActive)
+                {
+                    <button class="webrtc-button" @onclick="() => Vm.AcceptIncomingCallAsync(_remoteAudio)">Accept call</button>
+                }
+                else
+                {
+                    <button class="webrtc-button" @onclick="() => Vm.ToggleCallAsync(_remoteAudio)">@(Vm.IsCallActive ? "Hang up" : "Call")</button>
                 }
             }
         </div>
     </div>
 
-    <ChatPanel OnSend="SendChatMessageAsync" MessageSource="SubscribeToChatAsync" IsEnabled="_chatReady" IsOpen="IsConnected()" OnSystemMessage="HandleSystemMessageAsync" />
+    <ChatPanel OnSend="Vm.SendChatMessageAsync"
+               MessageSource="Vm.SubscribeToChatAsync"
+               IsEnabled="Vm.ChatReady"
+               IsOpen="Vm.IsConnected()"
+               OnSystemMessage="text => Vm.HandleSystemMessageAsync(text, _remoteAudio)" />
 
     <audio class="webrtc-audio" autoplay playsinline @ref="_remoteAudio"></audio>
 </div>
 
 @code {
-    private const string CallPingMessage = "call:ping";
-    private const string CallAcceptedMessage = "call:accepted";
-    private static readonly TimeSpan IncomingCallPingTimeout = TimeSpan.FromSeconds(3);
+    [Parameter, EditorRequired]
+    public ContactVm Vm { get; set; } = default!;
+
+    [Parameter]
+    public string? Nickname { get; set; }
 
     [Parameter, EditorRequired]
-    public Phone Phone { get; set; } = default!;
+    public EventCallback ToggleFavourite { get; set; }
 
     [Parameter, EditorRequired]
-    public User User { get; set; } = default!;
-
-    [Parameter]
-    public string? ConnectionState { get; set; }
-
-    [Parameter]
-    public bool IsActive { get; set; }
-
-    [Parameter]
-    public bool IsCalling { get; set; }
-
-    [Parameter]
-    public bool IsIncoming { get; set; }
-
-    [Parameter]
-    public bool IsFavorite { get; set; }
-
-    private string? Nickname => Nicknames.GetNickname(User.Id);
+    public EventCallback<(string UserId, string? Nickname)> OnSetNickname { get; set; }
 
     private bool _editingNickname;
     private string _nicknameEdit = string.Empty;
-    private bool _chatReady;
-    private CancellationTokenSource _cts = new();
-    private CancellationTokenSource? _connectCts;
-    private Task? _callPingMonitorTask;
-    private RtcMessageChannel? _channel;
-    private CallAgent? _callAgent;
     private ElementReference _remoteAudio;
-    private DateTimeOffset _lastCallPingAt;
 
-    private bool IsCallActive => _callAgent?.CallState is CallState.Active or CallState.Ringing;
-
-    private bool HasIncomingCallOffer => DateTimeOffset.UtcNow - _lastCallPingAt <= IncomingCallPingTimeout;
-
-    protected override Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        _callPingMonitorTask = Task.Run(async () =>
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
-            while (await timer.WaitForNextTickAsync(_cts.Token))
-            {
-                if (!HasIncomingCallOffer)
-                {
-                    await InvokeAsync(StateHasChanged);
-                }
-            }
-        }, _cts.Token);
-
-        return Task.CompletedTask;
+        BoundToLifetime(Vm.Changed.Subscribe(HandleVmChanged));
     }
 
-    protected override async Task OnParametersSetAsync()
+    private async void HandleVmChanged()
     {
-        if (IsConnected() && _channel is null)
-        {
-            await EnsureChatSubscriptionAsync();
-        }
-
-        if (!IsConnected() && _channel is not null)
-        {
-            ResetChatChannelState();
-        }
+        await InvokeAsync(StateHasChanged);
     }
 
-    private async Task ConnectAsync()
-    {
-        if (IsConnecting() || IsConnected())
-        {
-            return;
-        }
-
-        _connectCts?.Cancel();
-        _connectCts?.Dispose();
-        _connectCts = new CancellationTokenSource();
-
-        try
-        {
-            await Phone.ConnectToUserAsync(User.Id, _connectCts.Token);
-            await EnsureChatSubscriptionAsync();
-        }
-        catch (OperationCanceledException)
-        {
-        }
-    }
-
-    private async Task CancelConnectAsync()
-    {
-        _connectCts?.Cancel();
-        await Phone.CancelConnectionAsync(User.Id);
-        ResetChatChannelState();
-    }
-
-    private async Task DisconnectAsync()
-    {
-        await StopCallIfNeededAsync();
-        await Phone.CancelConnectionAsync(User.Id);
-        ResetChatChannelState();
-    }
-
-    private async Task ToggleCallAsync()
-    {
-        if (IsCallActive)
-        {
-            await StopCallIfNeededAsync();
-            return;
-        }
-
-        _callAgent = await Phone.CreateCallAgentAsync(User.Id, _cts.Token);
-        _callAgent.StateChanged -= HandleCallStateChanged;
-        _callAgent.StateChanged += HandleCallStateChanged;
-        await _callAgent.StartOutgoingCallAsync(_remoteAudio, _cts.Token);
-    }
-
-    private async Task AcceptIncomingCallAsync()
-    {
-        _callAgent ??= await Phone.CreateCallAgentAsync(User.Id, _cts.Token);
-        _callAgent.StateChanged -= HandleCallStateChanged;
-        _callAgent.StateChanged += HandleCallStateChanged;
-        await _callAgent.AcceptCallAsync(_remoteAudio);
-        _lastCallPingAt = DateTimeOffset.MinValue;
-    }
-
-    private async Task ToggleFavoriteAsync()
-    {
-        var wasAdding = !IsFavorite;
-        await Contacts.ToggleFavoriteAsync(User.Id, User.Name, _cts.Token);
-        if (wasAdding && !IsConnecting() && !IsConnected())
-            _ = ConnectAsync();
-    }
-
-    private Task NotifyPeerAsync()
-        => Phone.NotifyClientAsync(User.Id, $"Notification from {Phone.DisplayName}", _cts.Token);
+    private Task ToggleFavoriteAsync()
+        => ToggleFavourite.InvokeAsync();
 
     private void StartNicknameEdit()
     {
@@ -226,7 +122,7 @@
 
     private async Task SaveNicknameAsync()
     {
-        await Nicknames.SetNicknameAsync(User.Id, _nicknameEdit, _cts.Token);
+        await OnSetNickname.InvokeAsync((Vm.Contact.Id, _nicknameEdit));
         _editingNickname = false;
     }
 
@@ -236,122 +132,24 @@
         else if (e.Key == "Escape") CancelNicknameEdit();
     }
 
-    private async Task StopCallIfNeededAsync()
-    {
-        if (_callAgent is null)
-        {
-            return;
-        }
-
-        _callAgent.StateChanged -= HandleCallStateChanged;
-        await _callAgent.CancelCallAsync();
-        _callAgent = null;
-    }
-
-    private async Task EnsureChatSubscriptionAsync()
-    {
-        _channel ??= await Phone.GetTextChannelAsync(User.Id, _cts.Token);
-        _chatReady = true;
-    }
-
-    private void ResetChatChannelState()
-    {
-        _chatReady = false;
-        _channel = null;
-    }
-
-    private async IAsyncEnumerable<(string Sender, string Text)> SubscribeToChatAsync(
-        [EnumeratorCancellation] CancellationToken ct)
-    {
-        if (_channel is null) yield break;
-
-        using var subscription = _channel.Subscribe();
-        await foreach (var message in subscription.ReadAllAsync(ct))
-        {
-            yield return (message.IsSystem ? "system" : "peer", message.Text);
-        }
-    }
-
-    private async Task SendChatMessageAsync(string text, CancellationToken ct)
-    {
-        if (_channel is null || !IsConnected()) return;
-        try
-        {
-            await _channel.Writer.WriteAsync(new RtcTextMessage(text, false), ct);
-        }
-        catch (ChannelClosedException) { }
-    }
-
-    private async Task HandleSystemMessageAsync(string text)
-    {
-        if (text == CallPingMessage)
-        {
-            _lastCallPingAt = DateTimeOffset.UtcNow;
-            await InvokeAsync(StateHasChanged);
-        }
-        else if (text == CallAcceptedMessage)
-        {
-            if (_callAgent is not null)
-                await _callAgent.AttachRemoteAudioAsync(_remoteAudio);
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private async void HandleCallStateChanged()
-    {
-        await InvokeAsync(StateHasChanged);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        _connectCts?.Cancel();
-        _connectCts?.Dispose();
-        await StopCallIfNeededAsync();
-
-        _cts.Cancel();
-
-        if (_callPingMonitorTask is not null)
-        {
-            try
-            {
-                await _callPingMonitorTask;
-            }
-            catch
-            {
-            }
-        }
-
-        _cts.Dispose();
-    }
-
     private string GetConnectionStatusText()
-        => ConnectionState switch
+        => Vm.ConnectionState switch
         {
-            nameof(RtcConnectionState.Connected) => "Connected",
-            nameof(RtcConnectionState.Connecting) => "Connecting...",
-            nameof(RtcConnectionState.Disconnected) => "Disconnected",
-            nameof(RtcConnectionState.Failed) => "Connection failed",
-            nameof(RtcConnectionState.New) => "Ready to connect",
-            nameof(RtcConnectionState.Closed) => "Offline",
-            _ => ConnectionState ?? string.Empty
+            RtcConnectionState.Connected => "Connected",
+            RtcConnectionState.Connecting => "Connecting...",
+            RtcConnectionState.Disconnected => "Disconnected",
+            RtcConnectionState.Failed => "Connection failed",
+            RtcConnectionState.New => "Ready to connect",
+            RtcConnectionState.Closed => "Offline",
+            _ => Vm.ConnectionStateText
         };
 
     private string GetConnectionStatusCssClass()
-        => ConnectionState switch
+        => Vm.ConnectionState switch
         {
-            nameof(RtcConnectionState.Connected) => "is-connected",
-            nameof(RtcConnectionState.Connecting) => "is-connecting",
-            nameof(RtcConnectionState.Failed) => "is-failed",
+            RtcConnectionState.Connected => "is-connected",
+            RtcConnectionState.Connecting => "is-connecting",
+            RtcConnectionState.Failed => "is-failed",
             _ => string.Empty
         };
-
-    private bool CanConnect()
-        => ConnectionState is nameof(RtcConnectionState.Closed)
-            or nameof(RtcConnectionState.Disconnected)
-            or nameof(RtcConnectionState.Failed)
-            or nameof(RtcConnectionState.New);
-
-    private bool IsConnecting() => ConnectionState == nameof(RtcConnectionState.Connecting);
-
-    private bool IsConnected() => ConnectionState == nameof(RtcConnectionState.Connected);
 }

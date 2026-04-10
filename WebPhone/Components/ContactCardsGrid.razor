@@ -1,44 +1,32 @@
 @using WebPhone.Services
 
-@implements IDisposable
-
-@inject Phone Phone
-@inject NicknamesRepository Nicknames
-
 <section class="webrtc-contacts-card">
     <div class="webrtc-field">
         <h2>Contacts</h2>
-        <button class="webrtc-button" @onclick="NotifySelfAsync">Notify self</button>
     </div>
 
     <div class="webrtc-contact-carousel">
-        @foreach (var user in Phone.Users)
+        @foreach (var vm in ContactVms)
         {
-            <ContactCard Phone="Phone"
-                         User="user"
-                         IsFavorite="@user.IsFavorite"
-                         ConnectionState="@(user.ConnectionState.ToString())" />
+            <ContactCard @key="vm.Contact.Id"
+                         Vm="vm"
+                         Nickname="@GetNickname(vm.Contact.Id)"
+                         ToggleFavourite="() => OnToggleFavorite.InvokeAsync(vm.Contact)"
+                         OnSetNickname="OnSetNickname" />
         }
     </div>
 </section>
 
 @code {
-    public void Dispose()
-    {
-        Phone.StateChanged -= StateHasChanged;
-    }
+    [Parameter, EditorRequired]
+    public IReadOnlyList<ContactVm> ContactVms { get; set; } = [];
 
-    protected override Task OnInitializedAsync()
-    {
-        Phone.StateChanged += HandlePhoneStateChanged;
-        return Task.CompletedTask;
-    }
+    [Parameter, EditorRequired]
+    public Func<string, string?> GetNickname { get; set; } = default!;
 
-    private async void HandlePhoneStateChanged()
-    {
-        await InvokeAsync(StateHasChanged);
-    }
+    [Parameter, EditorRequired]
+    public EventCallback<Contact> OnToggleFavorite { get; set; }
 
-    private Task NotifySelfAsync()
-        => Phone.NotifySelfAsync("Self test notification");
+    [Parameter, EditorRequired]
+    public EventCallback<(string UserId, string? Nickname)> OnSetNickname { get; set; }
 }

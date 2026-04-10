@@ -1,8 +1,8 @@
+using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
+using EverModern.Events;
 using Microsoft.AspNetCore.Components;
 using Microsoft.JSInterop;
-using System.Text.Json;
-using WebPhone.Registration;
 
 namespace WebPhone.Services;
 
@@ -13,7 +13,7 @@ public enum CallState
     Active,
     Paused,
     Ended,
-    Broken
+    Broken,
 }
 
 public class CallAgent
@@ -30,12 +30,19 @@ public class CallAgent
     private ElementReference remoteAudioElement;
     private bool hasRemoteAudioElement;
 
-    public event Action? StateChanged;
+    readonly EventSource _stateChanged = new();
+    public INotifier StateChanged => _stateChanged;
     public CallState CallState { get; private set; } = CallState.New;
     public string? SignalingStatus { get; private set; }
     public string? AudioStatusMessage { get; private set; }
 
-    public CallAgent(WebRtcInterop webRtc, IMessagesChannel messagesChannel, RtcMessageChannel textChannel, IRtcConnection rtcConnection, ILogger<CallAgent> logger)
+    public CallAgent(
+        WebRtcInterop webRtc,
+        IMessagesChannel messagesChannel,
+        RtcMessageChannel textChannel,
+        IRtcConnection rtcConnection,
+        ILogger<CallAgent> logger
+    )
     {
         this.webRtc = webRtc;
         this.messagesChannel = messagesChannel;
@@ -45,8 +52,11 @@ public class CallAgent
         rtcConnection.StateChanged += OnRtcStateChanged;
         webRtc.RemoteStreamAvailable += OnRemoteStreamAvailable;
     }
-    
-    public async Task StartOutgoingCallAsync(ElementReference remoteAudioElement, CancellationToken cancellationToken = default)
+
+    public async Task StartOutgoingCallAsync(
+        ElementReference remoteAudioElement,
+        CancellationToken cancellationToken = default
+    )
     {
         if (CallState is CallState.Ended or CallState.Broken)
         {
@@ -97,9 +107,7 @@ public class CallAgent
             {
                 await pingLoopTask;
             }
-            catch
-            {
-            }
+            catch { }
         }
 
         await textChannel.Writer.WriteAsync(new RtcTextMessage("call:accepted", true));
@@ -135,9 +143,7 @@ public class CallAgent
             {
                 await pingLoopTask;
             }
-            catch
-            {
-            }
+            catch { }
         }
 
         if (notifyRemote)
@@ -146,7 +152,9 @@ public class CallAgent
                 new OutgoingMessage(
                     MessageType.Hangup,
                     JsonSerializer.SerializeToElement(new HungupPayload(rtcConnection.Id)),
-                    rtcConnection.RemotePeer));
+                    rtcConnection.RemotePeer
+                )
+            );
         }
 
         CallState = CallState.Ended;
@@ -160,7 +168,9 @@ public class CallAgent
             new OutgoingMessage(
                 MessageType.CallResponse,
                 JsonSerializer.SerializeToElement(new CallResponsePayload(rtcConnection.Id, false)),
-                rtcConnection.RemotePeer));
+                rtcConnection.RemotePeer
+            )
+        );
 
         CallState = CallState.Ended;
         SignalingStatus = "Incoming call declined.";
@@ -171,25 +181,34 @@ public class CallAgent
     {
         string? connectionId = rtcConnection.Id;
         LogStep("Starting audio capture");
+        logger.LogInformation("[AUDIO] Starting audio capture for connection {ConnectionId}", connectionId);
         try
         {
-            await webRtc.StartLocalStreamAsync(connectionId, new
-            {
-                audio = new
+            await webRtc.StartLocalStreamAsync(
+                connectionId,
+                new
                 {
-                    echoCancellation = true,
-                    noiseSuppression = true,
-                    autoGainControl = true
-                },
-                video = false
-            });
+                    audio = new
+                    {
+                        echoCancellation = true,
+                        noiseSuppression = true,
+                        autoGainControl = true,
+                    },
+                    video = false,
+                }
+            );
+            logger.LogInformation("[AUDIO] Local stream started for connection {ConnectionId}", connectionId);
+
             await webRtc.AddLocalTracksAsync(connectionId);
+            logger.LogInformation("[AUDIO] Local tracks added to connection {ConnectionId}", connectionId);
+
             AudioStatusMessage = null;
             LogStep("Audio capture started");
         }
         catch (JSException ex)
         {
             AudioStatusMessage = ex.Message;
+            logger.LogError(ex, "[AUDIO] Audio capture failed for connection {ConnectionId}", connectionId);
             LogStep("Audio capture failed");
             NotifyStateChanged();
         }
@@ -197,16 +216,22 @@ public class CallAgent
 
     private void OnRtcStateChanged(RtcConnectionState state)
     {
-        if (state is RtcConnectionState.Failed or RtcConnectionState.Disconnected or RtcConnectionState.Closed)
+        if (
+            state
+            is RtcConnectionState.Failed
+                or RtcConnectionState.Disconnected
+                or RtcConnectionState.Closed
+        )
         {
             CallState = CallState.Broken;
             SignalingStatus = "Connection dropped.";
             NotifyStateChanged();
         }
+        logger.LogInformation($"Connection {rtcConnection.Id} now has {state} state.");
     }
 
-    private async Task PublishAsync(OutgoingMessage message)
-        => await messagesChannel.Writer.WriteAsync(message);
+    private async Task PublishAsync(OutgoingMessage message) =>
+        await messagesChannel.Writer.WriteAsync(message);
 
     private async Task TryAttachRemoteAudioAsync()
     {
@@ -219,9 +244,7 @@ public class CallAgent
         {
             await webRtc.AttachRemoteAudioAsync(rtcConnection.Id, remoteAudioElement);
         }
-        catch (JSException)
-        {
-        }
+        catch (JSException) { }
     }
 
     private void OnRemoteStreamAvailable(object? sender, WebRtcRemoteStreamEventArgs e)
@@ -239,7 +262,10 @@ public class CallAgent
         using var pingTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(900));
         while (await pingTimer.WaitForNextTickAsync(cancellationToken))
         {
-            await textChannel.Writer.WriteAsync(new RtcTextMessage(CallPingMessage, true), cancellationToken);
+            await textChannel.Writer.WriteAsync(
+                new RtcTextMessage(CallPingMessage, true),
+                cancellationToken
+            );
         }
     }
 
@@ -250,9 +276,7 @@ public class CallAgent
         await TryAttachRemoteAudioAsync();
     }
 
-    private void LogStep(string step)
-        => logger.LogInformation("CallAgent step: {Step}", step);
+    private void LogStep(string step) => logger.LogInformation("CallAgent step: {Step}", step);
 
-    private void NotifyStateChanged() => StateChanged?.Invoke();
+    private void NotifyStateChanged() => _stateChanged.Invoke();
 }
-     

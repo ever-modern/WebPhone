@@ -2,8 +2,6 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using EverModern.Blazor.DirectCommunication;
 using WebPhone;
-using WebPhone.Registration;
-using WebPhone.Registration.Pusher;
 using WebPhone.Services;
 using Microsoft.Extensions.Options;
 
@@ -28,27 +26,31 @@ services.AddSingleton<RtcConnector>();
 
 services.AddSingleton<BackendClient>(sp => 
 {
-    var clientId = sp.GetRequiredService<IProfile>().User.Id;
+    var profile = sp.GetRequiredService<IProfile>();
     var options = sp.GetRequiredService<PhoneOptions>();
     var baseUrl = options.ExternalChannelBaseUrl;
 #if DEBUG
     baseUrl = "http://localhost:7272";
 #endif
-    var externalChannelBaseUrl = new BackendClient(baseUrl, clientId);
+    var externalChannelBaseUrl = new BackendClient(baseUrl, profile);
     return externalChannelBaseUrl;
 });
-services.AddSingleton<IMessagesChannel>(sp =>
+services.AddSingleton<AzureMessagesChannel>(sp =>
 {
     var options = sp.GetRequiredService<PhoneOptions>();
     return new AzureMessagesChannel(sp.GetRequiredService<BackendClient>(), options.PollIntervalMs);
 });
-services.Configure<PusherOptions>(builder.Configuration.GetSection("Pusher"));
+
+services.AddSingleton<IMessagesChannel>(sp => sp.GetRequiredService<AzureMessagesChannel>());
+
 services.Configure<PhoneOptions>(builder.Configuration.GetSection("Phone"));
 
 services.AddSingleton<ILocalStore, BrowserLocalStore>();
 services.AddSingleton<NicknamesRepository>();
 services.AddSingleton<ProfileStore>();
 services.AddSingleton<IProfile>(sp => sp.GetRequiredService<ProfileStore>());
+
+builder.Logging.SetMinimumLevel(LogLevel.Debug);
 
 var host = builder.Build();
 

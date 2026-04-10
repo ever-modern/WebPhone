@@ -1,16 +1,20 @@
-using WebPhone.Registration;
+using EverModern.Events;
 
 namespace WebPhone.Services;
+
+public record ConnectionEstablishedArgs(string UserId, string FromName, IRtcConnection Connection);
 
 public sealed class IncomingConnectionsHandler(
     IMessagesChannel messagesChannel,
     RtcConnector rtcConnector,
-    ILogger<IncomingConnectionsHandler> logger) : IAsyncDisposable
+    ILogger<IncomingConnectionsHandler> logger
+) : IAsyncDisposable
 {
     private CancellationTokenSource? _cts;
     private Task? _readerTask;
 
-    public event Action<string, string, IRtcConnection>? ConnectionEstablished;
+    readonly EventSource<ConnectionEstablishedArgs> _connectionEstablished = new();
+    public INotifier<ConnectionEstablishedArgs> ConnectionEstablished => _connectionEstablished;
 
     public void Start()
     {
@@ -24,13 +28,30 @@ public sealed class IncomingConnectionsHandler(
         await foreach (var message in reader.ReadAllAsync(ct))
         {
             var call = message.SpecifyPayload<ConnectionRequestPayload>();
-            if (call is null) continue;
+            if (call is null)
+            {
+                logger.LogWarning("[INCOMING] Received ConnectionAttempt with null payload");
+                continue;
+            }
+
+            logger.LogInformation("[INCOMING] Received connection attempt from {Peer}, connectionId: {ConnectionId}", 
+                call.SenderClientId, call.Payload.ConnectionId);
 
             try
             {
                 var connection = await rtcConnector.AcceptConnectionAsync(
-                    call.SenderClientId, call.Payload.ConnectionId, call.Payload.Offer, ct);
-                ConnectionEstablished?.Invoke(call.SenderClientId, call.Payload.FromName, connection);
+                    call.SenderClientId,
+                    call.Payload.ConnectionId,
+                    call.Payload.Offer,
+                    ct
+                );
+
+                logger.LogInformation("[INCOMING] Connection accepted from {Peer}, connectionId: {ConnectionId}, state: {State}", 
+                    call.SenderClientId, call.Payload.ConnectionId, connection.State);
+
+                _connectionEstablished.Invoke(
+                    new ConnectionEstablishedArgs(call.SenderClientId, call.Payload.FromName, connection)
+                );
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -38,7 +59,7 @@ public sealed class IncomingConnectionsHandler(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to accept connection from {Peer}", call.SenderClientId);
+                logger.LogError(ex, "[INCOMING] Failed to accept connection from {Peer}", call.SenderClientId);
             }
         }
     }

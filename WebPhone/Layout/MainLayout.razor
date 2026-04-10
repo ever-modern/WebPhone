@@ -7,11 +7,18 @@
 @inject PresenceAnnouncer presenceAnnouncer
 @inject IncomingConnectionsHandler incomingConnectionsHandler
 @inject NicknamesRepository nicknames
+@inject AzureMessagesChannel azureMessagesChannel
 
-@if (ready)
-{
-    @Body    
-}
+<div class="page-container">
+    @if (ready)
+    {
+        <div class="content-wrap">
+            @Body
+        </div>
+    }
+
+    <footer class="page-footer">@($"v{BuildInfo.BuildVersion}")</footer>
+</div>
 
 @code {
     bool ready;
@@ -20,13 +27,13 @@
     {
         await base.OnInitializedAsync();
 
-        var user = await profileStore.GetUserFromStoreAsync();
-        if (user is not null)
-            profileStore.SetUser(user);
+        await profileStore.InitializeAsync();
+
+        _ = azureMessagesChannel.StartAsync();
 
         await contacts.InitializeAsync();
         await nicknames.InitializeAsync();
-        contacts.Start();
+        contacts.StartTracking();
         incomingConnectionsHandler.Start();
         await phone.InitializeAsync();
         await presenceAnnouncer.StartAsync();

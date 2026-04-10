@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Dapper;
 using Npgsql;
-using WebPhone.Registration;
 
 namespace WebPhone.AzureEnd.Storage;
 

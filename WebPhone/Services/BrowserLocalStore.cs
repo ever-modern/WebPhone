@@ -1,5 +1,5 @@
-using Microsoft.JSInterop;
 using System.Text.Json;
+using Microsoft.JSInterop;
 
 namespace WebPhone.Services;
 
@@ -12,7 +12,11 @@ public class BrowserLocalStore(IJSRuntime js) : ILocalStore
         return result;
     }
 
-    public async Task SetAsync<T>(string key, T value, CancellationToken cancellationToken = default)
+    public async Task SetAsync<T>(
+        string key,
+        T value,
+        CancellationToken cancellationToken = default
+    )
     {
         var json = JsonSerializer.Serialize(value);
         await js.InvokeVoidAsync("localStorage.setItem", key, json);

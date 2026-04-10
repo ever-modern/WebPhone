@@ -6,6 +6,11 @@ self.addEventListener('install', event => event.waitUntil(onInstall(event)));
 self.addEventListener('activate', event => event.waitUntil(onActivate(event)));
 self.addEventListener('fetch', event => event.respondWith(onFetch(event)));
 self.addEventListener('push', event => event.waitUntil(onPush(event)));
+self.addEventListener('message', event => {
+    if (event.data === 'SKIP_WAITING') {
+        self.skipWaiting();
+    }
+});
 
 const cacheNamePrefix = 'offline-cache-';
 const cacheName = `${cacheNamePrefix}${self.assetsManifest.version}`;
@@ -26,6 +31,9 @@ async function onInstall(event) {
         .filter(asset => !offlineAssetsExclude.some(pattern => pattern.test(asset.url)))
         .map(asset => new Request(asset.url, { integrity: asset.hash, cache: 'no-cache' }));
     await caches.open(cacheName).then(cache => cache.addAll(assetsRequests));
+
+    // Skip waiting to activate immediately
+    self.skipWaiting();
 }
 
 async function onActivate(event) {
@@ -36,6 +44,15 @@ async function onActivate(event) {
     await Promise.all(cacheKeys
         .filter(key => key.startsWith(cacheNamePrefix) && key !== cacheName)
         .map(key => caches.delete(key)));
+
+    // Claim all clients immediately
+    await self.clients.claim();
+
+    // Notify all clients that a new version is active
+    const allClients = await self.clients.matchAll({ type: 'window' });
+    allClients.forEach(client => {
+        client.postMessage({ type: 'SERVICE_WORKER_UPDATED' });
+    });
 }
 
 async function onFetch(event) {

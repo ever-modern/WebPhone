@@ -1,12 +1,13 @@
 using System.Text.Json;
-using WebPhone.Registration;
+using Microsoft.Extensions.Logging;
 
 namespace WebPhone.Services;
 
 public sealed class PresenceAnnouncer(
     IMessagesChannel messagesChannel,
     IProfile profile,
-    PhoneOptions options) : IAsyncDisposable
+    PhoneOptions options,
+    ILogger<PresenceAnnouncer> logger) : IAsyncDisposable
 {
     private readonly int _pollIntervalMs = Math.Max(options.PollIntervalMs, 250);
     private DateTimeOffset _lastSentAt = DateTimeOffset.UtcNow;
@@ -26,10 +27,24 @@ public sealed class PresenceAnnouncer(
 
     private async Task RunLoopAsync(CancellationToken ct)
     {
-        while (await _timer!.WaitForNextTickAsync(ct))
+        while (true)
         {
-            if (DateTimeOffset.UtcNow - _lastSentAt >= TimeSpan.FromMilliseconds(_pollIntervalMs))
-                await SendPresenceAsync();
+            try
+            {
+                if (!await _timer!.WaitForNextTickAsync(ct))
+                    break;
+
+                if (DateTimeOffset.UtcNow - _lastSentAt >= TimeSpan.FromMilliseconds(_pollIntervalMs))
+                    await SendPresenceAsync();
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "[PresenceAnnouncer] Failed to send presence — retrying on next tick");
+            }
         }
     }
 
@@ -38,6 +53,7 @@ public sealed class PresenceAnnouncer(
         var payload = JsonSerializer.SerializeToElement(new PresencePayload(profile.User.Name));
         await messagesChannel.Writer.WriteAsync(new OutgoingMessage(MessageType.Presence, payload, null));
         _lastSentAt = DateTimeOffset.UtcNow;
+        logger.LogDebug("[PresenceAnnouncer] Presence sent for {Name}", profile.User.Name);
     }
 
     public async ValueTask DisposeAsync()

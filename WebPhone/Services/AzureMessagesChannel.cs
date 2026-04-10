@@ -1,34 +1,31 @@
-using Microsoft.AspNetCore.Authorization;
 using System.Threading.Channels;
+using EverModern.Threading.Channels;
 using WebPhone.Contract;
-using WebPhone.Registration;
 
 namespace WebPhone.Services;
 
 public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
 {
-    private static readonly MessageRequest[] EmptyMessages = [];
     private readonly List<Channel<IncomingMessage>> incomingChannels = [];
-    private readonly Channel<OutgoingMessage> outgoingChannel = Channel.CreateUnbounded<OutgoingMessage>();
+    private readonly Channel<OutgoingMessage> outgoingChannel =
+        Channel.CreateUnbounded<OutgoingMessage>();
     private readonly TimeSpan idleSendInterval;
     private readonly CancellationTokenSource cts = new();
-    private readonly Task sendLoopTask;
+    private Task? sendLoopTask;
     private DateTimeOffset lastReadTimestamp = DateTimeOffset.UtcNow.AddSeconds(-5);
     private DateTimeOffset lastSentTimestamp = DateTimeOffset.UtcNow;
     readonly BackendClient _client;
-    
+
     public AzureMessagesChannel(BackendClient client, int pollIntervalMs = 1000)
     {
         _client = client;
         idleSendInterval = TimeSpan.FromMilliseconds(Math.Max(pollIntervalMs, 250));
         lastSentTimestamp = DateTimeOffset.UtcNow - idleSendInterval;
-        sendLoopTask = RunSendLoopAsync(cts.Token);
     }
 
     public ChannelWriter<OutgoingMessage> Writer => outgoingChannel.Writer;
 
-    public IChannelSubscription<IncomingMessage> Subscribe()
-        => Subscribe(null);
+    public IChannelSubscription<IncomingMessage> Subscribe() => Subscribe(null);
 
     public IChannelSubscription<IncomingMessage> Subscribe(Func<IncomingMessage, bool>? filter)
     {
@@ -37,18 +34,23 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
         var result = new ChannelSubscription<IncomingMessage>(
             channel.Reader,
             (self) => incomingChannels.Remove(channel),
-            filter);
+            filter
+        );
 
         incomingChannels.Add(channel);
 
         return result;
     }
 
+    public Task StartAsync() => sendLoopTask = RunSendLoopAsync(cts.Token);
+
     private async Task RunSendLoopAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            var waitForMessageTask = outgoingChannel.Reader.WaitToReadAsync(cancellationToken).AsTask();
+            var waitForMessageTask = outgoingChannel
+                .Reader.WaitToReadAsync(cancellationToken)
+                .AsTask();
             var idleDelayTask = Task.Delay(GetIdleDelay(), cancellationToken);
             var completedTask = await Task.WhenAny(waitForMessageTask, idleDelayTask);
 
@@ -63,7 +65,7 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
                 continue;
             }
 
-            await SendExchangeAsync(EmptyMessages, cancellationToken);
+            await SendExchangeAsync([], cancellationToken);
         }
     }
 
@@ -78,10 +80,17 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
         return idleSendInterval - elapsedSinceLastSend;
     }
 
-    private async Task SendExchangeAsync(MessageRequest[] outgoingMessages, CancellationToken cancellationToken)
+    private async Task SendExchangeAsync(
+        MessageRequest[] outgoingMessages,
+        CancellationToken cancellationToken
+    )
     {
         var requestStartTimestamp = DateTimeOffset.UtcNow;
-        var exchangeResponse = await _client.ExchangeAsync(outgoingMessages, lastReadTimestamp, cancellationToken);
+        var exchangeResponse = await _client.ExchangeAsync(
+            outgoingMessages,
+            lastReadTimestamp,
+            cancellationToken
+        );
         var messages = exchangeResponse?.RelevantMessages;
         if (messages is null)
         {
@@ -98,7 +107,8 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
                     MessageTypeJsonConverter.FromWireValue(message.Type),
                     message.Payload,
                     message.PublisherClientId,
-                    message.DateTime);
+                    message.DateTime
+                );
 
                 await incomingChannel.Writer.WriteAsync(incomingMessage, cancellationToken);
             }
@@ -114,7 +124,13 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
         while (outgoingChannel.Reader.TryRead(out var message))
         {
             var targetClientId = message.TargetClientId;
-            messages.Add(new MessageRequest(MessageTypeJsonConverter.ToWireValue(message.Type), message.Payload, targetClientId));
+            messages.Add(
+                new MessageRequest(
+                    MessageTypeJsonConverter.ToWireValue(message.Type),
+                    message.Payload,
+                    targetClientId
+                )
+            );
         }
 
         return [.. messages];
@@ -127,7 +143,8 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
         outgoingChannel.Writer.TryComplete();
         incomingChannels.ForEach(ch => ch.Writer.TryComplete());
 
-        await sendLoopTask.ContinueWith(_ => Task.CompletedTask);
+        if (sendLoopTask is not null)
+            await sendLoopTask.ContinueWith(_ => Task.CompletedTask);
 
         cts.Dispose();
     }

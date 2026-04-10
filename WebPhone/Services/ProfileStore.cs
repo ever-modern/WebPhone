@@ -1,35 +1,43 @@
+using EverModern.Events;
+
 namespace WebPhone.Services;
 
 public interface IProfile
 {
-    public User User { get; }
+    User User { get; }
 
-    public event Action<User>? UserChanged;
+    INotifier<User> UserChanged { get; }
 }
 
 public class ProfileStore(ILocalStore localStore) : IProfile
 {
-    public User User { get; private set; } = new(Guid.NewGuid().ToString("N"), "");
+    private User? _user;
 
-    public void SetUser(User user)
-    {
-        User = user;
-        UserChanged?.Invoke(user);
-        _ = SaveUserInfoAsync(user);
-    }
+    public User User => _user ?? throw new InvalidOperationException("User is not initialized. Await InitializeAsync first.");
 
-    public async Task<User?> GetUserFromStoreAsync(CancellationToken cancellationToken = default)
+    readonly EventSource<User> _userChangedEvent = new();
+
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        if (_user is not null)
+            return;
+
         var id = await localStore.GetAsync<string>("webrtc-user-id", cancellationToken);
         var name = await localStore.GetAsync<string>("webrtc-user-name", cancellationToken);
 
-        if (id is null)
-        {
-            return null;
-        }
+        _user = id is not null
+            ? new User(id, name ?? "")
+            : new User(Guid.NewGuid().ToString("N"), "");
 
-        var result = new User(id, name ?? "");
-        return result;
+        if (id is null)
+            await SaveUserInfoAsync(_user, cancellationToken);
+    }
+
+    public void SetUser(User user)
+    {
+        _user = user;
+        _userChangedEvent.Invoke(user);
+        _ = SaveUserInfoAsync(user);
     }
 
     async Task SaveUserInfoAsync(User user, CancellationToken cancellationToken = default)
@@ -38,7 +46,5 @@ public class ProfileStore(ILocalStore localStore) : IProfile
         await localStore.SetAsync("webrtc-user-name", user.Name, cancellationToken);
     }
 
-    public event Action<User>? UserChanged;
+    public INotifier<User> UserChanged => _userChangedEvent;
 }
-
-

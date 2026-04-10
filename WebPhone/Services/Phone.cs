@@ -1,10 +1,10 @@
-using EverModern.Blazor.DirectCommunication;
-using Microsoft.AspNetCore.Components;
-using Microsoft.JSInterop;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
-using WebPhone.Registration;
+using EverModern.Blazor.DirectCommunication;
+using EverModern.Events;
+using Microsoft.AspNetCore.Components;
+using Microsoft.JSInterop;
 
 namespace WebPhone.Services;
 
@@ -12,14 +12,13 @@ public sealed class Phone(
     WebRtcInterop webRtc,
     IJSRuntime jsRuntime,
     ILoggerFactory loggerFactory,
-    PhoneOptions options,
     IMessagesChannel externalChannel,
     RtcConnector rtcConnector,
     BackendClient backendClient,
     IProfile profile,
     ContactsRepository contactsTracker,
-    PresenceAnnouncer presenceAnnouncer,
-    IncomingConnectionsHandler incomingConnectionHandler) : IAsyncDisposable
+    IncomingConnectionsHandler incomingConnectionHandler
+) : IAsyncDisposable
 {
     private readonly Stopwatch stepTimer = Stopwatch.StartNew();
     private long lastStepTimestamp;
@@ -27,11 +26,13 @@ public sealed class Phone(
     private CancellationTokenSource? messageReaderCts;
     private bool dataMessageSubscribed;
 
-    public event Action? StateChanged;
+    readonly EventSource _stateChanged = new();
+    public INotifier StateChanged => _stateChanged;
 
     readonly ConcurrentDictionary<string, IRtcConnection> _userConnections = [];
     readonly ConcurrentDictionary<string, RtcMessageChannel> _textChannels = [];
     readonly ILogger<Phone> _logger = loggerFactory.CreateLogger<Phone>();
+    readonly List<IDisposable> _subscriptions = [];
 
     public string DisplayName => profile.User.Name;
 
@@ -49,35 +50,52 @@ public sealed class Phone(
 
     public IReadOnlyList<Contact> Users => contactsTracker.Contacts;
 
+    public RtcConnectionState GetConnectionState(string userId)
+    {
+        if (_userConnections.TryGetValue(userId, out var connection))
+            return connection.State;
+        return RtcConnectionState.Closed;
+    }
+
     public Task InitializeAsync()
     {
-        contactsTracker.StateChanged += NotifyStateChanged;
-        incomingConnectionHandler.ConnectionEstablished += OnConnectionEstablished;
-        StartMessageReader();
-
-        _ = SubscribeForPushAsync(default).ContinueWith(t =>
-        {
-            if (t.IsFaulted)
-                _logger.LogWarning(t.Exception, "Push subscription failed");
-            else
-                _logger.LogInformation("Push subscription completed");
-
-            return 0;
-        });
-
         if (!dataMessageSubscribed)
         {
+            _subscriptions.Add(contactsTracker.StateChanged.Subscribe(NotifyStateChanged));
+            _subscriptions.Add(incomingConnectionHandler.ConnectionEstablished.Subscribe(OnConnectionEstablished));
             webRtc.DataMessageReceived += HandleDataMessageReceived;
             webRtc.DataBytesMessageReceived += HandleDataBytesMessageReceived;
             dataMessageSubscribed = true;
         }
 
+        StartMessageReader();
+
+        _ = SubscribeForPushAsync(default)
+            .ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    _logger.LogWarning(t.Exception, "Push subscription failed");
+                else
+                    _logger.LogInformation("Push subscription completed");
+
+                return 0;
+            });
+
         return Task.CompletedTask;
     }
 
-    public async Task<IRtcConnection> ConnectToUserAsync(string userId, CancellationToken cancellationToken)
+    public async Task<IRtcConnection> ConnectToUserAsync(
+        string userId,
+        CancellationToken cancellationToken
+    )
     {
-        var connection = await rtcConnector.InitiateConnectionAsync(userId, DisplayName, cancellationToken);
+        _logger.LogInformation("[PHONE] ConnectToUserAsync called for userId: {UserId}", userId);
+        var connection = await rtcConnector.InitiateConnectionAsync(
+            userId,
+            DisplayName,
+            cancellationToken
+        );
+        _logger.LogInformation("[PHONE] Connection initiated for userId: {UserId}, state: {State}", userId, connection.State);
         TrackConnection(userId, connection);
         return connection;
     }
@@ -86,35 +104,56 @@ public sealed class Phone(
     {
         try
         {
-            await externalChannel.Writer.WriteAsync(new OutgoingMessage(
-                MessageType.ConnectionClosed,
-                JsonSerializer.SerializeToElement(new { }),
-                userId));
+            await externalChannel.Writer.WriteAsync(
+                new OutgoingMessage(
+                    MessageType.ConnectionClosed,
+                    JsonSerializer.SerializeToElement(new { }),
+                    userId
+                )
+            );
         }
         catch { }
 
         await CleanupPeerConnectionAsync(userId);
     }
 
-    public async Task<CallAgent> CreateCallAgentAsync(string targetClientId, CancellationToken cancellationToken = default)
+    public async Task<CallAgent> CreateCallAgentAsync(
+        string targetClientId,
+        CancellationToken cancellationToken = default
+    )
     {
         var connection = await ConnectToUserAsync(targetClientId, cancellationToken);
         var textChannel = await GetTextChannelAsync(targetClientId, cancellationToken);
-        var callAgent = new CallAgent(webRtc, externalChannel, textChannel, connection, loggerFactory.CreateLogger<CallAgent>());
+        var callAgent = new CallAgent(
+            webRtc,
+            externalChannel,
+            textChannel,
+            connection,
+            loggerFactory.CreateLogger<CallAgent>()
+        );
         return callAgent;
     }
 
-    public async Task NotifyClientAsync(string targetClientId, string? message = null, CancellationToken cancellationToken = default)
+    public async Task NotifyClientAsync(
+        string targetClientId,
+        string? message = null,
+        CancellationToken cancellationToken = default
+    )
     {
         await backendClient.NotifyAsync(targetClientId, message, cancellationToken);
     }
 
-    public Task NotifySelfAsync(string? message = null, CancellationToken cancellationToken = default)
-        => backendClient.NotifyAsync(null, message, cancellationToken);
+    public Task NotifySelfAsync(
+        string? message = null,
+        CancellationToken cancellationToken = default
+    ) => backendClient.NotifyAsync(null, message, cancellationToken);
 
     public async Task SubscribeForPushAsync(CancellationToken cancellationToken)
     {
-        var resultJson = await jsRuntime.InvokeAsync<string?>("registerPush", [Contract.VapidKeys.Public]);
+        var resultJson = await jsRuntime.InvokeAsync<string?>(
+            "registerPush",
+            [Contract.VapidKeys.Public]
+        );
 
         if (string.IsNullOrWhiteSpace(resultJson))
         {
@@ -125,7 +164,10 @@ public sealed class Phone(
         await backendClient.RegisterPushSubscriptionAsync(resultJson, cancellationToken);
     }
 
-    public async Task<RtcMessageChannel> GetTextChannelAsync(string userId, CancellationToken cancellationToken)
+    public async Task<RtcMessageChannel> GetTextChannelAsync(
+        string userId,
+        CancellationToken cancellationToken
+    )
     {
         if (_textChannels.TryGetValue(userId, out var existingChannel))
         {
@@ -135,7 +177,7 @@ public sealed class Phone(
             }
             else
             {
-            return existingChannel;
+                return existingChannel;
             }
         }
 
@@ -166,7 +208,9 @@ public sealed class Phone(
 
     private async Task ReadMessagesAsync(CancellationToken cancellationToken)
     {
-        using var reader = externalChannel.Subscribe(m => m.Type is MessageType.ConnectionClosed or MessageType.Call);
+        using var reader = externalChannel.Subscribe(m =>
+            m.Type is MessageType.ConnectionClosed or MessageType.Call
+        );
         await foreach (var message in reader.ReadAllAsync(cancellationToken))
         {
             await HandleSignalingPayloadAsync(message);
@@ -188,10 +232,12 @@ public sealed class Phone(
         }
     }
 
-    private void OnConnectionEstablished(string userId, string fromName, IRtcConnection connection)
+    private void OnConnectionEstablished(ConnectionEstablishedArgs args)
     {
-        SignalingStatus = $"Incoming connection request from {fromName}...";
-        TrackConnection(userId, connection);
+        _logger.LogInformation("[PHONE] OnConnectionEstablished - userId: {UserId}, fromName: {FromName}, state: {State}",
+            args.UserId, args.FromName, args.Connection.State);
+        SignalingStatus = $"Incoming connection request from {args.FromName}...";
+        TrackConnection(args.UserId, args.Connection);
         LogStep("Incoming call received");
         NotifyStateChanged();
     }
@@ -204,15 +250,25 @@ public sealed class Phone(
 
         if (delta > 1000)
         {
-            _logger.LogWarning("WebRTC step '{Step}' after {Elapsed}ms (+{Delta}ms)", step, elapsed, delta);
+            _logger.LogWarning(
+                "WebRTC step '{Step}' after {Elapsed}ms (+{Delta}ms)",
+                step,
+                elapsed,
+                delta
+            );
         }
         else
         {
-            _logger.LogInformation("WebRTC step '{Step}' after {Elapsed}ms (+{Delta}ms)", step, elapsed, delta);
+            _logger.LogInformation(
+                "WebRTC step '{Step}' after {Elapsed}ms (+{Delta}ms)",
+                step,
+                elapsed,
+                delta
+            );
         }
     }
 
-    private void NotifyStateChanged() => StateChanged?.Invoke();
+    private void NotifyStateChanged() => _stateChanged.Invoke();
 
     private async Task CleanupPeerConnectionAsync(string userId)
     {
@@ -223,8 +279,6 @@ public sealed class Phone(
 
         if (_userConnections.TryRemove(userId, out var connection))
             connection.Dispose();
-
-        contactsTracker.UpdateConnectionState(userId, RtcConnectionState.Closed);
 
         NotifyStateChanged();
     }
@@ -255,7 +309,9 @@ public sealed class Phone(
 
     private RtcMessageChannel? ResolveTextChannelByConnectionId(string connectionId)
     {
-        var existing = _textChannels.FirstOrDefault(x => x.Value.ConnectionId == connectionId).Value;
+        var existing = _textChannels
+            .FirstOrDefault(x => x.Value.ConnectionId == connectionId)
+            .Value;
         if (existing is not null)
         {
             if (existing.IsDisposed)
@@ -273,7 +329,10 @@ public sealed class Phone(
         }
 
         var userId = _userConnections.FirstOrDefault(x => x.Value.Id == connectionId).Key;
-        if (string.IsNullOrWhiteSpace(userId) || !_userConnections.TryGetValue(userId, out var connection))
+        if (
+            string.IsNullOrWhiteSpace(userId)
+            || !_userConnections.TryGetValue(userId, out var connection)
+        )
         {
             return null;
         }
@@ -290,14 +349,21 @@ public sealed class Phone(
 
     private void TrackConnection(string userId, IRtcConnection connection)
     {
+        if (_userConnections.TryGetValue(userId, out var existing) && ReferenceEquals(existing, connection))
+        {
+            _logger.LogDebug("[PHONE] Connection already tracked for userId: {UserId}", userId);
+            return;
+        }
+
+        _logger.LogInformation("[PHONE] Tracking new connection for userId: {UserId}, connectionId: {ConnectionId}, state: {State}", 
+            userId, connection.Id, connection.State);
         _userConnections[userId] = connection;
         connection.StateChanged += state =>
         {
-            contactsTracker.UpdateConnectionState(userId, state);
+            _logger.LogInformation("[PHONE] Connection state changed for userId: {UserId}, new state: {State}", userId, state);
             NotifyStateChanged();
         };
 
-        contactsTracker.UpdateConnectionState(userId, connection.State);
         NotifyStateChanged();
     }
 
@@ -308,6 +374,10 @@ public sealed class Phone(
         {
             await messageReaderTask;
         }
+
+        foreach (var sub in _subscriptions)
+            sub.Dispose();
+        _subscriptions.Clear();
 
         foreach (var (_, connection) in _userConnections)
             connection.Dispose();
@@ -326,12 +396,17 @@ public sealed class Phone(
     }
 }
 
-
 public record User(string Id, string Name);
 
 public record UserConnection(User OtherUser, IRtcConnection RtcConnection);
 
-public record Contact(string Id, string Name, DateTimeOffset LastSeen, RtcConnectionState ConnectionState, bool IsFavorite = false) : User(Id, Name);
+public record Contact(
+    string Id,
+    string Name,
+    DateTimeOffset LastSeen,
+    bool IsFavorite = false,
+    string? Nickname = null
+) : User(Id, Name);
 
 public record CallInfo(string ConnectionId, string RemotePeerId, string RemotePeerName);
 
@@ -345,11 +420,14 @@ public sealed record PresencePayload(string Name);
 
 public sealed record HungupPayload(string CallId);
 
-public sealed record ConnectionRequestPayload(string ConnectionId, string FromName, WebRtcOffer Offer);
+public sealed record ConnectionRequestPayload(
+    string ConnectionId,
+    string FromName,
+    WebRtcOffer Offer
+);
 
 public sealed record AnswerPayload(string ConnectionId, WebRtcAnswer Answer);
 
 public sealed record InitiateCallPayload(string ConnectionId);
 
 public sealed record CallResponsePayload(string ConnectionId, bool Accepted);
-     

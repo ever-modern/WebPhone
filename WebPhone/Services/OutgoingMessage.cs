@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace WebPhone.Registration;
+namespace WebPhone.Services;
 
 public record OutgoingMessage<T>(MessageType Type, T Payload, string? TargetClientId)
 {

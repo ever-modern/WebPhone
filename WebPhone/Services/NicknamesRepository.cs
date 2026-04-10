@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using EverModern.Events;
 
 namespace WebPhone.Services;
 
@@ -8,10 +9,10 @@ public sealed class NicknamesRepository(ILocalStore localStore)
     private readonly ConcurrentDictionary<string, string> _nicknames = [];
     private bool _loaded;
 
-    public event Action? StateChanged;
+    readonly EventSource _stateChanged = new();
+    public INotifier StateChanged => _stateChanged;
 
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
-    {
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)    {
         if (_loaded) return;
         var items = await localStore.GetAsync<List<ContactNickname>>(StorageKey, cancellationToken) ?? [];
         _nicknames.Clear();
@@ -34,7 +35,7 @@ public sealed class NicknamesRepository(ILocalStore localStore)
             _nicknames[userId] = nickname.Trim();
 
         await SaveAsync(cancellationToken);
-        StateChanged?.Invoke();
+        _stateChanged.Invoke();
     }
 
     private async Task SaveAsync(CancellationToken cancellationToken = default)

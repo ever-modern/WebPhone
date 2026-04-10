@@ -1,8 +1,11 @@
 @page "/"
 @using WebPhone.Services
-@implements IDisposable
+@inherits DisposableComponent
 
 @inject IProfile Profile
+@inject ContactsRepository ContactsRepository
+@inject NicknamesRepository NicknamesRepository
+@inject Phone Phone
 
 <PageTitle>Web Phone</PageTitle>
 
@@ -12,21 +15,54 @@
         <p>Enter your name to announce your presence. Select a user to connect.</p>
     </header> *@
 
+    <button class="webrtc-button" @onclick="HandleNotifySelfAsync">Notify self</button>
+
     <div class="webrtc-shell">
         <main class="webrtc-main">
             <ProfileSettingsCard />
 
             @if (Profile.User.Name.Length > 0)
             {
-                <ContactCardsGrid />
-            }            
+                <ContactCardsGrid ContactVms="_contactVms"
+                                  GetNickname="NicknamesRepository.GetNickname"
+                                  OnToggleFavorite="HandleToggleFavoriteAsync"
+                                  OnSetNickname="HandleSetNicknameAsync" />
+            }
         </main>
     </div>
 
 @code {
+    private readonly Dictionary<string, ContactVm> _vmMap = [];
+    private IReadOnlyList<ContactVm> _contactVms = [];
+
     protected override void OnInitialized()
     {
-        Profile.UserChanged += HandleUserChanged;
+        BoundToLifetime(Profile.UserChanged.Subscribe(HandleUserChanged));
+        BoundToLifetime(ContactsRepository.StateChanged.Subscribe(HandleServiceStateChanged));
+        BoundToLifetime(NicknamesRepository.StateChanged.Subscribe(HandleServiceStateChanged));
+        BoundToLifetime(Phone.StateChanged.Subscribe(HandlePhoneStateChanged));
+        SyncContactVms();
+    }
+
+    private void SyncContactVms()
+    {
+        var current = ContactsRepository.Contacts;
+
+        foreach (var id in _vmMap.Keys.Except(current.Select(c => c.Id)).ToList())
+        {
+            _vmMap.Remove(id, out var stale);
+            _ = stale!.DisposeAsync().AsTask();
+        }
+
+        foreach (var contact in current)
+        {
+            if (_vmMap.TryGetValue(contact.Id, out var existing))
+                existing.UpdateContact(contact);
+            else
+                _vmMap[contact.Id] = new ContactVm(contact, Phone);
+        }
+
+        _contactVms = current.Select(c => _vmMap[c.Id]).OrderByDescending(c => c.Contact.IsFavorite).ThenBy(c => c.Contact.Name).ToList();
     }
 
     private async void HandleUserChanged(User _)
@@ -34,9 +70,36 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    public void Dispose()
+    private async void HandleServiceStateChanged()
     {
-        Profile.UserChanged -= HandleUserChanged;
+        SyncContactVms();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async void HandlePhoneStateChanged()
+    {
+        foreach (var vm in _vmMap.Values)
+            vm.UpdateConnectionState(Phone.GetConnectionState(vm.Contact.Id));
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task HandleToggleFavoriteAsync(Contact contact)
+        => ContactsRepository.ToggleFavoriteAsync(contact.Id, contact.Name);
+
+    private Task HandleSetNicknameAsync((string UserId, string? Nickname) args)
+        => NicknamesRepository.SetNicknameAsync(args.UserId, args.Nickname);
+
+    private Task HandleNotifySelfAsync()
+        => Phone.NotifySelfAsync("Self test notification");
+
+    public override async ValueTask DisposeAsync()
+    {
+        base.Dispose();
+
+        foreach (var vm in _vmMap.Values)
+            await vm.DisposeAsync();
+
+        _vmMap.Clear();
     }
 }
 </div>

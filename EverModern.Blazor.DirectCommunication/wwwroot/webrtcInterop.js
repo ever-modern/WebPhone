@@ -88,11 +88,16 @@ function buildIceServers(iceServers) {
       return { urls: server };
     }
 
-    return {
-      urls: server.urls,
-      username: server.username,
-      credential: server.credential
-    };
+    // Blazor serialises string[] as a JSON array; RTCPeerConnection accepts
+    // either a string or an array of strings, but some browsers are stricter,
+    // so normalise a single-element array down to a plain string.
+    const rawUrls = server.urls ?? server.Urls;
+    const urls = Array.isArray(rawUrls) && rawUrls.length === 1 ? rawUrls[0] : rawUrls;
+
+    const entry = { urls };
+    if (server.username ?? server.Username) entry.username = server.username ?? server.Username;
+    if (server.credential ?? server.Credential) entry.credential = server.credential ?? server.Credential;
+    return entry;
   });
 }
 
@@ -200,14 +205,37 @@ function addLocalTracks(id) {
     throw new Error(`No local stream found for id '${id}'.`);
   }
 
+  console.log(`[WebRTC] Adding local tracks for connection ${id}`);
+  const addedTracks = [];
   stream.getTracks().forEach((track) => {
-    const existingSender = connection.getSenders().find((sender) => sender.track?.kind === track.kind || (!sender.track && track.kind === "audio"));
-    if (existingSender) {
-      existingSender.replaceTrack(track);
-      return;
-    }
+    console.log(`[WebRTC] Processing track: ${track.kind}, id: ${track.id}, enabled: ${track.enabled}`);
 
-    connection.addTrack(track, stream);
+    // Find sender for this track type
+    const existingSender = connection.getSenders().find((sender) => {
+      // Match by track kind, or find an empty sender that can take this track
+      return sender.track?.kind === track.kind || (!sender.track && sender.transport !== null);
+    });
+
+    if (existingSender) {
+      console.log(`[WebRTC] Replacing track in existing sender for ${track.kind}`);
+      existingSender.replaceTrack(track).then(() => {
+        console.log(`[WebRTC] Successfully replaced ${track.kind} track`);
+      }).catch(err => {
+        console.error(`[WebRTC] Failed to replace ${track.kind} track:`, err);
+      });
+      addedTracks.push(track.kind);
+    } else {
+      console.log(`[WebRTC] Adding new sender for ${track.kind} track`);
+      const sender = connection.addTrack(track, stream);
+      console.log(`[WebRTC] Added sender:`, sender);
+      addedTracks.push(track.kind);
+    }
+  });
+
+  console.log(`[WebRTC] Processed tracks: ${addedTracks.join(', ')}`);
+  console.log(`[WebRTC] Total senders on connection: ${connection.getSenders().length}`);
+  connection.getSenders().forEach((sender, index) => {
+    console.log(`[WebRTC] Sender ${index}: track=${sender.track?.kind || 'none'}, trackId=${sender.track?.id || 'none'}, enabled=${sender.track?.enabled || 'n/a'}`);
   });
 }
 

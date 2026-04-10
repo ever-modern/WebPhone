@@ -4,7 +4,7 @@ using WebPhone.Contract;
 
 namespace WebPhone.Services;
 
-public class BackendClient(string baseUrl, string clientId) : IDisposable
+public class BackendClient(string baseUrl, IProfile profile) : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -16,7 +16,7 @@ public class BackendClient(string baseUrl, string clientId) : IDisposable
     readonly string _pushSubscriptionEndpoint = $"{baseUrl.TrimEnd('/')}/api/subscribe-for-push";
     readonly string _notifyEndpoint = $"{baseUrl.TrimEnd('/')}/api/notify";
 
-    public string ClientId => clientId;
+    public string ClientId => profile.User.Id;
 
     public async Task<ExchangeResponse> ExchangeAsync(MessageRequest[] outgoingMessages, DateTimeOffset cutoffDate, CancellationToken cancellationToken = default)
     {
@@ -24,9 +24,9 @@ public class BackendClient(string baseUrl, string clientId) : IDisposable
 
         using var request = new HttpRequestMessage(HttpMethod.Post, _exchangeEndpoint)
         {
-            Content = JsonContent.Create(new ExchangeRequest(clientId, cutoffDate, outgoingMessages), options: JsonOptions)
+            Content = JsonContent.Create(new ExchangeRequest(ClientId, cutoffDate, outgoingMessages), options: JsonOptions)
         };
-        request.Headers.Add("X-Client-Id", clientId);
+        request.Headers.Add("X-Client-Id", ClientId);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -42,7 +42,7 @@ public class BackendClient(string baseUrl, string clientId) : IDisposable
         var body = subscriptionPayload;//JsonSerializer.Serialize(subscriptionPayload, JsonOptions);
         using var request = new HttpRequestMessage(HttpMethod.Post, _pushSubscriptionEndpoint);
         request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
-        request.Headers.Add("X-Client-Id", clientId);
+        request.Headers.Add("X-Client-Id", ClientId);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -54,7 +54,7 @@ public class BackendClient(string baseUrl, string clientId) : IDisposable
         {
             Content = JsonContent.Create(new NotifyRequest(targetClientId, message), options: JsonOptions)
         };
-        request.Headers.Add("X-Client-Id", clientId);
+        request.Headers.Add("X-Client-Id", ClientId);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();

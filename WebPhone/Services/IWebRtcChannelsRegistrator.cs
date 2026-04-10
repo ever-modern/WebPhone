@@ -1,4 +1,4 @@
-﻿namespace WebPhone.Registration;
+﻿namespace WebPhone.Services;
 
 public interface IWebRtcConfigurator : IAsyncDisposable
 {
