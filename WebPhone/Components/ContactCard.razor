@@ -1,9 +1,10 @@
 @using WebPhone.Services
 
-@inherits DisposableComponent
-
 <div class="webrtc-card webrtc-contact-card">
-    <button class="webrtc-favorite-btn @(Vm.Contact.IsFavorite ? "is-favorite" : string.Empty)" @onclick="ToggleFavoriteAsync" title="@(Vm.Contact.IsFavorite ? "Remove favourite" : "Add favourite")">★</button>
+    @if (Model.ToggleFavorite is not null)
+    {
+        <button class="webrtc-favorite-btn @(Model.Contact.IsFavorite ? "is-favorite" : string.Empty)" @onclick="ToggleFavorite" title="@(Model.Contact.IsFavorite ? "Remove favourite" : "Add favourite")">★</button>
+    }
     <div class="webrtc-contact-details">
         @if (_editingNickname)
         {
@@ -16,104 +17,127 @@
         else
         {
             <div class="webrtc-contact-name-row">
-                <strong>@(string.IsNullOrWhiteSpace(Nickname) ? Vm.Contact.Name : Nickname)</strong>
-                @if (!string.IsNullOrWhiteSpace(Nickname))
+                <strong>@(string.IsNullOrWhiteSpace(Model.Nickname) ? Model.Contact.Name : Model.Nickname)</strong>
+                @if (!string.IsNullOrWhiteSpace(Model.Nickname))
                 {
-                    <span class="webrtc-contact-real-name">(@Vm.Contact.Name)</span>
+                    <span class="webrtc-contact-real-name">(@Model.Contact.Name)</span>
                 }
-                <button class="webrtc-icon-btn webrtc-nickname-edit-btn" @onclick="StartNicknameEdit" title="@(string.IsNullOrWhiteSpace(Nickname) ? "Set nickname" : "Edit nickname")">✏</button>
+                @if (Model.SetNickname is not null)
+                {
+                    <button class="webrtc-icon-btn webrtc-nickname-edit-btn" @onclick="StartNicknameEdit" title="@(string.IsNullOrWhiteSpace(Model.Nickname) ? "Set nickname" : "Edit nickname")">✏</button>
+                }
             </div>
         }
-        <span>@Vm.Contact.Id</span>
-        @if (!string.IsNullOrWhiteSpace(Vm.ConnectionStateText))
+        <span>@Model.Contact.Id</span>
+        @if (!string.IsNullOrWhiteSpace(Model.ConnectionStatusText))
         {
-            <span class="webrtc-contact-status @GetConnectionStatusCssClass()">
-                @if (Vm.IsConnecting())
+            <span class="webrtc-contact-status @Model.ConnectionStatusCssClass">
+                @if (Model.IsConnecting)
                 {
                     <span>Connecting<span class="webrtc-dots-animation"></span></span>
                 }
                 else
                 {
-                    @GetConnectionStatusText()
+                    @Model.ConnectionStatusText
                 }
             </span>
         }
 
         <div class="webrtc-contact-actions">
-            <button class="webrtc-button" @onclick="Vm.NotifyPeerAsync">Notify</button>
-
-            @if (!Vm.Contact.IsFavorite)
+            @if (Model.Notify is not null)
             {
-                @if (Vm.IsConnecting())
+                <button class="webrtc-button" @onclick="Notify">Notify</button>
+            }
+
+            @if (!Model.Contact.IsFavorite)
+            {
+                @if (Model.CancelConnect is not null)
                 {
-                    <button class="webrtc-button webrtc-button--danger" @onclick="Vm.CancelConnectAsync">Cancel</button>
+                    <button class="webrtc-button webrtc-button--danger" @onclick="CancelConnect">Cancel</button>
                 }
-                else if (Vm.IsConnected())
+                else if (Model.Disconnect is not null)
                 {
-                    <button class="webrtc-button webrtc-contact-connect-button" @onclick="Vm.DisconnectAsync">Disconnect</button>
+                    <button class="webrtc-button webrtc-contact-connect-button" @onclick="Disconnect">Disconnect</button>
                 }
-                else if (Vm.CanConnect())
+                else if (Model.Connect is not null)
                 {
-                    <button class="webrtc-button webrtc-contact-connect-button" @onclick="Vm.ConnectAsync">Connect</button>
+                    <button class="webrtc-button webrtc-contact-connect-button" @onclick="Connect">Connect</button>
                 }
             }
 
-            @if (Vm.IsConnected())
+            @if (Model.AcceptCall is not null)
             {
-                @if (Vm.HasIncomingCallOffer && !Vm.IsCallActive)
-                {
-                    <button class="webrtc-button" @onclick="() => Vm.AcceptIncomingCallAsync(_remoteAudio)">Accept call</button>
-                }
-                else
-                {
-                    <button class="webrtc-button" @onclick="() => Vm.ToggleCallAsync(_remoteAudio)">@(Vm.IsCallActive ? "Hang up" : "Call")</button>
-                }
+                <button class="webrtc-button" @onclick="AcceptCall">Accept call</button>
+            }
+            @if (Model.StartCall is not null)
+            {
+                <button class="webrtc-button" @onclick="StartCall">Call</button>
+            }
+            @if (Model.EndCall is not null)
+            {
+                <button class="webrtc-button" @onclick="EndCall">Hang up</button>
+            }
+            @if (Model.CancelCall is not null)
+            {
+                <button class="webrtc-button webrtc-button--danger" @onclick="CancelCall">Cancel call</button>
             }
         </div>
     </div>
 
-    <ChatPanel OnSend="Vm.SendChatMessageAsync"
-               MessageSource="Vm.SubscribeToChatAsync"
-               IsEnabled="Vm.ChatReady"
-               IsOpen="Vm.IsConnected()"
-               OnSystemMessage="text => Vm.HandleSystemMessageAsync(text, _remoteAudio)" />
+    <ChatPanel OnSend="Model.SendMessage"
+               Messages="Model.ChatMessages"
+               IsEnabled="Model.ChatReady"
+               IsOpen="Model.IsChatOpen" />
 
     <audio class="webrtc-audio" autoplay playsinline @ref="_remoteAudio"></audio>
 </div>
 
 @code {
     [Parameter, EditorRequired]
-    public ContactVm Vm { get; set; } = default!;
-
-    [Parameter]
-    public string? Nickname { get; set; }
-
-    [Parameter, EditorRequired]
-    public EventCallback ToggleFavourite { get; set; }
-
-    [Parameter, EditorRequired]
-    public EventCallback<(string UserId, string? Nickname)> OnSetNickname { get; set; }
+    public ContactCardModel Model { get; set; } = default!;
 
     private bool _editingNickname;
     private string _nicknameEdit = string.Empty;
     private ElementReference _remoteAudio;
 
-    protected override void OnInitialized()
+    protected override void OnAfterRender(bool firstRender)
     {
-        BoundToLifetime(Vm.Changed.Subscribe(HandleVmChanged));
+        if (firstRender)
+        {
+            Model.OnRemoteAudioElementReady?.Invoke(_remoteAudio);
+        }
     }
 
-    private async void HandleVmChanged()
-    {
-        await InvokeAsync(StateHasChanged);
-    }
+    private void ToggleFavorite()
+        => Model.ToggleFavorite?.Invoke();
 
-    private Task ToggleFavoriteAsync()
-        => ToggleFavourite.InvokeAsync();
+    private void Notify()
+        => Model.Notify?.Invoke();
+
+    private void Connect()
+        => Model.Connect?.Invoke();
+
+    private void CancelConnect()
+        => Model.CancelConnect?.Invoke();
+
+    private void Disconnect()
+        => Model.Disconnect?.Invoke();
+
+    private void StartCall()
+        => Model.StartCall?.Invoke();
+
+    private void AcceptCall()
+        => Model.AcceptCall?.Invoke();
+
+    private void EndCall()
+        => Model.EndCall?.Invoke();
+
+    private void CancelCall()
+        => Model.CancelCall?.Invoke();
 
     private void StartNicknameEdit()
     {
-        _nicknameEdit = Nickname ?? string.Empty;
+        _nicknameEdit = Model.Nickname ?? string.Empty;
         _editingNickname = true;
     }
 
@@ -122,7 +146,7 @@
 
     private async Task SaveNicknameAsync()
     {
-        await OnSetNickname.InvokeAsync((Vm.Contact.Id, _nicknameEdit));
+        Model.SetNickname?.Invoke(_nicknameEdit);
         _editingNickname = false;
     }
 
@@ -131,25 +155,4 @@
         if (e.Key == "Enter") await SaveNicknameAsync();
         else if (e.Key == "Escape") CancelNicknameEdit();
     }
-
-    private string GetConnectionStatusText()
-        => Vm.ConnectionState switch
-        {
-            RtcConnectionState.Connected => "Connected",
-            RtcConnectionState.Connecting => "Connecting...",
-            RtcConnectionState.Disconnected => "Disconnected",
-            RtcConnectionState.Failed => "Connection failed",
-            RtcConnectionState.New => "Ready to connect",
-            RtcConnectionState.Closed => "Offline",
-            _ => Vm.ConnectionStateText
-        };
-
-    private string GetConnectionStatusCssClass()
-        => Vm.ConnectionState switch
-        {
-            RtcConnectionState.Connected => "is-connected",
-            RtcConnectionState.Connecting => "is-connecting",
-            RtcConnectionState.Failed => "is-failed",
-            _ => string.Empty
-        };
 }

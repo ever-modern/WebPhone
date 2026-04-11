@@ -6,27 +6,15 @@
     </div>
 
     <div class="webrtc-contact-carousel">
-        @foreach (var vm in ContactVms)
+        @foreach (var card in Cards)
         {
-            <ContactCard @key="vm.Contact.Id"
-                         Vm="vm"
-                         Nickname="@GetNickname(vm.Contact.Id)"
-                         ToggleFavourite="() => OnToggleFavorite.InvokeAsync(vm.Contact)"
-                         OnSetNickname="OnSetNickname" />
+            <ContactCard @key="card.Contact.Id"
+                         Model="card" />
         }
     </div>
 </section>
 
 @code {
     [Parameter, EditorRequired]
-    public IReadOnlyList<ContactVm> ContactVms { get; set; } = [];
-
-    [Parameter, EditorRequired]
-    public Func<string, string?> GetNickname { get; set; } = default!;
-
-    [Parameter, EditorRequired]
-    public EventCallback<Contact> OnToggleFavorite { get; set; }
-
-    [Parameter, EditorRequired]
-    public EventCallback<(string UserId, string? Nickname)> OnSetNickname { get; set; }
+    public IReadOnlyList<ContactCardModel> Cards { get; set; } = [];
 }

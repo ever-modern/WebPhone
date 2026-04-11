@@ -54,7 +54,7 @@ public class CallAgent
     }
 
     public async Task StartOutgoingCallAsync(
-        ElementReference remoteAudioElement,
+        ElementReference? remoteAudioElement = null,
         CancellationToken cancellationToken = default
     )
     {
@@ -68,9 +68,12 @@ public class CallAgent
         NotifyStateChanged();
 
         await EnsureAudioAsync();
-        this.remoteAudioElement = remoteAudioElement;
-        hasRemoteAudioElement = true;
-        await TryAttachRemoteAudioAsync();
+        if (remoteAudioElement.HasValue)
+        {
+            this.remoteAudioElement = remoteAudioElement.Value;
+            hasRemoteAudioElement = true;
+            await TryAttachRemoteAudioAsync();
+        }
 
         pingLoopCts?.Cancel();
         pingLoopCts?.Dispose();
@@ -81,7 +84,7 @@ public class CallAgent
         NotifyStateChanged();
     }
 
-    public async Task AcceptCallAsync(ElementReference remoteAudioElement)
+    public async Task AcceptCallAsync(ElementReference? remoteAudioElement = null)
     {
         if (CallState is CallState.Ended or CallState.Broken)
         {
@@ -93,9 +96,12 @@ public class CallAgent
         NotifyStateChanged();
 
         await EnsureAudioAsync();
-        this.remoteAudioElement = remoteAudioElement;
-        hasRemoteAudioElement = true;
-        await TryAttachRemoteAudioAsync();
+        if (remoteAudioElement.HasValue)
+        {
+            this.remoteAudioElement = remoteAudioElement.Value;
+            hasRemoteAudioElement = true;
+            await TryAttachRemoteAudioAsync();
+        }
 
         pingLoopCts?.Cancel();
         pingLoopCts?.Dispose();

@@ -23,17 +23,15 @@
 
             @if (Profile.User.Name.Length > 0)
             {
-                <ContactCardsGrid ContactVms="_contactVms"
-                                  GetNickname="NicknamesRepository.GetNickname"
-                                  OnToggleFavorite="HandleToggleFavoriteAsync"
-                                  OnSetNickname="HandleSetNicknameAsync" />
+                <ContactCardsGrid Cards="_contactCards" />
             }
         </main>
     </div>
 
 @code {
     private readonly Dictionary<string, ContactVm> _vmMap = [];
-    private IReadOnlyList<ContactVm> _contactVms = [];
+    private readonly Dictionary<string, IDisposable> _vmSubscriptions = [];
+    private IReadOnlyList<ContactCardModel> _contactCards = [];
 
     protected override void OnInitialized()
     {
@@ -52,6 +50,9 @@
         {
             _vmMap.Remove(id, out var stale);
             _ = stale!.DisposeAsync().AsTask();
+
+            if (_vmSubscriptions.Remove(id, out var sub))
+                sub.Dispose();
         }
 
         foreach (var contact in current)
@@ -59,10 +60,78 @@
             if (_vmMap.TryGetValue(contact.Id, out var existing))
                 existing.UpdateContact(contact);
             else
-                _vmMap[contact.Id] = new ContactVm(contact, Phone);
+            {
+                var vm = new ContactVm(contact, Phone);
+                _vmMap[contact.Id] = vm;
+                _vmSubscriptions[contact.Id] = vm.Changed.Subscribe(HandleVmChanged);
+            }
         }
 
-        _contactVms = current.Select(c => _vmMap[c.Id]).OrderByDescending(c => c.Contact.IsFavorite).ThenBy(c => c.Contact.Name).ToList();
+        _contactCards = current
+            .Select(c => BuildCardModel(_vmMap[c.Id]))
+            .OrderByDescending(c => c.Contact.IsFavorite)
+            .ThenBy(c => c.Contact.Name)
+            .ToList();
+    }
+
+    private ContactCardModel BuildCardModel(ContactVm vm)
+    {
+        Action? connect = vm.CanConnect() && !vm.Contact.IsFavorite ? () => _ = vm.ConnectAsync() : null;
+        Action? cancelConnect = vm.IsConnecting() && !vm.Contact.IsFavorite ? () => _ = vm.CancelConnectAsync() : null;
+        Action? disconnect = vm.IsConnected() && !vm.Contact.IsFavorite ? () => _ = vm.DisconnectAsync() : null;
+        Action? acceptCall = vm.IsConnected() && vm.HasIncomingCallOffer && !vm.IsCallActive ? () => _ = vm.AcceptIncomingCallAsync() : null;
+        Action? startCall = vm.IsConnected() && !vm.HasIncomingCallOffer && !vm.IsCallActive ? () => _ = vm.StartCallAsync() : null;
+        Action? endCall = vm.IsConnected() && vm.IsCallActive ? () => _ = vm.EndCallAsync() : null;
+        Action? cancelCall = vm.IsConnected() && !vm.IsCallActive ? () => _ = vm.CancelCallAsync() : null;
+
+        var connectionStatusText = vm.ConnectionState switch
+        {
+            RtcConnectionState.Connected => "Connected",
+            RtcConnectionState.Connecting => "Connecting...",
+            RtcConnectionState.Disconnected => "Disconnected",
+            RtcConnectionState.Failed => "Connection failed",
+            RtcConnectionState.New => "Ready to connect",
+            RtcConnectionState.Closed => "Offline",
+            _ => vm.ConnectionStateText
+        };
+
+        var connectionStatusCssClass = vm.ConnectionState switch
+        {
+            RtcConnectionState.Connected => "is-connected",
+            RtcConnectionState.Connecting => "is-connecting",
+            RtcConnectionState.Failed => "is-failed",
+            _ => string.Empty
+        };
+
+        return new ContactCardModel(
+            Contact: vm.Contact,
+            Nickname: NicknamesRepository.GetNickname(vm.Contact.Id),
+            ConnectionStatusText: connectionStatusText,
+            ConnectionStatusCssClass: connectionStatusCssClass,
+            IsConnecting: vm.IsConnecting(),
+            ChatReady: vm.ChatReady,
+            IsChatOpen: vm.IsConnected(),
+            IsCallActive: vm.IsCallActive,
+            ChatMessages: vm.ChatMessages,
+            ToggleFavorite: () => _ = HandleToggleFavoriteAsync(vm.Contact),
+            SetNickname: nickname => _ = HandleSetNicknameAsync((vm.Contact.Id, nickname)),
+            Notify: () => _ = vm.NotifyPeerAsync(),
+            Connect: connect,
+            CancelConnect: cancelConnect,
+            Disconnect: disconnect,
+            StartCall: startCall,
+            AcceptCall: acceptCall,
+            EndCall: endCall,
+            CancelCall: cancelCall,
+            SendMessage: vm.ChatReady && vm.IsConnected() ? text => _ = vm.SendChatMessageAsync(text) : null,
+            OnRemoteAudioElementReady: audioElement => _ = vm.SetRemoteAudioElementAsync(audioElement)
+        );
+    }
+
+    private async void HandleVmChanged()
+    {
+        SyncContactVms();
+        await InvokeAsync(StateHasChanged);
     }
 
     private async void HandleUserChanged(User _)
@@ -80,6 +149,7 @@
     {
         foreach (var vm in _vmMap.Values)
             vm.UpdateConnectionState(Phone.GetConnectionState(vm.Contact.Id));
+        SyncContactVms();
         await InvokeAsync(StateHasChanged);
     }
 
@@ -99,7 +169,11 @@
         foreach (var vm in _vmMap.Values)
             await vm.DisposeAsync();
 
+        foreach (var sub in _vmSubscriptions.Values)
+            sub.Dispose();
+
         _vmMap.Clear();
+        _vmSubscriptions.Clear();
     }
 }
 </div>

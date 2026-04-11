@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Threading.Channels;
 using EverModern.Events;
 using Microsoft.AspNetCore.Components;
@@ -15,12 +14,17 @@ public sealed class ContactVm : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private CancellationTokenSource? _connectCts;
     private RtcMessageChannel? _channel;
+    private CancellationTokenSource? _chatCts;
+    private Task? _chatReadTask;
+    private readonly List<ChatMessage> _chatMessages = [];
     private CallAgent? _callAgent;
     private DateTimeOffset _lastCallPingAt;
     private readonly Task _callPingMonitorTask;
     private bool _isConnecting;
     private RtcConnectionState _connectionState = RtcConnectionState.New;
     private IDisposable? _callAgentSub;
+    private ElementReference _remoteAudioElement;
+    private bool _hasRemoteAudioElement;
 
     readonly EventSource _changed = new();
     public INotifier Changed => _changed;
@@ -38,6 +42,8 @@ public sealed class ContactVm : IAsyncDisposable
     public Contact Contact { get; private set; }
 
     public bool ChatReady { get; private set; }
+
+    public IReadOnlyList<ChatMessage> ChatMessages => _chatMessages;
 
     public bool IsCallActive => _callAgent?.CallState is CallState.Active or CallState.Ringing;
 
@@ -114,56 +120,71 @@ public sealed class ContactVm : IAsyncDisposable
         ResetChatChannelState();
     }
 
-    public async Task ToggleCallAsync(ElementReference audioElement)
+    public async Task StartCallAsync()
     {
         if (IsCallActive)
         {
-            await StopCallIfNeededAsync();
             return;
         }
 
         _callAgent = await _phone.CreateCallAgentAsync(Contact.Id, _cts.Token);
         _callAgentSub?.Dispose();
         _callAgentSub = _callAgent.StateChanged.Subscribe(NotifyChanged);
-        await _callAgent.StartOutgoingCallAsync(audioElement, _cts.Token);
+        if (_hasRemoteAudioElement)
+            await _callAgent.StartOutgoingCallAsync(_remoteAudioElement, _cts.Token);
+        else
+            await _callAgent.StartOutgoingCallAsync(cancellationToken: _cts.Token);
     }
 
-    public async Task AcceptIncomingCallAsync(ElementReference audioElement)
+    public async Task AcceptIncomingCallAsync()
     {
         _callAgent ??= await _phone.CreateCallAgentAsync(Contact.Id, _cts.Token);
         _callAgentSub?.Dispose();
         _callAgentSub = _callAgent.StateChanged.Subscribe(NotifyChanged);
-        await _callAgent.AcceptCallAsync(audioElement);
+        if (_hasRemoteAudioElement)
+            await _callAgent.AcceptCallAsync(_remoteAudioElement);
+        else
+            await _callAgent.AcceptCallAsync();
         _lastCallPingAt = DateTimeOffset.MinValue;
     }
+
+    public async Task EndCallAsync()
+        => await StopCallIfNeededAsync();
+
+    public async Task CancelCallAsync()
+        => await StopCallIfNeededAsync();
 
     public Task NotifyPeerAsync() =>
         _phone.NotifyClientAsync(Contact.Id, $"Notification from {_phone.DisplayName}", _cts.Token);
 
-    public async IAsyncEnumerable<(string Sender, string Text)> SubscribeToChatAsync(
-        [EnumeratorCancellation] CancellationToken ct
-    )
+    public async Task SendChatMessageAsync(string text)
     {
-        if (_channel is null)
-            yield break;
+        if (string.IsNullOrWhiteSpace(text))
+            return;
 
-        using var subscription = _channel.Subscribe();
-        await foreach (var message in subscription.ReadAllAsync(ct))
-            yield return (message.IsSystem ? "system" : "peer", message.Text);
-    }
-
-    public async Task SendChatMessageAsync(string text, CancellationToken ct)
-    {
         if (_channel is null || !IsConnected())
             return;
         try
         {
-            await _channel.Writer.WriteAsync(new RtcTextMessage(text, false), ct);
+            await _channel.Writer.WriteAsync(new RtcTextMessage(text, false), _cts.Token);
+            _chatMessages.Add(new ChatMessage("self", text, true));
+            _changed.Invoke();
         }
         catch (ChannelClosedException) { }
     }
 
-    public async Task HandleSystemMessageAsync(string text, ElementReference audioElement)
+    public async Task SetRemoteAudioElementAsync(ElementReference audioElement)
+    {
+        _remoteAudioElement = audioElement;
+        _hasRemoteAudioElement = true;
+
+        if (_callAgent is not null)
+        {
+            await _callAgent.AttachRemoteAudioAsync(audioElement);
+        }
+    }
+
+    private async Task HandleSystemMessageAsync(string text)
     {
         if (text == CallPingMessage)
         {
@@ -172,8 +193,8 @@ public sealed class ContactVm : IAsyncDisposable
         }
         else if (text == CallAcceptedMessage)
         {
-            if (_callAgent is not null)
-                await _callAgent.AttachRemoteAudioAsync(audioElement);
+            if (_callAgent is not null && _hasRemoteAudioElement)
+                await _callAgent.AttachRemoteAudioAsync(_remoteAudioElement);
             _changed.Invoke();
         }
     }
@@ -202,12 +223,50 @@ public sealed class ContactVm : IAsyncDisposable
     private async Task EnsureChatSubscriptionAsync()
     {
         _channel ??= await _phone.GetTextChannelAsync(Contact.Id, _cts.Token);
+
+        if (_chatReadTask is null)
+        {
+            _chatCts?.Cancel();
+            _chatCts?.Dispose();
+            _chatCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            _chatReadTask = ReadChatMessagesAsync(_chatCts.Token);
+        }
+
         ChatReady = true;
         _changed.Invoke();
     }
 
+    private async Task ReadChatMessagesAsync(CancellationToken ct)
+    {
+        if (_channel is null)
+            return;
+
+        using var subscription = _channel.Subscribe();
+        try
+        {
+            await foreach (var message in subscription.ReadAllAsync(ct))
+            {
+                if (message.IsSystem)
+                {
+                    await HandleSystemMessageAsync(message.Text);
+                    continue;
+                }
+
+                _chatMessages.Add(new ChatMessage("peer", message.Text, false));
+                _changed.Invoke();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
     private void ResetChatChannelState()
     {
+        _chatCts?.Cancel();
+        _chatCts?.Dispose();
+        _chatCts = null;
+        _chatReadTask = null;
         ChatReady = false;
         _channel = null;
     }
@@ -246,6 +305,16 @@ public sealed class ContactVm : IAsyncDisposable
         _connectCts?.Dispose();
         await StopCallIfNeededAsync();
         _callAgentSub?.Dispose();
+        _chatCts?.Cancel();
+        _chatCts?.Dispose();
+        if (_chatReadTask is not null)
+        {
+            try
+            {
+                await _chatReadTask;
+            }
+            catch { }
+        }
         _cts.Cancel();
         try
         {
