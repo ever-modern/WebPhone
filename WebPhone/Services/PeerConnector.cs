@@ -107,6 +107,15 @@ public sealed class PeerConnector : BackgroundProcessor
         await RemoveConnectionAsync(peerId);
     }
 
+    public async Task HandleIncomingConnectionRequestAsync(
+        string peerId,
+        ConnectionRequestPayload request,
+        CancellationToken cancellationToken = default)
+        => await HandleIncomingAttemptAsync(peerId, request, cancellationToken);
+
+    public async Task HandlePeerConnectionClosedAsync(string peerId)
+        => await RemoveConnectionAsync(peerId);
+
     private async Task<RtcConnectionAgent> CreateOutgoingConnectionAsync(
         string peerId,
         string requestId,

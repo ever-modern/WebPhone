@@ -3,9 +3,7 @@
 @inherits DisposableComponent
 
 @inject IProfile Profile
-@inject ContactsRepository ContactsRepository
-@inject NicknamesRepository NicknamesRepository
-@inject WebRtcConnectionCoordinator Coordinator
+@inject ContactsDispatcher Dispatcher
 
 <PageTitle>Web Phone</PageTitle>
 
@@ -29,109 +27,14 @@
     </div>
 
 @code {
-    private readonly Dictionary<string, ContactSessionVm> _vmMap = [];
-    private readonly Dictionary<string, IDisposable> _vmSubscriptions = [];
     private IReadOnlyList<ContactCardModel> _contactCards = [];
 
     protected override void OnInitialized()
     {
         BoundToLifetime(Profile.UserChanged.Subscribe(HandleUserChanged));
-        BoundToLifetime(ContactsRepository.StateChanged.Subscribe(HandleServiceStateChanged));
-        BoundToLifetime(NicknamesRepository.StateChanged.Subscribe(HandleServiceStateChanged));
-        BoundToLifetime(Coordinator.StateChanged.Subscribe(HandleCoordinatorStateChanged));
-        SyncContactVms();
-    }
-
-    private void SyncContactVms()
-    {
-        var current = ContactsRepository.Contacts;
-
-        foreach (var id in _vmMap.Keys.Except(current.Select(c => c.Id)).ToList())
-        {
-            _vmMap.Remove(id, out var stale);
-            _ = stale!.DisposeAsync().AsTask();
-
-            if (_vmSubscriptions.Remove(id, out var sub))
-                sub.Dispose();
-        }
-
-        foreach (var contact in current)
-        {
-            if (_vmMap.TryGetValue(contact.Id, out var existing))
-                existing.UpdateContact(contact);
-            else
-            {
-                var vm = new ContactSessionVm(contact, Coordinator);
-                _vmMap[contact.Id] = vm;
-                _vmSubscriptions[contact.Id] = vm.Changed.Subscribe(HandleVmChanged);
-            }
-        }
-
-        _contactCards = current
-            .Select(c => BuildCardModel(_vmMap[c.Id]))
-            .OrderByDescending(c => c.Contact.IsFavorite)
-            .ThenBy(c => c.Contact.Name)
-            .ToList();
-    }
-
-    private ContactCardModel BuildCardModel(ContactSessionVm vm)
-    {
-        Action? connect = vm.CanConnect() && !vm.Contact.IsFavorite ? () => _ = vm.ConnectAsync() : null;
-        Action? cancelConnect = vm.IsConnecting() && !vm.Contact.IsFavorite ? () => _ = vm.CancelConnectAsync() : null;
-        Action? disconnect = vm.IsConnected() && !vm.Contact.IsFavorite ? () => _ = vm.DisconnectAsync() : null;
-        Action? acceptCall = vm.IsConnected() && vm.HasIncomingCallOffer && !vm.IsCallActive ? () => _ = vm.AcceptIncomingCallAsync() : null;
-        Action? startCall = vm.IsConnected() && !vm.HasIncomingCallOffer && !vm.IsCallActive ? () => _ = vm.StartCallAsync() : null;
-        Action? endCall = vm.IsConnected() && vm.IsCallActive ? () => _ = vm.EndCallAsync() : null;
-        Action? cancelCall = vm.IsConnected() && !vm.IsCallActive ? () => _ = vm.CancelCallAsync() : null;
-
-        var connectionStatusText = vm.ConnectionState switch
-        {
-            RtcConnectionState.Connected => "Connected",
-            RtcConnectionState.Connecting => "Connecting...",
-            RtcConnectionState.Disconnected => "Disconnected",
-            RtcConnectionState.Failed => "Connection failed",
-            RtcConnectionState.New => "Ready to connect",
-            RtcConnectionState.Closed => "Offline",
-            _ => vm.ConnectionStateText
-        };
-
-        var connectionStatusCssClass = vm.ConnectionState switch
-        {
-            RtcConnectionState.Connected => "is-connected",
-            RtcConnectionState.Connecting => "is-connecting",
-            RtcConnectionState.Failed => "is-failed",
-            _ => string.Empty
-        };
-
-        return new ContactCardModel(
-            Contact: vm.Contact,
-            Nickname: NicknamesRepository.GetNickname(vm.Contact.Id),
-            ConnectionStatusText: connectionStatusText,
-            ConnectionStatusCssClass: connectionStatusCssClass,
-            IsConnecting: vm.IsConnecting(),
-            ChatReady: vm.ChatReady,
-            IsChatOpen: vm.IsConnected(),
-            IsCallActive: vm.IsCallActive,
-            ChatMessages: vm.ChatMessages,
-            ToggleFavorite: () => _ = HandleToggleFavoriteAsync(vm.Contact),
-            SetNickname: nickname => _ = HandleSetNicknameAsync((vm.Contact.Id, nickname)),
-            Notify: () => _ = vm.NotifyPeerAsync(),
-            Connect: connect,
-            CancelConnect: cancelConnect,
-            Disconnect: disconnect,
-            StartCall: startCall,
-            AcceptCall: acceptCall,
-            EndCall: endCall,
-            CancelCall: cancelCall,
-            SendMessage: vm.ChatReady && vm.IsConnected() ? text => _ = vm.SendChatMessageAsync(text) : null,
-            OnRemoteAudioElementReady: audioElement => _ = vm.SetRemoteAudioElementAsync(audioElement)
-        );
-    }
-
-    private async void HandleVmChanged()
-    {
-        SyncContactVms();
-        await InvokeAsync(StateHasChanged);
+        BoundToLifetime(Dispatcher.StateChanged.Subscribe(HandleDispatcherStateChanged));
+        _ = Dispatcher.StartAsync();
+        SyncState();
     }
 
     private async void HandleUserChanged(User _)
@@ -139,41 +42,36 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async void HandleServiceStateChanged()
+    private async void HandleDispatcherStateChanged()
     {
-        SyncContactVms();
+        SyncState();
         await InvokeAsync(StateHasChanged);
     }
 
-    private async void HandleCoordinatorStateChanged()
+    private void SyncState()
     {
-        foreach (var vm in _vmMap.Values)
-            vm.UpdateConnectionState(Coordinator.GetConnectionState(vm.Contact.Id));
-        SyncContactVms();
-        await InvokeAsync(StateHasChanged);
+        _contactCards = Dispatcher.State.Contacts
+            .Select(contactState =>
+            {
+                var (contact, interactionState, actions) = contactState;
+                return new ContactCardModel(
+                    Contact: contact,
+                    InteractionState: interactionState,
+                    Actions: actions,
+                    OnRemoteAudioElementReady: null
+                );
+            })
+            .ToList();
     }
-
-    private Task HandleToggleFavoriteAsync(Contact contact)
-        => ContactsRepository.ToggleFavoriteAsync(contact.Id, contact.Name);
-
-    private Task HandleSetNicknameAsync((string UserId, string? Nickname) args)
-        => NicknamesRepository.SetNicknameAsync(args.UserId, args.Nickname);
 
     private Task HandleNotifySelfAsync()
-        => Coordinator.NotifySelfAsync("Self test notification");
+        => Dispatcher.NotifySelfAsync("Self test notification");
 
     public override async ValueTask DisposeAsync()
     {
         base.Dispose();
-
-        foreach (var vm in _vmMap.Values)
-            await vm.DisposeAsync();
-
-        foreach (var sub in _vmSubscriptions.Values)
-            sub.Dispose();
-
-        _vmMap.Clear();
-        _vmSubscriptions.Clear();
+        Dispatcher.Dispose();
+        await Task.CompletedTask;
     }
 }
 </div>

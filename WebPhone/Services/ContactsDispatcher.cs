@@ -52,14 +52,17 @@ public sealed class ContactsDispatcher(
             SetNickname: async (nickname) =>
                 _ = contactsRepository
                     .SetNicknameAsync(contact.Id, nickname),
-            Notify: (contactId, message) =>
+            Notify: () =>
                 _ = backendClient
-                    .NotifyAsync(contactId, message),
+                    .NotifyAsync(contact.Id, null),
             Disconnect: () =>
                 _ = peerConnector
                     .ClosePeerConnectionAsync(contact.Id)
                     .ContinueWith((_) => StateHasChanged())
         );
+
+    public Task NotifySelfAsync(string? message = null, CancellationToken cancellationToken = default)
+        => backendClient.NotifyAsync(null, message, cancellationToken);
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {

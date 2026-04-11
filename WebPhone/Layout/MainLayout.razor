@@ -6,6 +6,7 @@
 @inject PresenceAnnouncer presenceAnnouncer
 @inject NicknamesRepository nicknames
 @inject AzureMessagesChannel azureMessagesChannel
+@inject IncomingConnectionsHandler incomingConnectionsHandler
 
 <div class="page-container">
     @if (ready)
@@ -32,6 +33,7 @@
         await contacts.InitializeAsync();
         await nicknames.StartTrackingAsync();
         contacts.StartTracking();
+        incomingConnectionsHandler.Start();
         await presenceAnnouncer.StartAsync();
 
         ready = true;

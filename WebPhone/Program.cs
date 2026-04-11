@@ -14,7 +14,10 @@ IServiceCollection services = builder.Services;
 
 services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 services.AddScoped<WebRtcConnector>();
+services.AddScoped<PeerConnector>();
 services.AddScoped<WebRtcConnectionCoordinator>();
+services.AddScoped<IncomingConnectionsHandler>();
+services.AddScoped<ContactsDispatcher>();
 services.AddScoped<ContactsRepository>();
 services.AddScoped<PresenceAnnouncer>();
 services.AddScoped<IWebRtcConfigurator, AzureWebRtcChannelsRegistrator>();

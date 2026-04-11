@@ -1,9 +1,15 @@
 @using WebPhone.Services
 
+@{
+    var (contact, interaction, actions, onRemoteAudioElementReady) = Model;
+    var (isConnected, connectionState, isConnecting, chatReady, isCallActive, isCalling, hasIncomingCall, chat) = interaction;
+    var (toggleFavorite, setNickname, notify, connect, cancelConnect, disconnect, startCall, acceptCall, declineCall, endCall, cancelCall, sendMessage) = actions;
+}
+
 <div class="webrtc-card webrtc-contact-card">
-    @if (Model.Actions.ToggleFavorite is not null)
+    @if (toggleFavorite is not null)
     {
-        <button class="webrtc-favorite-btn @(Model.Contact.IsFavorite ? "is-favorite" : string.Empty)" @onclick="ToggleFavorite" title="@(Model.Contact.IsFavorite ? "Remove favourite" : "Add favourite")">★</button>
+        <button class="webrtc-favorite-btn @(contact.IsFavorite ? "is-favorite" : string.Empty)" @onclick="ToggleFavorite" title="@(contact.IsFavorite ? "Remove favourite" : "Add favourite")">★</button>
     }
     <div class="webrtc-contact-details">
         @if (_editingNickname)
@@ -17,77 +23,77 @@
         else
         {
             <div class="webrtc-contact-name-row">
-                <strong>@(string.IsNullOrWhiteSpace(Model.Nickname) ? Model.Contact.Name : Model.Nickname)</strong>
-                @if (!string.IsNullOrWhiteSpace(Model.Nickname))
+                <strong>@(string.IsNullOrWhiteSpace(contact.Nickname) ? contact.Name : contact.Nickname)</strong>
+                @if (!string.IsNullOrWhiteSpace(contact.Nickname))
                 {
-                    <span class="webrtc-contact-real-name">(@Model.Contact.Name)</span>
+                    <span class="webrtc-contact-real-name">(@contact.Name)</span>
                 }
-                @if (Model.SetNickname is not null)
+                @if (setNickname is not null)
                 {
-                    <button class="webrtc-icon-btn webrtc-nickname-edit-btn" @onclick="StartNicknameEdit" title="@(string.IsNullOrWhiteSpace(Model.Nickname) ? "Set nickname" : "Edit nickname")">✏</button>
+                    <button class="webrtc-icon-btn webrtc-nickname-edit-btn" @onclick="StartNicknameEdit" title="@(string.IsNullOrWhiteSpace(contact.Nickname) ? "Set nickname" : "Edit nickname")">✏</button>
                 }
             </div>
         }
-        <span>@Model.Contact.Id</span>
-        @if (!string.IsNullOrWhiteSpace(Model.ConnectionStatusText))
+        <span>@contact.Id</span>
+        @if (!string.IsNullOrWhiteSpace(connectionState))
         {
-            <span class="webrtc-contact-status @Model.ConnectionStatusCssClass">
-                @if (Model.IsConnecting)
+            <span class="webrtc-contact-status @(isConnected ? "is-connected" : isConnecting ? "is-connecting" : string.Empty)">
+                @if (isConnecting)
                 {
                     <span>Connecting<span class="webrtc-dots-animation"></span></span>
                 }
                 else
                 {
-                    @Model.ConnectionStatusText
+                    @connectionState
                 }
             </span>
         }
 
         <div class="webrtc-contact-actions">
-            @if (Model.Notify is not null)
+            @if (notify is not null)
             {
                 <button class="webrtc-button" @onclick="Notify">Notify</button>
             }
 
-            @if (!Model.Contact.IsFavorite)
+            @if (!contact.IsFavorite)
             {
-                @if (Model.CancelConnect is not null)
+                @if (cancelConnect is not null)
                 {
                     <button class="webrtc-button webrtc-button--danger" @onclick="CancelConnect">Cancel</button>
                 }
-                else if (Model.Disconnect is not null)
+                else if (disconnect is not null)
                 {
                     <button class="webrtc-button webrtc-contact-connect-button" @onclick="Disconnect">Disconnect</button>
                 }
-                else if (Model.Connect is not null)
+                else if (connect is not null)
                 {
                     <button class="webrtc-button webrtc-contact-connect-button" @onclick="Connect">Connect</button>
                 }
             }
 
-            @if (Model.AcceptCall is not null)
+            @if (acceptCall is not null)
             {
                 <button class="webrtc-button" @onclick="AcceptCall">Accept call</button>
             }
-            @if (Model.StartCall is not null)
+            @if (startCall is not null)
             {
                 <button class="webrtc-button" @onclick="StartCall">Call</button>
             }
-            @if (Model.EndCall is not null)
+            @if (endCall is not null)
             {
                 <button class="webrtc-button" @onclick="EndCall">Hang up</button>
             }
-            @if (Model.CancelCall is not null)
+            @if (cancelCall is not null)
             {
                 <button class="webrtc-button webrtc-button--danger" @onclick="CancelCall">Cancel call</button>
             }
         </div>
     </div>
 
-    <ChatPanel OnSend="Model.SendMessage"
-               Messages="Model.ChatMessages"
-               IsEnabled="Model.ChatReady"
-               IsOpen="Model.IsChatOpen" />
+    <ChatPanel OnSend="sendMessage"
+               Messages="chat"
+               IsEnabled="chatReady"
+               IsOpen="isConnected" />
 
     <audio class="webrtc-audio" autoplay playsinline @ref="_remoteAudio"></audio>
 </div>
@@ -109,35 +115,35 @@
     }
 
     private void ToggleFavorite()
-        => Model.ToggleFavorite?.Invoke();
+        => Model.Actions.ToggleFavorite?.Invoke();
 
     private void Notify()
-        => Model.Notify?.Invoke();
+        => Model.Actions.Notify?.Invoke();
 
     private void Connect()
-        => Model.Connect?.Invoke();
+        => Model.Actions.Connect?.Invoke();
 
     private void CancelConnect()
-        => Model.CancelConnect?.Invoke();
+        => Model.Actions.CancelConnect?.Invoke();
 
     private void Disconnect()
-        => Model.Disconnect?.Invoke();
+        => Model.Actions.Disconnect?.Invoke();
 
     private void StartCall()
-        => Model.StartCall?.Invoke();
+        => Model.Actions.StartCall?.Invoke();
 
     private void AcceptCall()
-        => Model.AcceptCall?.Invoke();
+        => Model.Actions.AcceptCall?.Invoke();
 
     private void EndCall()
-        => Model.EndCall?.Invoke();
+        => Model.Actions.EndCall?.Invoke();
 
     private void CancelCall()
-        => Model.CancelCall?.Invoke();
+        => Model.Actions.CancelCall?.Invoke();
 
     private void StartNicknameEdit()
     {
-        _nicknameEdit = Model.Nickname ?? string.Empty;
+        _nicknameEdit = Model.Contact.Nickname ?? string.Empty;
         _editingNickname = true;
     }
 
@@ -146,7 +152,7 @@
 
     private async Task SaveNicknameAsync()
     {
-        Model.SetNickname?.Invoke(_nicknameEdit);
+        Model.Actions.SetNickname?.Invoke(_nicknameEdit);
         _editingNickname = false;
     }
 

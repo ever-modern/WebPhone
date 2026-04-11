@@ -17,7 +17,7 @@ public record InteractionState(
 public record ContactActions(
     Action? ToggleFavorite = null,
     Action<string?>? SetNickname = null,
-    Action<string, string>? Notify = null,
+    Action? Notify = null,
     Action? Connect = null,
     Action? CancelConnect = null,
     Action? Disconnect = null,
