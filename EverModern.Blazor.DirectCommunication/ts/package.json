@@ -1,0 +1,15 @@
+{
+  "name": "webphone",
+  "private": true,
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "scripts": {
+    "build:bundle": "tsc -p tsconfig.json",
+    "watch:bundle": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "build:webrtc": "npm run build:bundle",
+    "watch:webrtc": "npm run watch:bundle",
+    "build:rtc-connection-manager": "npm run build:bundle",
+    "watch:rtc-connection-manager": "npm run watch:bundle"
+  }
+}
