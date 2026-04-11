@@ -5,7 +5,7 @@
 @inject IProfile Profile
 @inject ContactsRepository ContactsRepository
 @inject NicknamesRepository NicknamesRepository
-@inject Phone Phone
+@inject WebRtcConnectionCoordinator Coordinator
 
 <PageTitle>Web Phone</PageTitle>
 
@@ -29,7 +29,7 @@
     </div>
 
 @code {
-    private readonly Dictionary<string, ContactVm> _vmMap = [];
+    private readonly Dictionary<string, ContactSessionVm> _vmMap = [];
     private readonly Dictionary<string, IDisposable> _vmSubscriptions = [];
     private IReadOnlyList<ContactCardModel> _contactCards = [];
 
@@ -38,7 +38,7 @@
         BoundToLifetime(Profile.UserChanged.Subscribe(HandleUserChanged));
         BoundToLifetime(ContactsRepository.StateChanged.Subscribe(HandleServiceStateChanged));
         BoundToLifetime(NicknamesRepository.StateChanged.Subscribe(HandleServiceStateChanged));
-        BoundToLifetime(Phone.StateChanged.Subscribe(HandlePhoneStateChanged));
+        BoundToLifetime(Coordinator.StateChanged.Subscribe(HandleCoordinatorStateChanged));
         SyncContactVms();
     }
 
@@ -61,7 +61,7 @@
                 existing.UpdateContact(contact);
             else
             {
-                var vm = new ContactVm(contact, Phone);
+                var vm = new ContactSessionVm(contact, Coordinator);
                 _vmMap[contact.Id] = vm;
                 _vmSubscriptions[contact.Id] = vm.Changed.Subscribe(HandleVmChanged);
             }
@@ -74,7 +74,7 @@
             .ToList();
     }
 
-    private ContactCardModel BuildCardModel(ContactVm vm)
+    private ContactCardModel BuildCardModel(ContactSessionVm vm)
     {
         Action? connect = vm.CanConnect() && !vm.Contact.IsFavorite ? () => _ = vm.ConnectAsync() : null;
         Action? cancelConnect = vm.IsConnecting() && !vm.Contact.IsFavorite ? () => _ = vm.CancelConnectAsync() : null;
@@ -145,10 +145,10 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async void HandlePhoneStateChanged()
+    private async void HandleCoordinatorStateChanged()
     {
         foreach (var vm in _vmMap.Values)
-            vm.UpdateConnectionState(Phone.GetConnectionState(vm.Contact.Id));
+            vm.UpdateConnectionState(Coordinator.GetConnectionState(vm.Contact.Id));
         SyncContactVms();
         await InvokeAsync(StateHasChanged);
     }
@@ -160,7 +160,7 @@
         => NicknamesRepository.SetNicknameAsync(args.UserId, args.Nickname);
 
     private Task HandleNotifySelfAsync()
-        => Phone.NotifySelfAsync("Self test notification");
+        => Coordinator.NotifySelfAsync("Self test notification");
 
     public override async ValueTask DisposeAsync()
     {

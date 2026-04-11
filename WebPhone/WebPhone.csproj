@@ -9,7 +9,7 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="EverModern.Threading" Version="0.0.12" />
+		
 		<PackageReference Include="EverModern.WheelProtection.DataStructures" Version="0.0.12" />
 		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.4" />
 		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.4" PrivateAssets="all" />

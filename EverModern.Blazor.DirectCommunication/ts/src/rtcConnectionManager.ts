@@ -4,11 +4,26 @@ type RtcMgrDotNetReference = {
 
 type ByteSubscriber = (data: Uint8Array) => void;
 
+type MediaDirectionState = {
+  input: boolean;
+  output: boolean;
+};
+
+type MediaExchangeState = {
+  audio: MediaDirectionState;
+  video: MediaDirectionState;
+};
+
 type RtcConnectionManager = {
-  enableAudio(): void;
-  disableAudio(): void;
-  enableVideo(): void;
-  disableVideo(): void;
+  enableAudioInput(): void;
+  disableAudioInput(): void;
+  enableAudioOutput(): void;
+  disableAudioOutput(): void;
+  enableVideoInput(): void;
+  disableVideoInput(): void;
+  enableVideoOutput(): void;
+  disableVideoOutput(): void;
+  getMediaExchangeState(): MediaExchangeState;
   writeBytes(input: Uint8Array | ArrayBuffer): void;
   subscribeBytes(callback: ByteSubscriber | RtcMgrDotNetReference): number;
   unsubscribeBytes(subscriptionId: number): void;
@@ -107,32 +122,87 @@ function createRtcManagerConnection(stateCallback: RtcMgrDotNetReference): Creat
   };
 
   const manager = Object.create(rtcConnectionManagerPrototype) as RtcConnectionManager;
-  manager.enableAudio = (): void => {
-    const sender = peerConnection.getSenders().find((item) => item.track?.kind === "audio");
-    if (sender?.track) {
-      sender.track.enabled = true;
-    }
+  const setInputEnabled = (kind: "audio" | "video", enabled: boolean): void => {
+    peerConnection.getSenders()
+      .filter((sender) => sender.track?.kind === kind)
+      .forEach((sender) => {
+        if (sender.track) {
+          sender.track.enabled = enabled;
+        }
+      });
   };
 
-  manager.disableAudio = (): void => {
-    const sender = peerConnection.getSenders().find((item) => item.track?.kind === "audio");
-    if (sender?.track) {
-      sender.track.enabled = false;
-    }
+  const setOutputEnabled = (kind: "audio" | "video", enabled: boolean): void => {
+    peerConnection.getReceivers()
+      .filter((receiver) => receiver.track?.kind === kind)
+      .forEach((receiver) => {
+        if (receiver.track) {
+          receiver.track.enabled = enabled;
+        }
+      });
   };
 
-  manager.enableVideo = (): void => {
-    const sender = peerConnection.getSenders().find((item) => item.track?.kind === "video");
-    if (sender?.track) {
-      sender.track.enabled = true;
-    }
+  const getInputState = (kind: "audio" | "video"): boolean => {
+    const tracks = peerConnection.getSenders()
+      .filter((sender) => sender.track?.kind === kind)
+      .map((sender) => sender.track)
+      .filter((track): track is MediaStreamTrack => !!track);
+
+    return tracks.length > 0 && tracks.every((track) => track.enabled);
   };
 
-  manager.disableVideo = (): void => {
-    const sender = peerConnection.getSenders().find((item) => item.track?.kind === "video");
-    if (sender?.track) {
-      sender.track.enabled = false;
-    }
+  const getOutputState = (kind: "audio" | "video"): boolean => {
+    const tracks = peerConnection.getReceivers()
+      .filter((receiver) => receiver.track?.kind === kind)
+      .map((receiver) => receiver.track)
+      .filter((track): track is MediaStreamTrack => !!track);
+
+    return tracks.length > 0 && tracks.every((track) => track.enabled);
+  };
+
+  manager.enableAudioInput = (): void => {
+    setInputEnabled("audio", true);
+  };
+
+  manager.disableAudioInput = (): void => {
+    setInputEnabled("audio", false);
+  };
+
+  manager.enableAudioOutput = (): void => {
+    setOutputEnabled("audio", true);
+  };
+
+  manager.disableAudioOutput = (): void => {
+    setOutputEnabled("audio", false);
+  };
+
+  manager.enableVideoInput = (): void => {
+    setInputEnabled("video", true);
+  };
+
+  manager.disableVideoInput = (): void => {
+    setInputEnabled("video", false);
+  };
+
+  manager.enableVideoOutput = (): void => {
+    setOutputEnabled("video", true);
+  };
+
+  manager.disableVideoOutput = (): void => {
+    setOutputEnabled("video", false);
+  };
+
+  manager.getMediaExchangeState = (): MediaExchangeState => {
+    return {
+      audio: {
+        input: getInputState("audio"),
+        output: getOutputState("audio")
+      },
+      video: {
+        input: getInputState("video"),
+        output: getOutputState("video")
+      }
+    };
   };
 
   manager.writeBytes = (input: Uint8Array | ArrayBuffer): void => {

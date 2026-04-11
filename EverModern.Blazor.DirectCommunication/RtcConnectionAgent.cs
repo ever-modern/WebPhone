@@ -1,4 +1,5 @@
 using EverModern.Events;
+using EverModern.Threading.Channels;
 using Microsoft.JSInterop;
 
 namespace EverModern.Blazor.DirectCommunication;
@@ -39,13 +40,28 @@ public sealed class RtcConnectionAgent : IAsyncDisposable, IDisposable
         await EnsureBytesBridgeAsync();
     }
 
-    public async Task EnableAudioAsync() => await InvokeVoidAsync("enableAudio");
+    public async Task EnableAudioInputAsync() => await InvokeVoidAsync("enableAudioInput");
 
-    public async Task DisableAudioAsync() => await InvokeVoidAsync("disableAudio");
+    public async Task DisableAudioInputAsync() => await InvokeVoidAsync("disableAudioInput");
 
-    public async Task EnableVideoAsync() => await InvokeVoidAsync("enableVideo");
+    public async Task EnableAudioOutputAsync() => await InvokeVoidAsync("enableAudioOutput");
 
-    public async Task DisableVideoAsync() => await InvokeVoidAsync("disableVideo");
+    public async Task DisableAudioOutputAsync() => await InvokeVoidAsync("disableAudioOutput");
+
+    public async Task EnableVideoInputAsync() => await InvokeVoidAsync("enableVideoInput");
+
+    public async Task DisableVideoInputAsync() => await InvokeVoidAsync("disableVideoInput");
+
+    public async Task EnableVideoOutputAsync() => await InvokeVoidAsync("enableVideoOutput");
+
+    public async Task DisableVideoOutputAsync() => await InvokeVoidAsync("disableVideoOutput");
+
+    public async Task<WebRtcMediaExchangeState> GetMediaExchangeStateAsync()
+    {
+        ThrowIfDisposed();
+        var managerReference = GetManagerReference();
+        return await managerReference.InvokeAsync<WebRtcMediaExchangeState>("getMediaExchangeState");
+    }
 
     public async Task WriteBytesAsync(byte[] bytes)
     {

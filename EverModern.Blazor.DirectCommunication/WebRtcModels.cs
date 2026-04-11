@@ -62,3 +62,13 @@ public sealed record WebRtcDataBytesMessageEventArgs(string ConnectionId, byte[]
 public sealed record WebRtcRemoteStreamEventArgs(string ConnectionId);
 
 public sealed record WebRtcIceCandidateEventArgs(string ConnectionId, WebRtcIceCandidate Candidate);
+
+public sealed record WebRtcMediaDirectionState(
+    [property: JsonPropertyName("input")] bool Input,
+    [property: JsonPropertyName("output")] bool Output
+);
+
+public sealed record WebRtcMediaExchangeState(
+    [property: JsonPropertyName("audio")] WebRtcMediaDirectionState Audio,
+    [property: JsonPropertyName("video")] WebRtcMediaDirectionState Video
+);

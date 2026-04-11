@@ -12,7 +12,7 @@ public sealed class NicknamesRepository(ILocalStore localStore)
     readonly EventSource _stateChanged = new();
     public INotifier StateChanged => _stateChanged;
 
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)    {
+    public async Task StartTrackingAsync(CancellationToken cancellationToken = default)    {
         if (_loaded) return;
         var items = await localStore.GetAsync<List<ContactNickname>>(StorageKey, cancellationToken) ?? [];
         _nicknames.Clear();

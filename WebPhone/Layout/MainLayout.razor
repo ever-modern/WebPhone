@@ -2,10 +2,8 @@
 @inherits LayoutComponentBase
 
 @inject ProfileStore profileStore
-@inject Phone phone
 @inject ContactsRepository contacts
 @inject PresenceAnnouncer presenceAnnouncer
-@inject IncomingConnectionsHandler incomingConnectionsHandler
 @inject NicknamesRepository nicknames
 @inject AzureMessagesChannel azureMessagesChannel
 
@@ -32,10 +30,8 @@
         _ = azureMessagesChannel.StartAsync();
 
         await contacts.InitializeAsync();
-        await nicknames.InitializeAsync();
+        await nicknames.StartTrackingAsync();
         contacts.StartTracking();
-        incomingConnectionsHandler.Start();
-        await phone.InitializeAsync();
         await presenceAnnouncer.StartAsync();
 
         ready = true;

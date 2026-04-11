@@ -60,29 +60,73 @@ function createRtcManagerConnection(stateCallback) {
         };
     };
     const manager = Object.create(rtcConnectionManagerPrototype);
-    manager.enableAudio = () => {
-        const sender = peerConnection.getSenders().find((item) => item.track?.kind === "audio");
-        if (sender?.track) {
-            sender.track.enabled = true;
-        }
+    const setInputEnabled = (kind, enabled) => {
+        peerConnection.getSenders()
+            .filter((sender) => sender.track?.kind === kind)
+            .forEach((sender) => {
+            if (sender.track) {
+                sender.track.enabled = enabled;
+            }
+        });
     };
-    manager.disableAudio = () => {
-        const sender = peerConnection.getSenders().find((item) => item.track?.kind === "audio");
-        if (sender?.track) {
-            sender.track.enabled = false;
-        }
+    const setOutputEnabled = (kind, enabled) => {
+        peerConnection.getReceivers()
+            .filter((receiver) => receiver.track?.kind === kind)
+            .forEach((receiver) => {
+            if (receiver.track) {
+                receiver.track.enabled = enabled;
+            }
+        });
     };
-    manager.enableVideo = () => {
-        const sender = peerConnection.getSenders().find((item) => item.track?.kind === "video");
-        if (sender?.track) {
-            sender.track.enabled = true;
-        }
+    const getInputState = (kind) => {
+        const tracks = peerConnection.getSenders()
+            .filter((sender) => sender.track?.kind === kind)
+            .map((sender) => sender.track)
+            .filter((track) => !!track);
+        return tracks.length > 0 && tracks.every((track) => track.enabled);
     };
-    manager.disableVideo = () => {
-        const sender = peerConnection.getSenders().find((item) => item.track?.kind === "video");
-        if (sender?.track) {
-            sender.track.enabled = false;
-        }
+    const getOutputState = (kind) => {
+        const tracks = peerConnection.getReceivers()
+            .filter((receiver) => receiver.track?.kind === kind)
+            .map((receiver) => receiver.track)
+            .filter((track) => !!track);
+        return tracks.length > 0 && tracks.every((track) => track.enabled);
+    };
+    manager.enableAudioInput = () => {
+        setInputEnabled("audio", true);
+    };
+    manager.disableAudioInput = () => {
+        setInputEnabled("audio", false);
+    };
+    manager.enableAudioOutput = () => {
+        setOutputEnabled("audio", true);
+    };
+    manager.disableAudioOutput = () => {
+        setOutputEnabled("audio", false);
+    };
+    manager.enableVideoInput = () => {
+        setInputEnabled("video", true);
+    };
+    manager.disableVideoInput = () => {
+        setInputEnabled("video", false);
+    };
+    manager.enableVideoOutput = () => {
+        setOutputEnabled("video", true);
+    };
+    manager.disableVideoOutput = () => {
+        setOutputEnabled("video", false);
+    };
+    manager.getMediaExchangeState = () => {
+        return {
+            audio: {
+                input: getInputState("audio"),
+                output: getOutputState("audio")
+            },
+            video: {
+                input: getInputState("video"),
+                output: getOutputState("video")
+            }
+        };
     };
     manager.writeBytes = (input) => {
         if (!dataChannel || dataChannel.readyState !== "open") {

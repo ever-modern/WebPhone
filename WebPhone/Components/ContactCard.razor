@@ -1,7 +1,7 @@
 @using WebPhone.Services
 
 <div class="webrtc-card webrtc-contact-card">
-    @if (Model.ToggleFavorite is not null)
+    @if (Model.Actions.ToggleFavorite is not null)
     {
         <button class="webrtc-favorite-btn @(Model.Contact.IsFavorite ? "is-favorite" : string.Empty)" @onclick="ToggleFavorite" title="@(Model.Contact.IsFavorite ? "Remove favourite" : "Add favourite")">★</button>
     }

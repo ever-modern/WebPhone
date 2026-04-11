@@ -55,6 +55,12 @@ public class ContactsRepository(
         _stateChanged.Invoke();
     }
 
+    public async Task SetNicknameAsync(string userId, string? nickname)
+    {
+        await nicknamesRepository.SetNicknameAsync(userId, nickname);
+        _stateChanged.Invoke();
+    }
+
     private async Task ReadPresenceAsync(CancellationToken ct)
     {
         using var reader = messagesChannel.Subscribe(m => m.Type == MessageType.Presence);

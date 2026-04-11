@@ -13,16 +13,13 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 IServiceCollection services = builder.Services;
 
 services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-services.AddSingleton<WebRtcInterop>();
-services.AddScoped<Phone>();
+services.AddScoped<WebRtcConnector>();
+services.AddScoped<WebRtcConnectionCoordinator>();
 services.AddScoped<ContactsRepository>();
 services.AddScoped<PresenceAnnouncer>();
-services.AddScoped<IncomingConnectionsHandler>();
 services.AddScoped<IWebRtcConfigurator, AzureWebRtcChannelsRegistrator>();
 services.AddScoped<IWebRtcRegistrator, AzureWebRtcChannelsRegistrator>();
 services.AddSingleton<PhoneOptions>(sp => sp.GetRequiredService<IOptions<PhoneOptions>>().Value);
-
-services.AddSingleton<RtcConnector>();
 
 services.AddSingleton<BackendClient>(sp => 
 {
