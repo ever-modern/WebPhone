@@ -15,14 +15,14 @@ type MediaExchangeState = {
 };
 
 type RtcConnectionManager = {
-  enableAudioInput(): void;
-  disableAudioInput(): void;
-  enableAudioOutput(): void;
-  disableAudioOutput(): void;
-  enableVideoInput(): void;
-  disableVideoInput(): void;
-  enableVideoOutput(): void;
-  disableVideoOutput(): void;
+  enableAudioInput(): Promise<void>;
+  disableAudioInput(): Promise<void>;
+  enableAudioOutput(): Promise<void>;
+  disableAudioOutput(): Promise<void>;
+  enableVideoInput(): Promise<void>;
+  disableVideoInput(): Promise<void>;
+  enableVideoOutput(): Promise<void>;
+  disableVideoOutput(): Promise<void>;
   getMediaExchangeState(): MediaExchangeState;
   writeBytes(input: Uint8Array | ArrayBuffer): void;
   subscribeBytes(callback: ByteSubscriber | RtcMgrDotNetReference): number;
@@ -106,6 +106,15 @@ function createRtcManagerConnection(stateCallback: RtcMgrDotNetReference): Creat
   const peerConnection = new RTCPeerConnection();
   peerConnection.addTransceiver("audio", { direction: "sendrecv" });
   peerConnection.addTransceiver("video", { direction: "sendrecv" });
+  const remoteAudioElement = document.createElement("audio");
+  remoteAudioElement.autoplay = true;
+  remoteAudioElement.setAttribute("playsinline", "true");
+  remoteAudioElement.style.display = "none";
+  document.body.appendChild(remoteAudioElement);
+
+  const localTracks = new Map<"audio" | "video", MediaStreamTrack>();
+  const remoteAudioStream = new MediaStream();
+  remoteAudioElement.srcObject = remoteAudioStream;
 
   let dataChannel: RTCDataChannel | null = null;
   let localAnswer: RTCSessionDescription | null = null;
@@ -122,7 +131,52 @@ function createRtcManagerConnection(stateCallback: RtcMgrDotNetReference): Creat
   };
 
   const manager = Object.create(rtcConnectionManagerPrototype) as RtcConnectionManager;
-  const setInputEnabled = (kind: "audio" | "video", enabled: boolean): void => {
+
+  const getSenderForKind = (kind: "audio" | "video"): RTCRtpSender | null => {
+    const transceiver = peerConnection.getTransceivers().find((item) => item.receiver.track?.kind === kind);
+    if (transceiver) {
+      return transceiver.sender;
+    }
+
+    return peerConnection.getSenders().find((sender) => sender.track?.kind === kind) ?? null;
+  };
+
+  const ensureInputTrackAsync = async (kind: "audio" | "video"): Promise<void> => {
+    if (localTracks.has(kind)) {
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("The browser does not support media capture.");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia(
+      kind === "audio"
+        ? { audio: true, video: false }
+        : { audio: false, video: true }
+    );
+
+    const track = stream.getTracks().find((candidate) => candidate.kind === kind);
+    if (!track) {
+      throw new Error(`No ${kind} input track is available.`);
+    }
+
+    localTracks.set(kind, track);
+
+    const sender = getSenderForKind(kind);
+    if (sender) {
+      await sender.replaceTrack(track);
+      return;
+    }
+
+    peerConnection.addTrack(track, stream);
+  };
+
+  const setInputEnabled = async (kind: "audio" | "video", enabled: boolean): Promise<void> => {
+    if (enabled) {
+      await ensureInputTrackAsync(kind);
+    }
+
     peerConnection.getSenders()
       .filter((sender) => sender.track?.kind === kind)
       .forEach((sender) => {
@@ -132,7 +186,7 @@ function createRtcManagerConnection(stateCallback: RtcMgrDotNetReference): Creat
       });
   };
 
-  const setOutputEnabled = (kind: "audio" | "video", enabled: boolean): void => {
+  const setOutputEnabled = async (kind: "audio" | "video", enabled: boolean): Promise<void> => {
     peerConnection.getReceivers()
       .filter((receiver) => receiver.track?.kind === kind)
       .forEach((receiver) => {
@@ -140,6 +194,13 @@ function createRtcManagerConnection(stateCallback: RtcMgrDotNetReference): Creat
           receiver.track.enabled = enabled;
         }
       });
+
+    if (kind === "audio") {
+      remoteAudioElement.muted = !enabled;
+      if (enabled) {
+        void remoteAudioElement.play().catch(() => undefined);
+      }
+    }
   };
 
   const getInputState = (kind: "audio" | "video"): boolean => {
@@ -160,36 +221,36 @@ function createRtcManagerConnection(stateCallback: RtcMgrDotNetReference): Creat
     return tracks.length > 0 && tracks.every((track) => track.enabled);
   };
 
-  manager.enableAudioInput = (): void => {
-    setInputEnabled("audio", true);
+  manager.enableAudioInput = async (): Promise<void> => {
+    await setInputEnabled("audio", true);
   };
 
-  manager.disableAudioInput = (): void => {
-    setInputEnabled("audio", false);
+  manager.disableAudioInput = async (): Promise<void> => {
+    await setInputEnabled("audio", false);
   };
 
-  manager.enableAudioOutput = (): void => {
-    setOutputEnabled("audio", true);
+  manager.enableAudioOutput = async (): Promise<void> => {
+    await setOutputEnabled("audio", true);
   };
 
-  manager.disableAudioOutput = (): void => {
-    setOutputEnabled("audio", false);
+  manager.disableAudioOutput = async (): Promise<void> => {
+    await setOutputEnabled("audio", false);
   };
 
-  manager.enableVideoInput = (): void => {
-    setInputEnabled("video", true);
+  manager.enableVideoInput = async (): Promise<void> => {
+    await setInputEnabled("video", true);
   };
 
-  manager.disableVideoInput = (): void => {
-    setInputEnabled("video", false);
+  manager.disableVideoInput = async (): Promise<void> => {
+    await setInputEnabled("video", false);
   };
 
-  manager.enableVideoOutput = (): void => {
-    setOutputEnabled("video", true);
+  manager.enableVideoOutput = async (): Promise<void> => {
+    await setOutputEnabled("video", true);
   };
 
-  manager.disableVideoOutput = (): void => {
-    setOutputEnabled("video", false);
+  manager.disableVideoOutput = async (): Promise<void> => {
+    await setOutputEnabled("video", false);
   };
 
   manager.getMediaExchangeState = (): MediaExchangeState => {
@@ -244,6 +305,19 @@ function createRtcManagerConnection(stateCallback: RtcMgrDotNetReference): Creat
       dataChannel = null;
     }
 
+    localTracks.forEach((track) => {
+      track.stop();
+    });
+    localTracks.clear();
+
+    remoteAudioStream.getTracks().forEach((track) => {
+      remoteAudioStream.removeTrack(track);
+      track.stop();
+    });
+
+    remoteAudioElement.srcObject = null;
+    remoteAudioElement.remove();
+
     peerConnection.getSenders().forEach((sender) => {
       if (sender.track) {
         sender.track.stop();
@@ -260,6 +334,19 @@ function createRtcManagerConnection(stateCallback: RtcMgrDotNetReference): Creat
 
   peerConnection.ondatachannel = (event) => {
     wireDataChannel(event.channel);
+  };
+
+  peerConnection.ontrack = (event) => {
+    if (event.track.kind !== "audio") {
+      return;
+    }
+
+    const trackExists = remoteAudioStream.getTracks().some((knownTrack) => knownTrack.id === event.track.id);
+    if (!trackExists) {
+      remoteAudioStream.addTrack(event.track);
+    }
+
+    void remoteAudioElement.play().catch(() => undefined);
   };
 
   return {

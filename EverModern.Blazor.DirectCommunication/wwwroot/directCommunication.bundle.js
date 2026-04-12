@@ -47,6 +47,14 @@ function createRtcManagerConnection(stateCallback) {
     const peerConnection = new RTCPeerConnection();
     peerConnection.addTransceiver("audio", { direction: "sendrecv" });
     peerConnection.addTransceiver("video", { direction: "sendrecv" });
+    const remoteAudioElement = document.createElement("audio");
+    remoteAudioElement.autoplay = true;
+    remoteAudioElement.setAttribute("playsinline", "true");
+    remoteAudioElement.style.display = "none";
+    document.body.appendChild(remoteAudioElement);
+    const localTracks = new Map();
+    const remoteAudioStream = new MediaStream();
+    remoteAudioElement.srcObject = remoteAudioStream;
     let dataChannel = null;
     let localAnswer = null;
     const subscribers = new Map();
@@ -60,7 +68,39 @@ function createRtcManagerConnection(stateCallback) {
         };
     };
     const manager = Object.create(rtcConnectionManagerPrototype);
-    const setInputEnabled = (kind, enabled) => {
+    const getSenderForKind = (kind) => {
+        const transceiver = peerConnection.getTransceivers().find((item) => item.receiver.track?.kind === kind);
+        if (transceiver) {
+            return transceiver.sender;
+        }
+        return peerConnection.getSenders().find((sender) => sender.track?.kind === kind) ?? null;
+    };
+    const ensureInputTrackAsync = async (kind) => {
+        if (localTracks.has(kind)) {
+            return;
+        }
+        if (!navigator.mediaDevices?.getUserMedia) {
+            throw new Error("The browser does not support media capture.");
+        }
+        const stream = await navigator.mediaDevices.getUserMedia(kind === "audio"
+            ? { audio: true, video: false }
+            : { audio: false, video: true });
+        const track = stream.getTracks().find((candidate) => candidate.kind === kind);
+        if (!track) {
+            throw new Error(`No ${kind} input track is available.`);
+        }
+        localTracks.set(kind, track);
+        const sender = getSenderForKind(kind);
+        if (sender) {
+            await sender.replaceTrack(track);
+            return;
+        }
+        peerConnection.addTrack(track, stream);
+    };
+    const setInputEnabled = async (kind, enabled) => {
+        if (enabled) {
+            await ensureInputTrackAsync(kind);
+        }
         peerConnection.getSenders()
             .filter((sender) => sender.track?.kind === kind)
             .forEach((sender) => {
@@ -69,7 +109,7 @@ function createRtcManagerConnection(stateCallback) {
             }
         });
     };
-    const setOutputEnabled = (kind, enabled) => {
+    const setOutputEnabled = async (kind, enabled) => {
         peerConnection.getReceivers()
             .filter((receiver) => receiver.track?.kind === kind)
             .forEach((receiver) => {
@@ -77,6 +117,12 @@ function createRtcManagerConnection(stateCallback) {
                 receiver.track.enabled = enabled;
             }
         });
+        if (kind === "audio") {
+            remoteAudioElement.muted = !enabled;
+            if (enabled) {
+                void remoteAudioElement.play().catch(() => undefined);
+            }
+        }
     };
     const getInputState = (kind) => {
         const tracks = peerConnection.getSenders()
@@ -92,29 +138,29 @@ function createRtcManagerConnection(stateCallback) {
             .filter((track) => !!track);
         return tracks.length > 0 && tracks.every((track) => track.enabled);
     };
-    manager.enableAudioInput = () => {
-        setInputEnabled("audio", true);
+    manager.enableAudioInput = async () => {
+        await setInputEnabled("audio", true);
     };
-    manager.disableAudioInput = () => {
-        setInputEnabled("audio", false);
+    manager.disableAudioInput = async () => {
+        await setInputEnabled("audio", false);
     };
-    manager.enableAudioOutput = () => {
-        setOutputEnabled("audio", true);
+    manager.enableAudioOutput = async () => {
+        await setOutputEnabled("audio", true);
     };
-    manager.disableAudioOutput = () => {
-        setOutputEnabled("audio", false);
+    manager.disableAudioOutput = async () => {
+        await setOutputEnabled("audio", false);
     };
-    manager.enableVideoInput = () => {
-        setInputEnabled("video", true);
+    manager.enableVideoInput = async () => {
+        await setInputEnabled("video", true);
     };
-    manager.disableVideoInput = () => {
-        setInputEnabled("video", false);
+    manager.disableVideoInput = async () => {
+        await setInputEnabled("video", false);
     };
-    manager.enableVideoOutput = () => {
-        setOutputEnabled("video", true);
+    manager.enableVideoOutput = async () => {
+        await setOutputEnabled("video", true);
     };
-    manager.disableVideoOutput = () => {
-        setOutputEnabled("video", false);
+    manager.disableVideoOutput = async () => {
+        await setOutputEnabled("video", false);
     };
     manager.getMediaExchangeState = () => {
         return {
@@ -159,6 +205,16 @@ function createRtcManagerConnection(stateCallback) {
             dataChannel.close();
             dataChannel = null;
         }
+        localTracks.forEach((track) => {
+            track.stop();
+        });
+        localTracks.clear();
+        remoteAudioStream.getTracks().forEach((track) => {
+            remoteAudioStream.removeTrack(track);
+            track.stop();
+        });
+        remoteAudioElement.srcObject = null;
+        remoteAudioElement.remove();
         peerConnection.getSenders().forEach((sender) => {
             if (sender.track) {
                 sender.track.stop();
@@ -172,6 +228,16 @@ function createRtcManagerConnection(stateCallback) {
     };
     peerConnection.ondatachannel = (event) => {
         wireDataChannel(event.channel);
+    };
+    peerConnection.ontrack = (event) => {
+        if (event.track.kind !== "audio") {
+            return;
+        }
+        const trackExists = remoteAudioStream.getTracks().some((knownTrack) => knownTrack.id === event.track.id);
+        if (!trackExists) {
+            remoteAudioStream.addTrack(event.track);
+        }
+        void remoteAudioElement.play().catch(() => undefined);
     };
     return {
         manager,

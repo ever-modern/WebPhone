@@ -6,7 +6,6 @@ using WebPhone.Messages;
 using WebPhone.Components;
 using WebPhone.Services.Background;
 using WebPhone.Services.Channels;
-using WebPhone.Services.Connectivity;
 using WebPhone.Services.Data;
 
 namespace WebPhone.Services;

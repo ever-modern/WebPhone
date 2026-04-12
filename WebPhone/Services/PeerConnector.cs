@@ -5,7 +5,7 @@ using EverModern.Events;
 using WebPhone.Messages;
 using WebPhone.Services.Channels;
 
-namespace WebPhone.Services.Connectivity;
+namespace WebPhone.Services;
 
 public sealed class PeerConnector : BackgroundProcessor
 {

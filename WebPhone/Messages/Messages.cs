@@ -23,6 +23,7 @@ public sealed record CallResponsePayload(string ConnectionId, bool Accepted);
 
 public sealed record ChatMessage(string Sender, string Text, bool IsOwn);
 
+public sealed record ConnectionRejectedPayload(string RequestId);
 
 public record OutgoingMessage<T>(MessageType Type, T Payload, string? TargetClientId)
 {

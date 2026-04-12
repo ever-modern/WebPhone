@@ -6,7 +6,6 @@ using WebPhone.Services;
 using Microsoft.Extensions.Options;
 using WebPhone.Services.Channels;
 using WebPhone.Services.Data;
-using WebPhone.Services.Connectivity;
 using WebPhone.Services.Background;
 
 

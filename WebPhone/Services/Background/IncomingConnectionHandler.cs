@@ -1,7 +1,6 @@
 using EverModern.Events;
 using WebPhone.Messages;
 using WebPhone.Services.Channels;
-using WebPhone.Services.Connectivity;
 
 namespace WebPhone.Services.Background;
 
