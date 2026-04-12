@@ -13,15 +13,15 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
     private readonly TimeSpan idleSendInterval;
     private readonly CancellationTokenSource cts = new();
     private Task? sendLoopTask;
-    private DateTimeOffset lastReadTimestamp = DateTimeOffset.UtcNow.AddSeconds(-5);
-    private DateTimeOffset lastSentTimestamp = DateTimeOffset.UtcNow;
+    private DateTime lastReadTimestamp = DateTime.UtcNow.AddSeconds(-5);
+    private DateTime lastSentTimestamp = DateTime.UtcNow;
     readonly BackendClient _client;
 
     public AzureMessagesChannel(BackendClient client, int pollIntervalMs = 1000)
     {
         _client = client;
         idleSendInterval = TimeSpan.FromMilliseconds(Math.Max(pollIntervalMs, 250));
-        lastSentTimestamp = DateTimeOffset.UtcNow - idleSendInterval;
+        lastSentTimestamp = DateTime.UtcNow - idleSendInterval;
     }
 
     public ChannelWriter<OutgoingMessage> Writer => outgoingChannel.Writer;
@@ -72,7 +72,7 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
 
     private TimeSpan GetIdleDelay()
     {
-        var elapsedSinceLastSend = DateTimeOffset.UtcNow - lastSentTimestamp;
+        var elapsedSinceLastSend = DateTime.UtcNow - lastSentTimestamp;
         if (elapsedSinceLastSend >= idleSendInterval)
         {
             return TimeSpan.Zero;
@@ -86,7 +86,7 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
         CancellationToken cancellationToken
     )
     {
-        var requestStartTimestamp = DateTimeOffset.UtcNow;
+        var requestStartTimestamp = DateTime.UtcNow;
         var exchangeResponse = await _client.ExchangeAsync(
             outgoingMessages,
             lastReadTimestamp,

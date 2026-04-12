@@ -43,8 +43,8 @@ function waitForIceGatheringCompleteRtcMgr(connection, timeoutMs = 5000) {
         }, timeoutMs);
     });
 }
-function createRtcManagerConnection(stateCallback) {
-    const peerConnection = new RTCPeerConnection();
+function createRtcManagerConnection(stateCallback, iceServers) {
+    const peerConnection = new RTCPeerConnection({ iceServers: iceServers ?? [] });
     peerConnection.addTransceiver("audio", { direction: "sendrecv" });
     peerConnection.addTransceiver("video", { direction: "sendrecv" });
     const remoteAudioElement = document.createElement("audio");
@@ -248,8 +248,8 @@ function createRtcManagerConnection(stateCallback) {
         }
     };
 }
-async function initiateConnectionAsync(dotnetCallback, onStateChanged) {
-    const created = createRtcManagerConnection(onStateChanged);
+async function initiateConnectionAsync(dotnetCallback, onStateChanged, iceServers) {
+    const created = createRtcManagerConnection(onStateChanged, iceServers);
     const channel = created.peerConnection.createDataChannel("primary", { ordered: true });
     created.wireDataChannel(channel);
     const offer = await created.peerConnection.createOffer();
@@ -259,8 +259,8 @@ async function initiateConnectionAsync(dotnetCallback, onStateChanged) {
     await created.peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
     return created.manager;
 }
-async function acceptConnectionAsync(offer, onStateChanged) {
-    const created = createRtcManagerConnection(onStateChanged);
+async function acceptConnectionAsync(offer, onStateChanged, iceServers) {
+    const created = createRtcManagerConnection(onStateChanged, iceServers);
     await created.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await created.peerConnection.createAnswer();
     await created.peerConnection.setLocalDescription(answer);

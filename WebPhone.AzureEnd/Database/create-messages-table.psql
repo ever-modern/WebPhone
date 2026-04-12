@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS messages (
-    date_time timestamptz NOT NULL,
+    date_time timestamp NOT NULL,
     type text NOT NULL,
     payload jsonb NOT NULL,
     publisher_id text,

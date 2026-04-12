@@ -9,8 +9,9 @@
         <input class="webrtc-input" @bind="Name" placeholder="Your name" />
         <button class="webrtc-button" @onclick="() => profile.SetUser(profile.User with { Name = Name })">
             @(profile.User.Name.Length > 0 ? "Change name" : "Register")
-        </button>
+        </button>        
     </div>
+    <p>@(profile.User.Id)</p>
 </section>
 
 @code {

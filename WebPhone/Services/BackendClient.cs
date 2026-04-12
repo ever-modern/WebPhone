@@ -19,7 +19,7 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
 
     public async Task<ExchangeResponse> ExchangeAsync(
         MessageRequest[] outgoingMessages,
-        DateTimeOffset cutoffDate,
+        DateTime cutoffDate,
         CancellationToken cancellationToken = default
     )
     {

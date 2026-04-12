@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Microsoft.JSInterop;
 using EverModern.Blazor.DirectCommunication;
 using WebPhone;
 using WebPhone.Services;
@@ -16,7 +17,14 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 IServiceCollection services = builder.Services;
 
 services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-services.AddScoped<RtcConnector>();
+services.AddScoped(sp =>
+{
+    var options = sp.GetRequiredService<PhoneOptions>();
+    return new RtcConnector(
+        sp.GetRequiredService<IJSRuntime>(),
+        options.WebRtcIceServers
+    );
+});
 services.AddScoped<PeerConnector>();
 services.AddScoped<IncomingConnectionsHandler>();
 services.AddScoped<ContactsDispatcher>();

@@ -1,3 +1,3 @@
 ﻿namespace WebPhone.Contract;
 
-public record ExchangeResponse(MessageResponse[] RelevantMessages);
+public record ExchangeResponse(MessageResponse[] RelevantMessages, DateTime WrittenAt);

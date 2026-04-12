@@ -1,16 +1,19 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
-using System.Text.Json;
 using WebPhone.AzureEnd.Services;
 using WebPhone.AzureEnd.Storage;
 using WebPhone.Contract;
 
-
 namespace WebPhone.AzureEnd;
 
-public sealed class ExchangeFunction(ILogger<ExchangeFunction> logger, MessagesRepository repository, PushNotificationService pushNotificationService)
+public sealed class ExchangeFunction(
+    ILogger<ExchangeFunction> logger,
+    MessagesRepository repository,
+    PushNotificationService pushNotificationService
+)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -18,7 +21,9 @@ public sealed class ExchangeFunction(ILogger<ExchangeFunction> logger, MessagesR
     };
 
     [Function("exchange")]
-    public async Task<IActionResult> Run([HttpTrigger(AuthorizationLevel.Anonymous, "post", "options")] HttpRequest req)
+    public async Task<IActionResult> Run(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", "options")] HttpRequest req
+    )
     {
         if (FunctionCors.TryBuildPreflightResult(req, "POST, OPTIONS") is { } preflightResult)
         {
@@ -34,22 +39,45 @@ public sealed class ExchangeFunction(ILogger<ExchangeFunction> logger, MessagesR
             return new BadRequestObjectResult("Missing X-Client-Id header");
         }
 
-        var request = await JsonSerializer.DeserializeAsync<ExchangeRequest>(req.Body, JsonOptions, cancellationToken);
+        var request = await JsonSerializer.DeserializeAsync<ExchangeRequest>(
+            req.Body,
+            JsonOptions,
+            cancellationToken
+        );
 
         var now = DateTime.UtcNow;
 
-        await repository.WriteMessagesAsync(
-            [.. request.Messages?.Select(
-                    m => new MessageWriteEntry(m.Type, m.Payload, clientId, m.TargetClientId, now)) ?? []
-            ]);
+        var writtenAt = await repository.WriteMessagesAsync([
+            .. request.Messages?.Select(m => new MessageWriteEntry(
+                m.Type,
+                m.Payload,
+                clientId,
+                m.TargetClientId,
+                now
+            )) ?? [],
+        ]);
 
-        var relevantMessages = await repository.ReadMessagesAsync(new MessagesFilter(
-            ReceiverId: clientId, Since: request.MessagesActualityCutoffDate, ExcludedIds: [clientId]), cancellationToken);
+        var relevantMessages = await repository.ReadMessagesAsync(
+            new MessagesFilter(
+                ReceiverId: clientId,
+                Since: request.MessagesActualityCutoffDate,
+                ExcludedIds: [clientId]
+            ),
+            cancellationToken
+        );
 
         var response = new ExchangeResponse(
-            [.. relevantMessages.Select(m => new MessageResponse(m.PublisherId, m.Type, m.DateTime, m.Payload))]);
+            [
+                .. relevantMessages.Select(m => new MessageResponse(
+                    m.PublisherId,
+                    m.Type,
+                    m.DateTime,
+                    m.Payload
+                )),
+            ],
+            writtenAt
+        );
 
         return FunctionCors.BuildResult(new ObjectResult(response), "POST, OPTIONS");
     }
-
 }

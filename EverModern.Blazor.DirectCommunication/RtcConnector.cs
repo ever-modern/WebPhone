@@ -7,6 +7,13 @@ public sealed record RtcAcceptedConnection(RtcConnection Connection, WebRtcAnswe
 public sealed class RtcConnector(IJSRuntime jsRuntime)
 {
     private readonly IJSRuntime _jsRuntime = jsRuntime;
+    private readonly WebRtcIceServer[] _defaultIceServers = [];
+
+    public RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServer>? defaultIceServers)
+        : this(jsRuntime)
+    {
+        _defaultIceServers = defaultIceServers?.ToArray() ?? [];
+    }
 
     public async Task<RtcConnection> InitiateConnectionAsync(Func<WebRtcOffer, Task<WebRtcAnswer>> acceptOffer)
     {
@@ -20,7 +27,8 @@ public sealed class RtcConnector(IJSRuntime jsRuntime)
             var managerReference = await _jsRuntime.InvokeAsync<IJSObjectReference>(
                 "rtcConnectionManagerInterop.initiateConnectionAsync",
                 offerCallbackReference,
-                agent.StateChangedCallbackReference);
+                agent.StateChangedCallbackReference,
+                _defaultIceServers);
 
             await agent.AttachManagerAsync(managerReference);
             return agent;
@@ -46,7 +54,8 @@ public sealed class RtcConnector(IJSRuntime jsRuntime)
             var managerReference = await _jsRuntime.InvokeAsync<IJSObjectReference>(
                 "rtcConnectionManagerInterop.acceptConnectionAsync",
                 offer,
-                agent.StateChangedCallbackReference);
+                agent.StateChangedCallbackReference,
+                _defaultIceServers);
 
             await agent.AttachManagerAsync(managerReference);
             var answer = await agent.GetLocalAnswerAsync();

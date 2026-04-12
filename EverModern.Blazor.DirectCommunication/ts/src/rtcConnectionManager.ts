@@ -32,8 +32,16 @@ type RtcConnectionManager = {
 };
 
 type RtcConnectionManagerFactory = {
-  initiateConnectionAsync(dotnetCallback: RtcMgrDotNetReference, onStateChanged: RtcMgrDotNetReference): Promise<RtcConnectionManager>;
-  acceptConnectionAsync(offer: RTCSessionDescriptionInit, onStateChanged: RtcMgrDotNetReference): Promise<RtcConnectionManager>;
+  initiateConnectionAsync(
+    dotnetCallback: RtcMgrDotNetReference,
+    onStateChanged: RtcMgrDotNetReference,
+    iceServers?: RTCIceServer[]
+  ): Promise<RtcConnectionManager>;
+  acceptConnectionAsync(
+    offer: RTCSessionDescriptionInit,
+    onStateChanged: RtcMgrDotNetReference,
+    iceServers?: RTCIceServer[]
+  ): Promise<RtcConnectionManager>;
 };
 
 interface Window {
@@ -102,8 +110,11 @@ type CreatedConnection = {
   setLocalAnswer(description: RTCSessionDescription | null): void;
 };
 
-function createRtcManagerConnection(stateCallback: RtcMgrDotNetReference): CreatedConnection {
-  const peerConnection = new RTCPeerConnection();
+function createRtcManagerConnection(
+  stateCallback: RtcMgrDotNetReference,
+  iceServers?: RTCIceServer[]
+): CreatedConnection {
+  const peerConnection = new RTCPeerConnection({ iceServers: iceServers ?? [] });
   peerConnection.addTransceiver("audio", { direction: "sendrecv" });
   peerConnection.addTransceiver("video", { direction: "sendrecv" });
   const remoteAudioElement = document.createElement("audio");
@@ -361,9 +372,10 @@ function createRtcManagerConnection(stateCallback: RtcMgrDotNetReference): Creat
 
 async function initiateConnectionAsync(
   dotnetCallback: RtcMgrDotNetReference,
-  onStateChanged: RtcMgrDotNetReference
+  onStateChanged: RtcMgrDotNetReference,
+  iceServers?: RTCIceServer[]
 ): Promise<RtcConnectionManager> {
-  const created = createRtcManagerConnection(onStateChanged);
+  const created = createRtcManagerConnection(onStateChanged, iceServers);
   const channel = created.peerConnection.createDataChannel("primary", { ordered: true });
   created.wireDataChannel(channel);
 
@@ -382,9 +394,10 @@ async function initiateConnectionAsync(
 
 async function acceptConnectionAsync(
   offer: RTCSessionDescriptionInit,
-  onStateChanged: RtcMgrDotNetReference
+  onStateChanged: RtcMgrDotNetReference,
+  iceServers?: RTCIceServer[]
 ): Promise<RtcConnectionManager> {
-  const created = createRtcManagerConnection(onStateChanged);
+  const created = createRtcManagerConnection(onStateChanged, iceServers);
   await created.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
 
   const answer = await created.peerConnection.createAnswer();
