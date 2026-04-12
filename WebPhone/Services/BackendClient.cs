@@ -19,16 +19,16 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
 
     public async Task<ExchangeResponse> ExchangeAsync(
         MessageRequest[] outgoingMessages,
-        DateTime cutoffDate,
+        long messagesSinceId,
         CancellationToken cancellationToken = default
     )
     {
         string сlientId = profile.User.Id;
-        
+
         using var request = new HttpRequestMessage(HttpMethod.Post, _exchangeEndpoint)
         {
             Content = JsonContent.Create(
-                new ExchangeRequest(сlientId, cutoffDate, outgoingMessages),
+                new ExchangeRequest(сlientId, messagesSinceId, outgoingMessages),
                 options: JsonOptions
             ),
         };

@@ -2,4 +2,4 @@
 
 namespace WebPhone.Contract;
 
-public record MessageResponse(string PublisherClientId, string Type, DateTime DateTime, JsonElement Payload);
+public record MessageResponse(long Id, string PublisherClientId, string Type, DateTime DateTime, JsonElement Payload);

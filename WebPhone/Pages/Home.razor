@@ -43,10 +43,10 @@
         await InvokeAsync(StateHasChanged);
     }
 
-    private async void HandleDispatcherStateChanged()
+    private void HandleDispatcherStateChanged()
     {
         SyncState();
-        await InvokeAsync(StateHasChanged);
+        StateHasChanged();
     }
 
     private void SyncState()

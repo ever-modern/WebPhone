@@ -13,7 +13,7 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
     private readonly TimeSpan idleSendInterval;
     private readonly CancellationTokenSource cts = new();
     private Task? sendLoopTask;
-    private DateTime lastReadTimestamp = DateTime.UtcNow.AddSeconds(-5);
+    private long _lastMessageId = CommonIdsGenerator.NewId();
     private DateTime lastSentTimestamp = DateTime.UtcNow;
     readonly BackendClient _client;
 
@@ -89,15 +89,19 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
         var requestStartTimestamp = DateTime.UtcNow;
         var exchangeResponse = await _client.ExchangeAsync(
             outgoingMessages,
-            lastReadTimestamp,
+            _lastMessageId,
             cancellationToken
         );
         var messages = exchangeResponse?.RelevantMessages;
         if (messages is null)
         {
-            lastReadTimestamp = requestStartTimestamp;
             lastSentTimestamp = requestStartTimestamp;
             return;
+        }
+
+        if (messages.Length > 0)
+        {
+            _lastMessageId = messages.Max(m => m.Id);
         }
 
         foreach (var message in messages)
@@ -105,6 +109,7 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
             foreach (var incomingChannel in incomingChannels)
             {
                 IncomingMessage incomingMessage = new(
+                    message.Id,
                     MessageTypeJsonConverter.FromWireValue(message.Type),
                     message.Payload,
                     message.PublisherClientId,
@@ -115,7 +120,6 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
             }
         }
 
-        lastReadTimestamp = requestStartTimestamp;
         lastSentTimestamp = requestStartTimestamp;
     }
 

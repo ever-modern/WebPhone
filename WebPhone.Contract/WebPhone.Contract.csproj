@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+	<ItemGroup>
+		<PackageReference Include="EverModern.WheelProtection.DataWorks" Version="0.0.12" />
+	</ItemGroup>
+	
 </Project>

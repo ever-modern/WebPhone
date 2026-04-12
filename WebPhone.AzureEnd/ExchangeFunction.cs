@@ -47,7 +47,7 @@ public sealed class ExchangeFunction(
 
         var now = DateTime.UtcNow;
 
-        var writtenAt = await repository.WriteMessagesAsync([
+        await repository.WriteMessagesAsync([
             .. request.Messages?.Select(m => new MessageWriteEntry(
                 m.Type,
                 m.Payload,
@@ -60,7 +60,7 @@ public sealed class ExchangeFunction(
         var relevantMessages = await repository.ReadMessagesAsync(
             new MessagesFilter(
                 ReceiverId: clientId,
-                Since: request.MessagesActualityCutoffDate,
+                SinceId: request.MessagesSinceId,
                 ExcludedIds: [clientId]
             ),
             cancellationToken
@@ -69,13 +69,13 @@ public sealed class ExchangeFunction(
         var response = new ExchangeResponse(
             [
                 .. relevantMessages.Select(m => new MessageResponse(
+                    m.Id,
                     m.PublisherId,
                     m.Type,
                     m.DateTime,
                     m.Payload
                 )),
-            ],
-            writtenAt
+            ]
         );
 
         return FunctionCors.BuildResult(new ObjectResult(response), "POST, OPTIONS");

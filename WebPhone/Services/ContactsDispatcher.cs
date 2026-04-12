@@ -61,9 +61,11 @@ public sealed class ContactsDispatcher(
                 _ = contactsRepository.SetNicknameAsync(contact.Id, nickname),
             Notify: () => _ = backendClient.NotifyAsync(contact.Id, null),
             Disconnect: () =>
-                _ = peerConnector
-                    .ClosePeerConnectionAsync(contact.Id)
-                    .ContinueWith((_) => StateHasChanged())
+                {
+                    _interactions.TryRemove(contact.Id, out _);
+                    StateHasChanged();
+                    _ = peerConnector.ClosePeerConnectionAsync(contact.Id);
+                }
         );
 
     public Task NotifySelfAsync(

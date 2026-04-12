@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Dapper;
 using Npgsql;
+using WebPhone.Contract;
 
 namespace WebPhone.AzureEnd.Storage;
 
@@ -42,14 +43,16 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
             {
                 var message = messages[start + index];
                 var parameterSuffix = index.ToString();
+                var idParameter = $"Id{parameterSuffix}";
                 var dateTimeParameter = $"DateTime{parameterSuffix}";
                 var typeParameter = $"Type{parameterSuffix}";
                 var payloadParameter = $"Payload{parameterSuffix}";
                 var publisherIdParameter = $"PublisherId{parameterSuffix}";
                 var receiverIdParameter = $"ReceiverId{parameterSuffix}";
 
-                values.Add($"(@{dateTimeParameter}, @{typeParameter}, @{payloadParameter}::jsonb, @{publisherIdParameter}, @{receiverIdParameter})");
-                parameters.Add(dateTimeParameter, message.DateTime ?? DateTime.UtcNow);
+                values.Add($"(@{idParameter}, @{dateTimeParameter}, @{typeParameter}, @{payloadParameter}::jsonb, @{publisherIdParameter}, @{receiverIdParameter})");
+                parameters.Add(idParameter, CommonIdsGenerator.NewId());
+                parameters.Add(dateTimeParameter, DateTime.SpecifyKind(message.DateTime ?? DateTime.UtcNow, DateTimeKind.Unspecified));
                 parameters.Add(typeParameter, message.Type as object ?? DBNull.Value);
                 parameters.Add(payloadParameter, message.Payload is null ? "{}" : JsonSerializer.Serialize(message.Payload));
                 parameters.Add(publisherIdParameter, message.PublisherId ?? string.Empty);
@@ -57,7 +60,7 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
             }
 
             var sql = $"""
-                INSERT INTO messages (date_time, type, payload, publisher_id, receiver_id)
+                INSERT INTO messages (id, date_time, type, payload, publisher_id, receiver_id)
                 VALUES {string.Join(", ", values)};
                 """;
 
@@ -67,15 +70,15 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
         return DateTime.UtcNow;
     }
 
-    public async Task<StoredMessage[]> ReadMessagesAsync(DateTime? since = null, CancellationToken cancellationToken = default)
-        => await ReadMessagesAsync(new MessagesFilter(Since: since), cancellationToken);
+    public async Task<StoredMessage[]> ReadMessagesAsync(long? sinceId = null, CancellationToken cancellationToken = default)
+        => await ReadMessagesAsync(new MessagesFilter(SinceId: sinceId), cancellationToken);
 
     public async Task<StoredMessage[]> ReadMessagesAsync(MessagesFilter filter, CancellationToken cancellationToken = default)
     {
         var sql = """
-            SELECT date_time, type, payload, publisher_id, receiver_id
+            SELECT id, date_time, type, payload, publisher_id, receiver_id
             FROM messages
-            WHERE (@Since IS NULL OR date_time > @Since)
+            WHERE (@SinceId IS NULL OR id > @SinceId)
               AND (@Type IS NULL OR type = @Type)
               AND (@PublisherId IS NULL OR publisher_id = @PublisherId)
               AND (@ExcludedIds IS NULL OR NOT (publisher_id = ANY(@ExcludedIds)))
@@ -84,13 +87,13 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
                     OR receiver_id = @ReceiverId
                     OR receiver_id IS NULL
                   )
-            ORDER BY date_time
+            ORDER BY id
             LIMIT @Limit;
             """;
 
         await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters
-            .Add("Since", filter.Since)
+            .Add("SinceId", filter.SinceId.HasValue ? (object?)filter.SinceId.Value : null)
             .Add("Type", filter.Type)
             .Add("PublisherId", filter.PublisherId)
             .Add("ExcludedIds", filter.ExcludedIds is null ? null : filter.ExcludedIds.ToArray())
@@ -101,14 +104,16 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            var dateTime = DateTime.SpecifyKind(reader.GetDateTime(0), DateTimeKind.Utc);
+            var id = reader.GetInt64(0);
+            var dateTime = DateTime.SpecifyKind(reader.GetDateTime(1), DateTimeKind.Utc);
 
-            var type = reader.GetString(1);
-            var payloadJson = reader.GetString(2);
-            var publisherId = reader.GetString(3);
-            var receiverId = reader.IsDBNull(4) ? null : reader.GetString(4);
+            var type = reader.GetString(2);
+            var payloadJson = reader.GetString(3);
+            var publisherId = reader.GetString(4);
+            var receiverId = reader.IsDBNull(5) ? null : reader.GetString(5);
 
             result.Add(new StoredMessage(
+                id,
                 dateTime,
                 type,
                 JsonSerializer.Deserialize<JsonElement>(payloadJson),
@@ -124,7 +129,7 @@ public record MessagesFilter(
     string? Type = null,
     string? ReceiverId = null,
     string? PublisherId = null,
-    DateTime? Since = null,
+    long? SinceId = null,
     IReadOnlyList<string>? ExcludedIds = null);
 
 public record MessageWriteEntry(
@@ -135,4 +140,4 @@ public record MessageWriteEntry(
     DateTime? DateTime = null);
 
 public sealed record StoredMessage(
-    DateTime DateTime, string Type, JsonElement Payload, string PublisherId, string? ReceiverId);
+    long Id, DateTime DateTime, string Type, JsonElement Payload, string PublisherId, string? ReceiverId);

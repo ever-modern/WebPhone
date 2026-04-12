@@ -54,9 +54,9 @@ public record OutgoingMessage(MessageType Type, JsonElement Payload, string? Tar
     }
 }
 
-public record IncomingMessage<T>(MessageType Type, T Payload, string SenderClientId, DateTime DateTime);
+public record IncomingMessage<T>(long Id, MessageType Type, T Payload, string SenderClientId, DateTime DateTime);
 
-public record IncomingMessage(MessageType Type, JsonElement Payload, string SenderClientId, DateTime DateTime)
+public record IncomingMessage(long Id, MessageType Type, JsonElement Payload, string SenderClientId, DateTime DateTime)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -68,7 +68,7 @@ public record IncomingMessage(MessageType Type, JsonElement Payload, string Send
         try
         {
             var parsed = JsonSerializer.Deserialize<T>(Payload, SerializerOptions);
-            return parsed is null ? default : new(Type, parsed, SenderClientId, DateTime);
+            return parsed is null ? default : new(Id, Type, parsed, SenderClientId, DateTime);
         }
         catch { return default; }
     }

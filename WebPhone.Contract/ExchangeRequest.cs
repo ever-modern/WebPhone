@@ -1,3 +1,3 @@
 ﻿namespace WebPhone.Contract;
 
-public record ExchangeRequest(string ClientId, DateTime MessagesActualityCutoffDate, MessageRequest[] Messages);
+public record ExchangeRequest(string ClientId, long MessagesSinceId, MessageRequest[] Messages);
