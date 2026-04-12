@@ -1,6 +1,6 @@
 using EverModern.Events;
 
-namespace WebPhone.Services;
+namespace WebPhone.Services.Data;
 
 public interface IProfile
 {

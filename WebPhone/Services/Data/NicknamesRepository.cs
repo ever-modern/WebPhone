@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using EverModern.Events;
 
-namespace WebPhone.Services;
+namespace WebPhone.Services.Data;
 
 public sealed class NicknamesRepository(ILocalStore localStore)
 {

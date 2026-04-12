@@ -4,6 +4,10 @@ using EverModern.Blazor.DirectCommunication;
 using WebPhone;
 using WebPhone.Services;
 using Microsoft.Extensions.Options;
+using WebPhone.Services.Channels;
+using WebPhone.Services.Data;
+using WebPhone.Services.Connectivity;
+using WebPhone.Services.Background;
 
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -13,9 +17,8 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 IServiceCollection services = builder.Services;
 
 services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-services.AddScoped<WebRtcConnector>();
+services.AddScoped<RtcConnector>();
 services.AddScoped<PeerConnector>();
-services.AddScoped<WebRtcConnectionCoordinator>();
 services.AddScoped<IncomingConnectionsHandler>();
 services.AddScoped<ContactsDispatcher>();
 services.AddScoped<ContactsRepository>();

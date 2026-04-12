@@ -1,4 +1,3 @@
-namespace WebPhone.Services;
 
 public sealed class ChannelMessageReceivedEventArgs(string channelName, string eventName, string payloadJson) : EventArgs
 {

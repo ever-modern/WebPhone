@@ -1,6 +1,9 @@
 using EverModern.Events;
+using WebPhone.Messages;
+using WebPhone.Services.Channels;
+using WebPhone.Services.Connectivity;
 
-namespace WebPhone.Services;
+namespace WebPhone.Services.Background;
 
 public record ConnectionEstablishedArgs(string UserId, string RequestId);
 

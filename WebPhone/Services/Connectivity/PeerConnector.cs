@@ -2,12 +2,14 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
+using WebPhone.Messages;
+using WebPhone.Services.Channels;
 
-namespace WebPhone.Services;
+namespace WebPhone.Services.Connectivity;
 
 public sealed class PeerConnector : BackgroundProcessor
 {
-    private readonly WebRtcConnector _webRtcConnector;
+    private readonly RtcConnector _webRtcConnector;
     private readonly IMessagesChannel _messagesChannel;
     private readonly ILogger<PeerConnector> _logger;
     private readonly SemaphoreSlim _locker = new(1, 1);
@@ -18,7 +20,7 @@ public sealed class PeerConnector : BackgroundProcessor
 
     public INotifier StateChanged => _connectionEventSource;
 
-    public IReadOnlyDictionary<string, RtcConnectionAgent> CurrentConnections =>
+    public IReadOnlyDictionary<string, RtcConnection> CurrentConnections =>
         _connections
             .Select(kvp =>
                 (
@@ -32,7 +34,7 @@ public sealed class PeerConnector : BackgroundProcessor
             .ToDictionary(kvp => kvp.Item1, kvp => kvp.Item2!);
 
     public PeerConnector(
-        WebRtcConnector webRtcConnector,
+        RtcConnector webRtcConnector,
         IMessagesChannel messagesChannel,
         ILogger<PeerConnector> logger
     )
@@ -43,7 +45,7 @@ public sealed class PeerConnector : BackgroundProcessor
         _incomingLoopTask = Task.Run(() => ReadIncomingRequestsAsync(_incomingLoopCts.Token));
     }
 
-    public async Task<RtcConnectionAgent> GetPeerConnectionAsync(
+    public async Task<RtcConnection> GetPeerConnectionAsync(
         string peerId,
         CancellationToken cancellationToken = default
     )
@@ -116,7 +118,7 @@ public sealed class PeerConnector : BackgroundProcessor
     public async Task HandlePeerConnectionClosedAsync(string peerId)
         => await RemoveConnectionAsync(peerId);
 
-    private async Task<RtcConnectionAgent> CreateOutgoingConnectionAsync(
+    private async Task<RtcConnection> CreateOutgoingConnectionAsync(
         string peerId,
         string requestId,
         CancellationToken cancellationToken
@@ -296,7 +298,7 @@ public sealed class PeerConnector : BackgroundProcessor
         }
     }
 
-    private async Task<RtcConnectionAgent> AcceptIncomingConnectionAsync(
+    private async Task<RtcConnection> AcceptIncomingConnectionAsync(
         string peerId,
         ConnectionRequestPayload incoming,
         CancellationToken cancellationToken
@@ -382,6 +384,6 @@ public sealed class PeerConnector : BackgroundProcessor
         string RequestId,
         bool IsOutgoing,
         CancellationTokenSource Cancellation,
-        Task<RtcConnectionAgent> ConnectionTask
+        Task<RtcConnection> ConnectionTask
     );
 }

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.JSInterop;
 
-namespace WebPhone.Services;
+namespace WebPhone.Services.Data;
 
 public class BrowserLocalStore(IJSRuntime js) : ILocalStore
 {

@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using EverModern.Events;
+using WebPhone.Messages;
+using WebPhone.Services.Channels;
 
-namespace WebPhone.Services;
+namespace WebPhone.Services.Data;
 
 public class ContactsRepository(
     IMessagesChannel messagesChannel,

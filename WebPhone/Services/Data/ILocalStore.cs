@@ -1,4 +1,4 @@
-namespace WebPhone.Services;
+namespace WebPhone.Services.Data;
 
 public interface ILocalStore
 {

@@ -1,8 +1,9 @@
 using System.Threading.Channels;
 using EverModern.Threading.Channels;
 using WebPhone.Contract;
+using WebPhone.Messages;
 
-namespace WebPhone.Services;
+namespace WebPhone.Services.Channels;
 
 public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
 {

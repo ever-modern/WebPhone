@@ -4,7 +4,7 @@ using Microsoft.JSInterop;
 
 namespace EverModern.Blazor.DirectCommunication;
 
-public sealed class RtcConnectionAgent : IAsyncDisposable, IDisposable
+public sealed class RtcConnection : IAsyncDisposable, IDisposable
 {
     private readonly DotNetObjectReference<StateChangedCallback> _stateChangedCallbackReference;
     private readonly DotNetObjectReference<BytesBridgeCallback> _bytesBridgeCallbackReference;
@@ -20,7 +20,7 @@ public sealed class RtcConnectionAgent : IAsyncDisposable, IDisposable
 
     public INotifier<byte[]> BytesReceived => _bytesReceived;
 
-    internal RtcConnectionAgent()
+    internal RtcConnection()
     {
         _stateChangedCallbackReference = DotNetObjectReference.Create(new StateChangedCallback(state =>
         {
@@ -158,7 +158,7 @@ public sealed class RtcConnectionAgent : IAsyncDisposable, IDisposable
     {
         if (_disposed)
         {
-            throw new ObjectDisposedException(nameof(RtcConnectionAgent));
+            throw new ObjectDisposedException(nameof(RtcConnection));
         }
     }
 

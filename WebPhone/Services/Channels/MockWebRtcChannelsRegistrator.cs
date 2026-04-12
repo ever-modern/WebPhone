@@ -1,4 +1,6 @@
-namespace WebPhone.Services;
+using WebPhone.Messages;
+
+namespace WebPhone.Services.Channels;
 
 public sealed class MockWebRtcChannelsRegistrator : IWebRtcConfigurator, IWebRtcRegistrator
 {

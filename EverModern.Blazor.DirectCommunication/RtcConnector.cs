@@ -2,18 +2,18 @@ using Microsoft.JSInterop;
 
 namespace EverModern.Blazor.DirectCommunication;
 
-public sealed record RtcAcceptedConnection(RtcConnectionAgent Connection, WebRtcAnswer Answer);
+public sealed record RtcAcceptedConnection(RtcConnection Connection, WebRtcAnswer Answer);
 
-public sealed class WebRtcConnector(IJSRuntime jsRuntime)
+public sealed class RtcConnector(IJSRuntime jsRuntime)
 {
     private readonly IJSRuntime _jsRuntime = jsRuntime;
 
-    public async Task<RtcConnectionAgent> InitiateConnectionAsync(Func<WebRtcOffer, Task<WebRtcAnswer>> acceptOffer)
+    public async Task<RtcConnection> InitiateConnectionAsync(Func<WebRtcOffer, Task<WebRtcAnswer>> acceptOffer)
     {
         ArgumentNullException.ThrowIfNull(acceptOffer);
 
         var offerCallbackReference = DotNetObjectReference.Create(new OfferExchangeCallback(acceptOffer));
-        var agent = new RtcConnectionAgent();
+        var agent = new RtcConnection();
 
         try
         {
@@ -25,7 +25,7 @@ public sealed class WebRtcConnector(IJSRuntime jsRuntime)
             await agent.AttachManagerAsync(managerReference);
             return agent;
         }
-        catch
+        catch(Exception ex)
         {
             await agent.DisposeAsync();
             throw;
@@ -40,7 +40,7 @@ public sealed class WebRtcConnector(IJSRuntime jsRuntime)
     {
         ArgumentNullException.ThrowIfNull(offer);
 
-        var agent = new RtcConnectionAgent();
+        var agent = new RtcConnection();
         try
         {
             var managerReference = await _jsRuntime.InvokeAsync<IJSObjectReference>(

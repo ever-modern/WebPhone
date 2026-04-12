@@ -2,7 +2,7 @@ using EverModern.Events;
 using EverModern.Threading.Channels;
 using System.Diagnostics;
 
-namespace WebPhone.Services;
+namespace WebPhone.Services.Channels;
 
 public static class BroadcastChannelExtensions
 {
