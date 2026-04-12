@@ -15,8 +15,6 @@ public sealed class PeerConnector : BackgroundProcessor
     private readonly SemaphoreSlim _locker = new(1, 1);
     private readonly ConcurrentDictionary<string, AccountedConnection> _connections = new();
     private readonly EventSource _connectionEventSource = new();
-    private readonly CancellationTokenSource _incomingLoopCts = new();
-    private readonly Task _incomingLoopTask;
 
     public INotifier StateChanged => _connectionEventSource;
 
@@ -42,7 +40,6 @@ public sealed class PeerConnector : BackgroundProcessor
         _webRtcConnector = webRtcConnector;
         _messagesChannel = messagesChannel;
         _logger = logger;
-        _incomingLoopTask = Task.Run(() => ReadIncomingRequestsAsync(_incomingLoopCts.Token));
     }
 
     public async Task<RtcConnection> GetPeerConnectionAsync(
@@ -65,10 +62,7 @@ public sealed class PeerConnector : BackgroundProcessor
             else
             {
                 var requestId = NewId();
-                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                    _incomingLoopCts.Token,
-                    cancellationToken
-                );
+                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var task = CreateOutgoingConnectionAsync(peerId, requestId, linkedCts.Token);
                 connection = new AccountedConnection(peerId, requestId, true, linkedCts, task);
                 _connections[peerId] = connection;
@@ -189,28 +183,6 @@ public sealed class PeerConnector : BackgroundProcessor
         }
     }
 
-    private async Task ReadIncomingRequestsAsync(CancellationToken cancellationToken)
-    {
-        using var reader = _messagesChannel.Subscribe(m =>
-            m.Type is MessageType.ConnectionAttempt or MessageType.ConnectionClosed
-        );
-
-        await foreach (var message in reader.ReadAllAsync(cancellationToken))
-        {
-            if (message.Type is MessageType.ConnectionClosed)
-            {
-                await RemoveConnectionAsync(message.SenderClientId);
-                continue;
-            }
-
-            var incoming = message.SpecifyPayload<ConnectionRequestPayload>()?.Payload;
-            if (incoming is null)
-                continue;
-
-            await HandleIncomingAttemptAsync(message.SenderClientId, incoming, cancellationToken);
-        }
-    }
-
     private async Task HandleIncomingAttemptAsync(
         string peerId,
         ConnectionRequestPayload incoming,
@@ -263,7 +235,6 @@ public sealed class PeerConnector : BackgroundProcessor
             if (shouldAcceptIncoming)
             {
                 var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                    _incomingLoopCts.Token,
                     cancellationToken
                 );
                 var incomingTask = AcceptIncomingConnectionAsync(peerId, incoming, linkedCts.Token);
@@ -374,7 +345,13 @@ public sealed class PeerConnector : BackgroundProcessor
 
     protected override void AfterDispose()
     {
-        _incomingLoopCts.Cancel();
+        foreach (var (_, connection) in _connections)
+        {
+            connection.Cancellation.Cancel();
+            _ = DisposeConnectionAgentIfReadyAsync(connection);
+        }
+
+        _connections.Clear();
     }
 
     private static string NewId() => Guid.NewGuid().ToString("N");

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
+using WebPhone.Messages;
 using WebPhone.Components;
 using WebPhone.Services.Background;
 using WebPhone.Services.Channels;
@@ -46,7 +47,10 @@ public sealed class ContactsDispatcher(
     PhoneState _state = new([]);
 
     readonly ConcurrentDictionary<string, Subscription> _callListeners = [];
+    readonly ConcurrentDictionary<string, Subscription> _incomingCallListeners = [];
     readonly ConcurrentDictionary<string, ContactInteraction> _interactions = [];
+    readonly ConcurrentDictionary<string, List<ChatMessage>> _chatByContact = [];
+    readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     event Action OnDisposed = () => { };
 
@@ -73,10 +77,10 @@ public sealed class ContactsDispatcher(
         var cts = new CancellationTokenSource();
 
         OnDisposed += contactsRepository
-            .StateChanged.Subscribe(() => RefreshState().ConfigureAwait(false))
+            .StateChanged.Subscribe(() => _ = RefreshState())
             .Dispose;
         OnDisposed += peerConnector
-            .StateChanged.Subscribe(() => RefreshState().ConfigureAwait(false))
+            .StateChanged.Subscribe(() => _ = RefreshState())
             .Dispose;
         OnDisposed += cts.Cancel;
 
@@ -85,48 +89,71 @@ public sealed class ContactsDispatcher(
 
     async Task RefreshState()
     {
-        var newState = await CalculateStateAsync();
-        _state = newState;
-
-        foreach (var (contact, interactionState, _) in newState.Contacts)
+        await _refreshLock.WaitAsync();
+        try
         {
-            if (interactionState is { IsCallActive: true } or { IsCalling: true })
+            var newState = await CalculateStateAsync();
+            _state = newState;
+
+            _stateChanged.Invoke();
+
+            foreach (var (contact, interactionState, _) in newState.Contacts)
             {
-                var connectionAgent = await peerConnector.GetPeerConnectionAsync(contact.Id);
-                if (_callListeners.ContainsKey(contact.Id) is false)
+                if (interactionState.IsConnected)
                 {
-                    var maintenanceListener = new CallMaintainer(connectionAgent);
-                    Subscription sub = maintenanceListener.SubscribeForCallMaintenance(
-                        () =>
-                            interactionState.IsCalling
-                                ? RtcMessageType.CallRequest
-                                : RtcMessageType.MaintainingCall,
-                        CancellationToken.None
-                    );
-                    _callListeners[contact.Id] = sub;
+                    await EnsureIncomingCallListenerAsync(contact.Id);
+                }
+                else
+                {
+                    RemoveIncomingCallListener(contact.Id);
                 }
 
-                if (interactionState.IsCallActive)
+                if (interactionState is { IsCallActive: true } or { IsCalling: true })
                 {
-                    await connectionAgent.EnableAudioInputAsync();
-                    await connectionAgent.EnableAudioOutputAsync();
+                    var connectionAgent = await peerConnector.GetPeerConnectionAsync(contact.Id);
+                    if (_callListeners.ContainsKey(contact.Id) is false)
+                    {
+                        var maintenanceListener = new CallMaintainer(connectionAgent);
+                        Subscription sub = maintenanceListener.SubscribeForCallMaintenance(
+                            () =>
+                                interactionState.IsCalling
+                                    ? RtcMessageType.CallRequest
+                                    : RtcMessageType.MaintainingCall,
+                            CancellationToken.None
+                        );
+                        _callListeners[contact.Id] = sub;
+                    }
+
+                    if (interactionState.IsCallActive)
+                    {
+                        await connectionAgent.EnableAudioInputAsync();
+                        await connectionAgent.EnableAudioOutputAsync();
+                    }
                 }
-            }
-            else if (_callListeners.ContainsKey(contact.Id) is true)
-            {
-                var connectionAgent = await peerConnector.GetPeerConnectionAsync(contact.Id);
+                else if (_callListeners.ContainsKey(contact.Id) is true)
+                {
+                    var connectionAgent = await peerConnector.GetPeerConnectionAsync(contact.Id);
 
-                _callListeners[contact.Id].Dispose();
-                _callListeners.TryRemove(contact.Id, out var _);
+                    _callListeners[contact.Id].Dispose();
+                    _callListeners.TryRemove(contact.Id, out var _);
 
-                await connectionAgent.DisableAudioInputAsync();
-                await connectionAgent.DisableVideoInputAsync();
-                await connectionAgent.DisableAudioOutputAsync();
-                await connectionAgent.DisableVideoOutputAsync();
+                    await connectionAgent.DisableAudioInputAsync();
+                    await connectionAgent.DisableVideoInputAsync();
+                    await connectionAgent.DisableAudioOutputAsync();
+                    await connectionAgent.DisableVideoOutputAsync();
+
+                    if (_interactions.TryGetValue(contact.Id, out var interaction)
+                        && (interaction.Type is InteractionType.CallStarted or InteractionType.Speaking))
+                    {
+                        _interactions[contact.Id] = new ContactInteraction(InteractionType.Connected, () => { });
+                    }
+                }
             }
         }
-
-        _stateChanged.Invoke();
+        finally
+        {
+            _refreshLock.Release();
+        }
     }
 
     async Task<PhoneState> CalculateStateAsync()
@@ -138,14 +165,13 @@ public sealed class ContactsDispatcher(
             .Select(c =>
             {
                 var chat =
-                    _state
-                        .Contacts.FirstOrDefault(cs => cs.Contact.Id == c.Id)
-                        ?.InteractionState.Chat
-                    ?? [];
+                    _chatByContact.TryGetValue(c.Id, out var knownChat)
+                        ? knownChat.ToList()
+                        : [];
 
                 var interactionType = _interactions.TryGetValue(c.Id, out var interaction)
                     ? interaction.Type
-                    : InteractionType.None;
+                    : (connections.ContainsKey(c.Id) ? InteractionType.Connected : InteractionType.None);
 
                 var cancel = interaction.Stop ?? (() => { });
 
@@ -168,10 +194,17 @@ public sealed class ContactsDispatcher(
                     ),
                     InteractionType.Calling => new ContactState(
                         c,
-                        InteractionState: new(Chat: chat, IsConnected: true, IsCalling: true),
+                        InteractionState: new(
+                            Chat: chat,
+                            IsConnected: true,
+                            IsCalling: true,
+                            ChatReady: true,
+                            ConnectionState: "Calling"
+                        ),
                         CreateDefaultActions(c) with
                         {
                             Connect = null,
+                            SendMessage = text => _ = SendUserMessageAsync(c.Id, text),
                             CancelCall = () =>
                             {
                                 cancel();
@@ -182,10 +215,22 @@ public sealed class ContactsDispatcher(
                     ),
                     InteractionType.ReceivingCall => new ContactState(
                         c,
-                        InteractionState: new(Chat: chat, IsConnected: true, HasIncomingCall: true),
+                        InteractionState: new(
+                            Chat: chat,
+                            IsConnected: true,
+                            ChatReady: true,
+                            HasIncomingCall: true,
+                            ConnectionState: "Incoming call"
+                        ),
                         CreateDefaultActions(c) with
                         {
                             Connect = null,
+                            SendMessage = text => _ = SendUserMessageAsync(c.Id, text),
+                            AcceptCall = () =>
+                            {
+                                _ = SendRtcMessageAsync(c.Id, RtcMessageType.AcceptCall);
+                                SetInteraction(c.Id, InteractionType.CallStarted, () => { });
+                            },
                             DeclineCall = () =>
                             {
                                 cancel();
@@ -196,10 +241,17 @@ public sealed class ContactsDispatcher(
                     ),
                     InteractionType.Speaking or InteractionType.CallStarted => new ContactState(
                         c,
-                        InteractionState: new(Chat: chat, IsConnected: true, IsCallActive: true),
+                        InteractionState: new(
+                            Chat: chat,
+                            IsConnected: true,
+                            IsCallActive: true,
+                            ChatReady: true,
+                            ConnectionState: "In call"
+                        ),
                         CreateDefaultActions(c) with
                         {
                             Connect = null,
+                            SendMessage = text => _ = SendUserMessageAsync(c.Id, text),
                             EndCall = () =>
                             {
                                 cancel();
@@ -219,6 +271,7 @@ public sealed class ContactsDispatcher(
                             ),
                             CreateDefaultActions(c) with
                             {
+                                SendMessage = text => _ = SendUserMessageAsync(c.Id, text),
                                 StartCall = () =>
                                 {
                                     _interactions[c.Id] = new ContactInteraction(
@@ -255,7 +308,78 @@ public sealed class ContactsDispatcher(
         return new PhoneState(contactStates);
     }
 
-    void StateHasChanged() => _stateChanged.Invoke();
+    void StateHasChanged() => _ = RefreshState();
+
+    async Task EnsureIncomingCallListenerAsync(string contactId)
+    {
+        if (_incomingCallListeners.ContainsKey(contactId))
+            return;
+
+        var connection = await peerConnector.GetPeerConnectionAsync(contactId);
+        var channel = new RtcConnectionMessageChannel(connection);
+        var subscription = channel.ProcessIncoming(message =>
+        {
+            if (message.Type is RtcMessageType.CallRequest)
+            {
+                SetInteraction(contactId, InteractionType.ReceivingCall, () => { });
+                _ = RefreshState();
+            }
+            else if (message.Type is RtcMessageType.AcceptCall)
+            {
+                if (_interactions.TryGetValue(contactId, out var i) && i.Type is InteractionType.Calling)
+                {
+                    SetInteraction(contactId, InteractionType.CallStarted, () => { });
+                    _ = RefreshState();
+                }
+            }
+            else if (message.Type is RtcMessageType.User && !string.IsNullOrWhiteSpace(message.Payload))
+            {
+                var chat = _chatByContact.GetOrAdd(contactId, _ => []);
+                lock (chat)
+                {
+                    chat.Add(new ChatMessage("peer", message.Payload, false));
+                }
+                _ = RefreshState();
+            }
+        });
+
+        _incomingCallListeners[contactId] = new Subscription(() =>
+        {
+            subscription.Dispose();
+            channel.Dispose();
+        });
+    }
+
+    void RemoveIncomingCallListener(string contactId)
+    {
+        if (_incomingCallListeners.TryRemove(contactId, out var listener))
+            listener.Dispose();
+    }
+
+    async Task SendRtcMessageAsync(string contactId, RtcMessageType messageType)
+    {
+        var connection = await peerConnector.GetPeerConnectionAsync(contactId);
+        await using var channel = new RtcConnectionMessageChannel(connection);
+        await channel.Writer.WriteAsync(new RtcMessage(messageType, null));
+    }
+
+    async Task SendUserMessageAsync(string contactId, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        var connection = await peerConnector.GetPeerConnectionAsync(contactId);
+        await using var channel = new RtcConnectionMessageChannel(connection);
+        await channel.Writer.WriteAsync(new RtcMessage(RtcMessageType.User, text));
+
+        var chat = _chatByContact.GetOrAdd(contactId, _ => []);
+        lock (chat)
+        {
+            chat.Add(new ChatMessage("self", text, true));
+        }
+
+        _ = RefreshState();
+    }
 
     void SetInteraction(string contactId, InteractionType interactionType, Action stopAction)
     {
