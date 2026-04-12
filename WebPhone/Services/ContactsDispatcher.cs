@@ -271,15 +271,19 @@ public sealed class ContactsDispatcher(
 
         _ = Task.Run(async () =>
         {
-            var connectionAgent = await peerConnector.GetPeerConnectionAsync(
-                peerId,
-                connectingCts.Token
-            );
+            var connectionAgent = await peerConnector
+                .GetPeerConnectionAsync(peerId, connectingCts.Token)
+                .ContinueWith(t => t.IsCompletedSuccessfully ? t.Result : null);
+
+            if (connectionAgent is null)
+            {
+                SetInteraction(peerId, InteractionType.None, () => { });
+                return;
+            }
+
             SetInteraction(peerId, InteractionType.FinishedConnecting, () => { });
         });
     }
 
     public void Dispose() => OnDisposed();
 }
-
-
