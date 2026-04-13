@@ -162,6 +162,13 @@ function createRtcManagerConnection(stateCallback, iceServers) {
     manager.disableVideoOutput = async () => {
         await setOutputEnabled("video", false);
     };
+    manager.setAudioOutputElement = (element) => {
+        element.srcObject = remoteAudioStream;
+        void element.play().catch(() => undefined);
+        remoteAudioElement.srcObject = null;
+        remoteAudioElement.pause();
+        remoteAudioElement.remove();
+    };
     manager.getMediaExchangeState = () => {
         return {
             audio: {

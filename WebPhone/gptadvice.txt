@@ -1,622 +1,229 @@
-﻿Blazor wasm. I have a users grid. Each user in the grid has a card. Each card has a button to make the user favourite through an api call. I need to have an access to making that call in the user card component. I can inject an api service there or pass the api call method as an Action<User>. Which is the best practice? When I was doing react passing as a parameter worked best for me.
+﻿This is much better architecturally. You’ve basically moved to a per-contact actor/state machine, which is exactly the right direction. Now the dispatcher can just hold:
 
-Short answer: prefer passing a callback (EventCallback<User>) from the parent. It’s closer to Blazor’s component design and keeps your card reusable and testable. Injecting the API service directly in the card couples UI to data access.
+Dictionary<string, ContactManager>
 
-Here’s how to think about it.
 
-Why passing a callback is usually better
-Separation of concerns — the card is just UI; the parent decides what “favorite” actually does (API, state update, etc.).
-Reusable component — the same card can be used in other places without pulling in your API service.
-Easier testing — you can mock the callback.
-Closer to React pattern — Blazor components are designed to communicate via parameters/events.
+and everything is isolated.
 
-In Blazor you should use EventCallback<T>, not Action<T> (it supports async and re-rendering).
+But there are still 3 structural problems that will bite you:
 
-Recommended pattern
-UserCard.razor
-<button @onclick="MakeFavourite">⭐ Favourite</button>
+1. _interaction = (Type, Cancel) is fragile
 
-@code {
-    [Parameter] public User User { get; set; } = default!;
-[Parameter] public EventCallback<User> OnFavourite { get; set; }
+You're encoding a state machine into a tuple:
 
-private async Task MakeFavourite()
+public (InteractionType Type, Action Cancel) _interaction;
+
+
+This works… but becomes dangerous:
+
+cancel from previous state can fire later
+nothing guarantees cancel belongs to current state
+no enter/exit logic
+no transition rules
+
+You're basically implementing a state machine without state objects.
+
+You already feel this — you're doing:
+
+callingCts.Cancel();
+SetState(InteractionType.Speaking, ...)
+
+
+That’s a race.
+
+Better shape:
+
+sealed class Interaction
 {
-    await OnFavourite.InvokeAsync(User);
-}
+    public InteractionType Type { get; }
+    readonly Action _cancel;
+
+    public void Cancel() => _cancel();
+
+    public Interaction(InteractionType type, Action cancel)
+    {
+        Type = type;
+        _cancel = cancel;
+    }
 }
 
-UsersGrid.razor(parent)
-@foreach(var user in Users)
+
+Then:
+
+Interaction _interaction = new(InteractionType.None, () => {});
+
+
+And:
+
+void SetState(InteractionType newState, Action cancel)
 {
-    < UserCard User = "user" OnFavourite = "MakeFavourite" />
+    _interaction.Cancel();   // <- critical
+    _interaction = new(newState, cancel);
+    _stateChanged.Invoke();
 }
 
-@code {
-    [Inject] IUserApi Api { get; set; } = default!;
 
-private async Task MakeFavourite(User user)
+This guarantees old state is cleaned up.
+
+Right now you don't cancel previous state automatically.
+
+That's a bug waiting to happen.
+
+2. _isEnabled is never set
+
+Bug:
+
+bool _isEnabled = false;
+
+
+You never set it to true.
+
+So:
+
+StartAsync() can run multiple times
+Dispose() never disposes
+
+
+Fix:
+
+public async Task StartAsync(...)
 {
-    await Api.MakeFavourite(user.Id);
-    user.IsFavourite = true;
-}
-}
+    if (_isEnabled)
+        return;
 
-When injecting the API in the card is OK
+    _isEnabled = true;
 
-Injecting the service inside UserCard is fine if:
-
-the card is domain-specific (only ever used in this feature)
-you don’t need reuse
-the action is intrinsic to the card itself
+3. You are mixing state and transitions
 
 Example:
 
-@inject IUserApi Api
+SetState(InteractionType.Connected, disconnectCts.Cancel);
+
+var incomingCallListener = new CallMaintainer(...)
 
 
-But this tightly couples the UI to the API.
+This logic belongs to state enter, not transition site.
 
-Rule of thumb
-Reusable/presentational component → pass EventCallback
-Feature-specific smart component → inject service
-Large apps → callbacks scale better
+Otherwise transitions leak everywhere.
 
-Since you already liked the React pattern — you're on the right track. Use EventCallback<User> in Blazor.
+Cleaner:
 
-If you show me:
-
-whether your grid manages state
-whether favourite updates only UI or refetches list
-
-…I can recommend the optimal architecture (there’s also a nice pattern with cascading state).
-
-Also, I have to compose the list of the contacts based on data from different sources - from local store and and api. I guess I should make this list in the top component and then pass it down to the grid as a totally immutable list? The list is very change-prone - other users might announce their presence any moment and the list must change accordingly. Then whenever the list of the top component changes I should rerender everything down to the bottom. Is it true?
-
-Yes — your instinct is correct. In Blazor, the top component should own the state, compose the list from multiple sources, and pass it down. When the list changes, you re-render and Blazor will efficiently diff the DOM.
-
-But there are two important refinements so this scales well:
-
-State lives at the top (or in a state container)
-Child components receive immutable-ish data + callbacks
-Use @key to avoid full re-renders of cards
-Recommended architecture
-ContactsPage (state owner)
-    └── UsersGrid (pure UI)
-            └── UserCard (pure UI)
+SetState(new ConnectedState(...))
 
 
-The top component:
+Where:
 
-subscribes to API presence updates
-merges with local store
-builds the final list
-passes it down
-Top component (state owner)
-<UsersGrid Users="_users"
-           OnFavourite="MakeFavourite" />
-
-@code {
-    private IReadOnlyList<User> _users = [];
-
-protected override async Task OnInitializedAsync()
+class ConnectedState : InteractionState
 {
-    await LoadInitial();
-    PresenceService.UserUpdated += OnUserUpdated;
-}
-
-private async Task LoadInitial()
-{
-    var local = await LocalStore.GetUsers();
-    var api = await Api.GetUsers();
-
-    _users = Merge(local, api);
-}
-
-private void OnUserUpdated(UserPresence presence)
-{
-    _users = UpdatePresence(_users, presence);
-    InvokeAsync(StateHasChanged);
-}
+    Enter()
+    Exit()
 }
 
 
-Notice:
+But you don't need full state pattern yet.
 
-list replaced, not mutated
-triggers rerender
-children receive new reference
+You can just centralize:
 
-This is exactly like React state updates.
+SetState(type)
 
-Grid component
-@foreach (var user in Users)
-{
-    <UserCard @key="user.Id"
-              User="user"
-              OnFavourite="OnFavourite" />
-}
 
-@code {
-    [Parameter] public IReadOnlyList<User> Users { get; set; } = [];
-[Parameter] public EventCallback<User> OnFavourite { get; set; }
-}
+and inside:
 
-@key is VERY important
+switch(type)
+    start listeners
+    stop listeners
+    etc
 
-Without @key, Blazor may re-render every card when list changes.
 
-With:
+Right now state setup is scattered.
 
-@key = "user.Id"
+4. You need transition guards
 
+This is dangerous:
 
-Blazor updates only changed users.
+SetState(InteractionType.Speaking, ...)
 
-This is the equivalent of React key.
 
-Do you re-render everything?
+called from async continuation.
 
-Technically yes — but Blazor's diffing makes it cheap:
+What if user already cancelled?
 
-Only changed users rerender
-Only changed DOM updates
-Other cards remain untouched
+You need:
 
-So frequent presence updates are fine.
-
-Should the list be immutable?
-
-You don't need strict immutability, but you should replace the list reference:
-
-Good:
-
-_users = _users.Select(...).ToList();
-
-
-Bad(won't always rerender correctly):
-
-_users[i].IsOnline = true;
-
-
-Blazor detects parameter changes by reference.
-
-When updates are very frequent (presence, realtime)
-
-Best pattern is a state container service:
-
-ContactsState(service)
-    ├── merges api +local
-    ├── raises Changed event
-    └── components subscribe
-
-
-This avoids pushing everything through the page component.
-
-I can show that pattern if you're doing:
-
-SignalR presence
-WebSocket updates
-polling
-pub/sub
-Final rule
-
-Yes:
-
-Top comp owns list
-Compose from multiple sources
-Replace list on change
-Pass down as read-only
-Use EventCallback upward
-Use @key
-
-That's the "React mental model", and it maps very cleanly to Blazor.
-
-why is this approach better compared to injecting a service on the grid or card level etc.? isn't it more performant? 
-
-It’s tempting to think “inject service closer to the card = more performant”, but in Blazor that’s usually not true — and it often makes things worse architecturally without meaningful performance gains.
-
-Here’s the real trade-off.
-
-The two approaches
-A) Top-down state (recommended)
-
-Parent owns list → passes to Grid → passes to Card → callbacks up
-
-B) Inject service everywhere
-
-Each Card injects ContactsService
-Each Card subscribes to updates
-Each Card calls API itself
-
-Why top-down is usually better
-1. You get a single source of truth
-
-With top-down:
-
-ContactsPage
-    owns state
-
-
-With injected services:
-
-Card A subscribed
-Card B subscribed
-Grid subscribed
-Page subscribed
-
-
-Now you have multiple components reacting independently → harder to reason about and debug.
-
-You’ll eventually hit:
-
-duplicate API calls
-race conditions
-inconsistent UI
-stale state in some cards
-2. Injecting services does NOT avoid re-renders
-
-Even if a card injects a service, it still re-renders when:
-
-it receives a state change
-it calls StateHasChanged
-service triggers event
-
-So you don't actually reduce rendering work — you just move it around.
-
-In fact, it can be worse:
-
-Injected approach
-
-Presence update:
-
-Service → 100 cards subscribed
-Service → each card StateHasChanged()
-
-
-That's 100 renders
-
-Top-down approach
-
-Presence update:
-
-Parent updates list
-Parent rerenders
-Blazor diff updates only changed cards
-
-
-That's often 1–2 renders
-
-So top-down is usually more efficient.
-
-3. @key makes top-down very efficient
-
-With:
-
-< UserCard @key = "user.Id"... />
-
-
-Blazor updates only changed users.
-
-So even if list changes 20 times/sec:
-
-unchanged cards are untouched
-DOM diff is tiny
-
-This is already optimized.
-
-4. Injected services increase coupling
-
-This component:
-
-@inject IUserApi Api
-
-
-Now:
-
-not reusable
-not testable
-can't be used in another page
-hard to mock
-
-While this:
-
-[Parameter] EventCallback<User>
-
-
-is completely reusable.
-
-5.Injected services make lifecycle tricky
-
-If cards subscribe:
-
-PresenceService.Changed += OnChanged;
-
-
-You must remember:
-
-Dispose() {
-    PresenceService.Changed -= OnChanged;
-}
+if (_interaction.Type != InteractionType.Calling)
+    return;
 
 
 Otherwise:
 
-memory leaks
-ghost renders
-crashes
+User cancels →
+async continues →
+state jumps to speaking
 
-Top-down avoids this entirely.
+classic race.
 
-When injecting IS actually better
+5. You are missing one abstraction (small but powerful)
 
-Inject at card/grid level when:
+Right now you constantly do:
 
-1.Truly independent component
-
-Example:
-
-NotificationBell
-OnlineStatusIndicator
-Clock
-Live CPU widget
-
-These manage themselves.
-
-2. Very large lists (10k+ items)
-
-Then you may want virtualization + local subscriptions
-
-But that's rare.
-
-Performance reality
-
-This:
-
-Parent rerenders
+var connection = peerConnector.CurrentConnections.GetValueOrDefault(contactId);
 
 
-does NOT mean:
+Wrap it:
 
-All cards rerender
-
-
-Blazor does component-level diffing.
-
-Only changed parameters trigger card rerender.
-
-So performance difference is negligible — architecture difference is huge.
-
-Best compromise (real-world pattern)
-
-Use state service at top, not per-card.
-
-ContactsState (service)
-     ↓
-ContactsPage subscribes
-     ↓
-Grid
-     ↓
-Card
+RtcConnection? GetConnection()
+    => peerConnector.CurrentConnections.GetValueOrDefault(contactId);
 
 
-So you still inject a service — but only once, not per card.
+Cleaner and safer.
 
-This gives:
+Final polished version shape
 
-centralized state
-minimal renders
-clean components
-good performance
-TL; DR
+This is what your class is very close to:
 
-Injecting services in cards is not more performant because:
-
-still causes renders
-often causes MORE renders
-duplicates subscriptions
-adds lifecycle overhead
-
-Top-down state:
-
-fewer renders
-predictable state
-simpler code
-more reusable components
-
-So your instinct (React-style top-down state) is actually the correct Blazor approach.
-
-what if I have a complex interactivity for each card like WebRtcConnection state for each contact and apart from that, current call? I also have a chat channel for every contact. Should pass them all too as a part of list items? Isn't it becoming too thick a parameter then?
-
-This is the point where pure top-down props stop being ideal. You're now describing stateful per-contact objects (WebRTC, call state, chat channel), not just data. Passing all that as parameters becomes heavy and awkward.
-
-The clean solution in Blazor is:
-
-Top - level owns the list, but each item owns its own stateful controller/service.
-You pass a reference, not all the fields.
-
-The better pattern: pass a ContactViewModel (controller per user)
-
-Instead of:
-
-UserCard(
-    User,
-    WebRtcState,
-    CallState,
-    ChatChannel,
-    Presence,
-    ...
-)
-
-
-You pass:
-
-UserCard(ContactViewModel vm)
-
-
-Where ContactViewModel contains everything.
-
-Example
-ViewModel per contact
-public class ContactVm
+class ContactManager
 {
-    public User User { get; }
+    Interaction _interaction;
 
-    public WebRtcConnection WebRtc { get; }
-    public CallState Call { get; }
-    public ChatChannel Chat { get; }
+    public InteractionType State => _interaction.Type;
 
-    public bool IsOnline { get; set; }
-    public bool IsFavourite { get; set; }
-
-    public event Action? Changed;
-
-    public void NotifyChanged() => Changed?.Invoke();
+    void SetState(InteractionType type, Action cancel)
+    {
+        _interaction.Cancel();
+        _interaction = new(type, cancel);
+        _stateChanged.Invoke();
+    }
 }
 
 
-Now your parent builds:
+Then every public method just transitions:
 
-_contacts = users.Select(u => new ContactVm(u)).ToList();
-
-Card becomes simple
-< UserCard Vm="contact" />
-
-@code {
-    [Parameter] public ContactVm Vm { get; set; } = default!;
-
-protected override void OnInitialized()
-{
-    Vm.Changed += OnChanged;
-}
-
-private void OnChanged()
-{
-    InvokeAsync(StateHasChanged);
-}
-
-public void Dispose()
-{
-    Vm.Changed -= OnChanged;
-}
-}
+ConnectAsync() -> Connecting
+StartCallAsync() -> Calling
+AcceptCall() -> Speaking
+EndCall() -> Connected
+Disconnect() -> None
 
 
-Now:
+That's clean.
 
-WebRTC changes → only that card rerenders
-Chat message → only that card rerenders
-Call state → only that card rerenders
+Overall evaluation
 
-No parent rerender needed.
+This is:
 
-This is much more scalable.
+✔ correct architecture
+✔ per-contact actor
+✔ no global dispatcher logic
+✔ good cancellation model
+✔ good async usage
 
-This is the real architecture
-ContactsPage
-    owns List<ContactVm>
+You're now in very clean territory.
 
-UsersGrid
-    displays list
+Just fix:
 
-UserCard
-    subscribes to its ContactVm
-    renders independently
+auto-cancel previous state
+guard async transitions
+set _isEnabled = true
+wrap GetConnection()
 
-
-This is the best of both worlds:
-
-no huge parameter list
-no service injection per card
-localized updates
-clean separation
-Why this works better than passing everything
-
-Instead of:
-
-UserCard(
-    user,
-    presence,
-    webrtc,
-    call,
-    chat,
-    typing,
-    unread,
-    recording,
-    muted,
-    ...
-)
-
-
-You pass:
-
-UserCard(vm)
-
-
-And vm encapsulates behavior.
-
-This is the Blazor equivalent of:
-
-React hooks per item
-MVVM view model
-Presenter pattern
-controller-per-row
-Important: don't recreate VMs
-
-Bad:
-
-_contacts = users.Select(u => new ContactVm(u)).ToList();
-
-
-on every update — this breaks subscriptions.
-
-Good:
-
-update existing vm
-vm.IsOnline = true;
-vm.NotifyChanged();
-
-
-VMs should be long-lived.
-
-Even better: use @key
-<UserCard @key="vm.User.Id" Vm="vm" />
-
-
-Ensures stable component instance.
-
-When to use this pattern
-
-Use ContactVm when items have:
-
-WebRTC connections
-chat channels
-timers
-media streams
-subscriptions
-async workflows
-complex UI state
-
-That's exactly your case.
-
-Final recommendation
-
-Do NOT:
-
-pass 10 parameters
-inject services into each card
-push everything to parent
-
-Instead:
-
-parent owns list
-each item has ContactVm
-card subscribes to vm
-vm owns WebRTC/chat/call
-
-This is the architecture used in:
-
-Teams - style UIs
-Slack-like chat lists
-call/contact dashboards
-realtime presence systems
+and it's production-grade.

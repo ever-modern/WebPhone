@@ -173,6 +173,8 @@ public sealed class PeerConnector : BackgroundProcessor
                 return payload.Answer;
             });
 
+            _connectionEventSource.Invoke();
+
             return agent;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -285,6 +287,8 @@ public sealed class PeerConnector : BackgroundProcessor
             ),
             cancellationToken
         );
+
+        _connectionEventSource.Invoke();
 
         return accepted.Connection;
     }

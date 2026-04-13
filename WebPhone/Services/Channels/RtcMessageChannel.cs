@@ -10,12 +10,11 @@ namespace WebPhone.Services.Channels;
 public enum RtcMessageType
 {
     User,
-    CallRequest,
-    AcceptCall,
-    MaintainingCall
+    WantCall,
+    RejectCall
 }
 
-public record RtcMessage(RtcMessageType Type, string? Payload);
+public record struct RtcMessage(RtcMessageType Type, string? Payload = null);
 
 public class RtcConnectionMessageChannel : IBroadcastChannel<RtcMessage, RtcMessage>, IAsyncDisposable, IDisposable
 {
