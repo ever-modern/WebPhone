@@ -3,11 +3,12 @@ export type RtcConnectionCallbacks = {
     onDataChannelMessage?: SubscriptionParameter<string>;
 }
 
-export type RtcConnectionAgent = RtcConnectionCallbacks & {
+export type RtcConnectionAgent = {
     close?: () => void;
+    state: () => RTCPeerConnectionState;
 };
 
-type SubscriptionParameter<T> = (callback: (event: T) => Promise<void>) => Subscription;
+type SubscriptionParameter<T> = (event: T) => Promise<void>;
 
 export function createEventSource<T>() {
     const callbacks: ((event: T) => Promise<void>)[] = [];
