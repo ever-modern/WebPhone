@@ -153,6 +153,24 @@ function createRtcManagerConnection(
 
     const manager = Object.create(rtcConnectionManagerPrototype) as RtcConnectionManager;
 
+    const attemptPlay = (element: HTMLMediaElement, source: string): void => {
+        void element.play().then(() => {
+            console.info("[rtcConnectionManager] media play started", {
+                source,
+                currentTime: element.currentTime,
+                paused: element.paused,
+                readyState: element.readyState
+            });
+        }).catch((error: unknown) => {
+            console.warn("[rtcConnectionManager] media play blocked/failed", {
+                source,
+                error: error instanceof Error ? error.message : String(error),
+                paused: element.paused,
+                readyState: element.readyState
+            });
+        });
+    };
+
     const getSenderForKind = (kind: "audio" | "video"): RTCRtpSender | null => {
         const transceiver = transceivers[kind];
         if (transceiver) {
@@ -236,11 +254,11 @@ function createRtcManagerConnection(
         if (kind === "audio") {
             remoteAudioElement.muted = !enabled;
             if (enabled) {
-                void remoteAudioElement.play().catch(() => undefined);
+                attemptPlay(remoteAudioElement, "enableAudioOutput");
             }
         } else if (kind === "video") {
             if (enabled) {
-                void remoteVideoElement.play().catch(() => undefined);
+                attemptPlay(remoteVideoElement, "enableVideoOutput");
             }
         }
     };
@@ -409,19 +427,28 @@ function createRtcManagerConnection(
             return;
         }
 
-        // Add the track to our managed stream
-        const existingTracks = targetStream.getTracks().filter((t) => t.id === track.id);
-        if (existingTracks.length === 0) {
-            targetStream.addTrack(track);
+        const incomingStream = event.streams && event.streams.length > 0 ? event.streams[0] : null;
+
+        // Add the track to our managed stream when event stream is not provided.
+        if (!incomingStream) {
+            const existingTracks = targetStream.getTracks().filter((t) => t.id === track.id);
+            if (existingTracks.length === 0) {
+                targetStream.addTrack(track);
+            }
         }
+
+        const streamToAttach = incomingStream ?? targetStream;
 
         // Update the element's srcObject if not already set
-        if (targetElement.srcObject !== targetStream) {
-            targetElement.srcObject = targetStream;
+        if (targetElement.srcObject !== streamToAttach) {
+            targetElement.srcObject = streamToAttach;
         }
 
-        // Attempt to play the element
-        void targetElement.play().catch(() => undefined);
+        // Attempt to play now and when real media starts flowing.
+        attemptPlay(targetElement, "ontrack");
+        track.onunmute = () => {
+            attemptPlay(targetElement, "track.onunmute");
+        };
 
         // Handle track ended event
         track.onended = () => {

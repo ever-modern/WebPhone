@@ -3,8 +3,10 @@
 @using System.Text.Json
 @using EverModern.Blazor.DirectCommunication
 @using EverModern.Events
+@using Microsoft.JSInterop
 @implements IAsyncDisposable
 @inject RtcConnector RtcConnector
+@inject IJSRuntime JS
 
 <PageTitle>WebRTC Manual</PageTitle>
 
@@ -18,6 +20,11 @@
         <div class="webrtc-field">
             <label>Connection Id</label>
             <input class="webrtc-input" @bind="connectionId" />
+        </div>
+        <div class="webrtc-field">
+            <label>
+                <input type="checkbox" @bind="useLegacyInterop" /> Use legacy `webrtcInterop` flow
+            </label>
         </div>
     </section>
 
@@ -56,6 +63,7 @@
 
     <section class="webrtc-card">
         <h2>Audio</h2>
+        <audio class="webrtc-audio" @ref="remoteAudio" autoplay controls></audio>
         <p>@audioStatusMessage</p>
     </section>
 
@@ -92,6 +100,8 @@
     private string videoOutState = "unknown";
     private string messageToSend = string.Empty;
     private string? audioStatusMessage = "Audio is managed by RTC connection manager.";
+    private bool useLegacyInterop;
+    private ElementReference remoteAudio;
 
     private Task<RtcConnection>? pendingInitiatorConnection;
     private TaskCompletionSource<WebRtcAnswer>? pendingAnswerTcs;
@@ -107,10 +117,37 @@
     private Task? mediaStatePollTask;
     private RtcConnection? currentConnection;
 
+    private WebRtcInterop? legacyWebRtc;
+    private bool legacyInitialized;
+    private bool legacyAudioStarted;
+
     private bool CanSend => dataChannelState == "open";
+
+    protected override void OnInitialized()
+    {
+        legacyWebRtc = new WebRtcInterop(JS);
+        legacyWebRtc.ConnectionStateChanged += HandleLegacyConnectionStateChanged;
+        legacyWebRtc.DataChannelStateChanged += HandleLegacyDataChannelStateChanged;
+        legacyWebRtc.DataMessageReceived += HandleLegacyDataMessageReceived;
+        legacyWebRtc.RemoteStreamAvailable += HandleLegacyRemoteStreamAvailable;
+    }
 
     private async Task CreateOfferAsync()
     {
+        if (useLegacyInterop)
+        {
+            await CleanupNewFlowAsync();
+            await EnsureLegacyInitializedAsync();
+            await EnsureLegacyAudioAsync();
+
+            await legacyWebRtc!.CreateDataChannelAsync(connectionId, "chat");
+            var offer = await legacyWebRtc.CreateOfferAsync(connectionId);
+            localOffer = JsonSerializer.Serialize(offer, jsonOptions);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        await CleanupLegacyFlowAsync();
         await CleanupInitiatorAsync();
 
         pendingAnswerTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -135,11 +172,25 @@
 
     private async Task AcceptOfferAsync()
     {
-        await CleanupResponderAsync();
-
         var offer = DeserializeOffer(remoteOffer);
         if (offer is null)
             return;
+
+        if (useLegacyInterop)
+        {
+            await CleanupNewFlowAsync();
+            await EnsureLegacyInitializedAsync();
+            await EnsureLegacyAudioAsync();
+
+            await legacyWebRtc!.SetRemoteDescriptionAsync(connectionId, offer);
+            var answer = await legacyWebRtc.CreateAnswerAsync(connectionId);
+            localAnswer = JsonSerializer.Serialize(answer, jsonOptions);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        await CleanupLegacyFlowAsync();
+        await CleanupResponderAsync();
 
         var accepted = await RtcConnector.AcceptConnectionAsync(offer);
         responderConnection = accepted.Connection;
@@ -153,7 +204,18 @@
     private async Task AcceptAnswerAsync()
     {
         var answer = DeserializeAnswer(remoteAnswer);
-        if (answer is null || pendingAnswerTcs is null || pendingInitiatorConnection is null)
+        if (answer is null)
+            return;
+
+        if (useLegacyInterop)
+        {
+            await EnsureLegacyInitializedAsync();
+            await legacyWebRtc!.SetRemoteDescriptionAsync(connectionId, answer);
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (pendingAnswerTcs is null || pendingInitiatorConnection is null)
             return;
 
         pendingAnswerTcs.TrySetResult(answer);
@@ -237,6 +299,45 @@
         }, ct);
     }
 
+    private async Task EnsureLegacyInitializedAsync()
+    {
+        if (legacyInitialized)
+            return;
+
+        await legacyWebRtc!.InitializeAsync(connectionId, [
+            new WebRtcIceServer { Urls = ["stun:stun.l.google.com:19302"] }
+        ]);
+
+        legacyInitialized = true;
+    }
+
+    private async Task EnsureLegacyAudioAsync()
+    {
+        if (legacyAudioStarted)
+            return;
+
+        try
+        {
+            await legacyWebRtc!.StartLocalStreamAsync(connectionId, new
+            {
+                audio = new
+                {
+                    echoCancellation = true,
+                    noiseSuppression = true,
+                    autoGainControl = true
+                },
+                video = false
+            });
+            await legacyWebRtc.AddLocalTracksAsync(connectionId);
+            legacyAudioStarted = true;
+            audioStatusMessage = "Audio enabled via legacy webrtcInterop.";
+        }
+        catch (JSException ex)
+        {
+            audioStatusMessage = ex.Message;
+        }
+    }
+
     private async Task EnableAudioAsync(RtcConnection connection)
     {
         await connection.EnableAudioInputAsync();
@@ -249,6 +350,18 @@
         if (string.IsNullOrWhiteSpace(messageToSend))
             return;
 
+        if (useLegacyInterop)
+        {
+            if (!legacyInitialized)
+                return;
+
+            await legacyWebRtc!.SendMessageAsync(connectionId, messageToSend);
+            receivedMessages.Add($"Me: {messageToSend}");
+            messageToSend = string.Empty;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
         var connection = initiatorConnection ?? responderConnection;
         if (connection is null)
             return;
@@ -258,6 +371,41 @@
         receivedMessages.Add($"Me: {messageToSend}");
         messageToSend = string.Empty;
         await InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleLegacyConnectionStateChanged(object? sender, WebRtcConnectionStateChangedEventArgs args)
+    {
+        if (!useLegacyInterop || args.ConnectionId != connectionId)
+            return;
+
+        connectionState = args.State;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleLegacyDataChannelStateChanged(object? sender, WebRtcDataChannelStateChangedEventArgs args)
+    {
+        if (!useLegacyInterop || args.ConnectionId != connectionId)
+            return;
+
+        dataChannelState = args.State;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleLegacyDataMessageReceived(object? sender, WebRtcDataMessageEventArgs args)
+    {
+        if (!useLegacyInterop || args.ConnectionId != connectionId)
+            return;
+
+        receivedMessages.Add($"Remote: {args.Message}");
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async void HandleLegacyRemoteStreamAvailable(object? sender, WebRtcRemoteStreamEventArgs args)
+    {
+        if (!useLegacyInterop || args.ConnectionId != connectionId)
+            return;
+
+        await legacyWebRtc!.AttachRemoteAudioAsync(connectionId, remoteAudio);
     }
 
     private static WebRtcOffer? DeserializeOffer(string? payload)
@@ -274,6 +422,18 @@
             return null;
 
         return JsonSerializer.Deserialize<WebRtcAnswer>(payload);
+    }
+
+    private async Task StopMediaPollingAsync()
+    {
+        mediaStatePollCts?.Cancel();
+
+        if (mediaStatePollTask is not null)
+            await mediaStatePollTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
+        mediaStatePollTask = null;
+        mediaStatePollCts?.Dispose();
+        mediaStatePollCts = null;
     }
 
     private async Task CleanupInitiatorAsync()
@@ -293,7 +453,7 @@
 
         if (ReferenceEquals(currentConnection, disposingConnection))
         {
-            mediaStatePollCts?.Cancel();
+            await StopMediaPollingAsync();
             currentConnection = null;
         }
     }
@@ -315,23 +475,50 @@
 
         if (ReferenceEquals(currentConnection, disposingConnection))
         {
-            mediaStatePollCts?.Cancel();
+            await StopMediaPollingAsync();
             currentConnection = null;
         }
+    }
+
+    private async Task CleanupNewFlowAsync()
+    {
+        pendingAnswerTcs?.TrySetCanceled();
+        pendingAnswerTcs = null;
+        pendingInitiatorConnection = null;
+
+        await CleanupInitiatorAsync();
+        await CleanupResponderAsync();
+    }
+
+    private async Task CleanupLegacyFlowAsync()
+    {
+        if (!legacyInitialized)
+            return;
+
+        await legacyWebRtc!.CloseAsync(connectionId);
+        legacyInitialized = false;
+        legacyAudioStarted = false;
+
+        audioInState = "n/a";
+        audioOutState = "n/a";
+        videoInState = "n/a";
+        videoOutState = "n/a";
     }
 
     public async ValueTask DisposeAsync()
     {
         pendingAnswerTcs?.TrySetCanceled();
 
-        mediaStatePollCts?.Cancel();
+        await CleanupNewFlowAsync();
+        await CleanupLegacyFlowAsync();
 
-        await CleanupInitiatorAsync();
-        await CleanupResponderAsync();
-
-        if (mediaStatePollTask is not null)
-            await mediaStatePollTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-
-        mediaStatePollCts?.Dispose();
+        if (legacyWebRtc is not null)
+        {
+            legacyWebRtc.ConnectionStateChanged -= HandleLegacyConnectionStateChanged;
+            legacyWebRtc.DataChannelStateChanged -= HandleLegacyDataChannelStateChanged;
+            legacyWebRtc.DataMessageReceived -= HandleLegacyDataMessageReceived;
+            legacyWebRtc.RemoteStreamAvailable -= HandleLegacyRemoteStreamAvailable;
+            await legacyWebRtc.DisposeAsync();
+        }
     }
 }
