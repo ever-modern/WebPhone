@@ -1,229 +1,200 @@
-﻿This is much better architecturally. You’ve basically moved to a per-contact actor/state machine, which is exactly the right direction. Now the dispatcher can just hold:
+﻿This is very clean now. You ended up with a proper 3-layer architecture:
 
-Dictionary<string, ContactManager>
-
-
-and everything is isolated.
-
-But there are still 3 structural problems that will bite you:
-
-1. _interaction = (Type, Cancel) is fragile
-
-You're encoding a state machine into a tuple:
-
-public (InteractionType Type, Action Cancel) _interaction;
+ContactsDispatcher (UI aggregation)
+        ↓
+ContactManager (per-contact state machine)
+        ↓
+PeerConnector / RTC
 
 
-This works… but becomes dangerous:
+This is exactly the right separation. The code is readable, responsibilities are clear, and there's no more “god class”.
 
-cancel from previous state can fire later
-nothing guarantees cancel belongs to current state
-no enter/exit logic
-no transition rules
+There are only a few small but meaningful improvements.
 
-You're basically implementing a state machine without state objects.
+1. You don't need _refreshLock anymore
 
-You already feel this — you're doing:
+Right now:
 
-callingCts.Cancel();
-SetState(InteractionType.Speaking, ...)
+readonly SemaphoreSlim _refreshLock = new(1, 1);
 
 
-That’s a race.
+But you're not mutating shared state in a dangerous way anymore. Everything is:
 
-Better shape:
+per-contact isolated
+single _state assignment
+UI rebuild
 
-sealed class Interaction
+So this:
+
+await _refreshLock.WaitAsync()
+
+
+is just adding latency and possible UI lag.
+
+You can safely remove the lock and make refresh:
+
+void StateHasChanged()
 {
-    public InteractionType Type { get; }
-    readonly Action _cancel;
-
-    public void Cancel() => _cancel();
-
-    public Interaction(InteractionType type, Action cancel)
-    {
-        Type = type;
-        _cancel = cancel;
-    }
-}
-
-
-Then:
-
-Interaction _interaction = new(InteractionType.None, () => {});
-
-
-And:
-
-void SetState(InteractionType newState, Action cancel)
-{
-    _interaction.Cancel();   // <- critical
-    _interaction = new(newState, cancel);
+    _state = CalculateState();
     _stateChanged.Invoke();
 }
 
 
-This guarantees old state is cleaned up.
+Only keep lock if:
 
-Right now you don't cancel previous state automatically.
+you expect re-entrant Refresh
+or contexts mutate during enumeration
 
-That's a bug waiting to happen.
+But you already snapshot with .ToList().
 
-2. _isEnabled is never set
+So you can remove it.
 
-Bug:
+2. EnsureContactContextsAsync should not be async
 
-bool _isEnabled = false;
+Nothing inside actually needs async except:
 
-
-You never set it to true.
-
-So:
-
-StartAsync() can run multiple times
-Dispose() never disposes
+await manager.StartAsync(...)
 
 
-Fix:
+But that's unnecessary — managers can start fire-and-forget.
 
-public async Task StartAsync(...)
+Better:
+
+void EnsureContactContexts()
+
+
+and:
+
+_ = manager.StartAsync(cancellationToken);
+
+
+This removes async chain + lock.
+
+3. You're rebuilding ALL contacts every state change
+
+This is fine now, but you can optimize later:
+
+Currently:
+
+manager A changes
+→ dispatcher rebuilds ALL contacts
+
+
+You could later do:
+
+manager A changed
+→ rebuild only A
+
+
+But honestly: don't optimize yet. This is clean.
+
+4. Minor bug: chat list not thread-safe
+
+Here:
+
+context.Chat.Add(...)
+
+
+But manager callbacks can fire from background threads.
+
+Safer:
+
+lock (context.Chat)
 {
-    if (_isEnabled)
-        return;
-
-    _isEnabled = true;
-
-3. You are mixing state and transitions
-
-Example:
-
-SetState(InteractionType.Connected, disconnectCts.Cancel);
-
-var incomingCallListener = new CallMaintainer(...)
-
-
-This logic belongs to state enter, not transition site.
-
-Otherwise transitions leak everywhere.
-
-Cleaner:
-
-SetState(new ConnectedState(...))
-
-
-Where:
-
-class ConnectedState : InteractionState
-{
-    Enter()
-    Exit()
+    context.Chat.Add(...)
 }
 
 
-But you don't need full state pattern yet.
+and:
 
-You can just centralize:
+var chat = context.Chat.ToList();
 
-SetState(type)
+
+inside same lock.
+
+Otherwise rare race.
+
+5. Very nice design choice
+
+This is particularly good:
+
+sealed class ContactContext(
+    ContactManager manager,
+    Subscription stateSubscription)
+
+
+You correctly:
+
+group manager + chat
+encapsulate lifetime
+centralize disposal
+
+That's exactly right.
+
+6. One structural improvement (optional but elegant)
+
+You're repeating:
+
+BuildConnectedState
+BuildCallingState
+BuildSpeakingState
+...
+
+
+You can collapse this into:
+
+BuildState(contact, context)
 
 
 and inside:
 
-switch(type)
-    start listeners
-    stop listeners
-    etc
+switch(context.Manager.State)
 
 
-Right now state setup is scattered.
+Not necessary — just cleaner.
 
-4. You need transition guards
+7. Architecture evaluation
 
-This is dangerous:
+Your system now looks like:
 
-SetState(InteractionType.Speaking, ...)
+ContactsDispatcher
+    ├── ContactContext
+    │       ├── ContactManager
+    │       └── Chat
+    │
+    ├── ContactContext
+    │
+    └── ContactContext
 
-
-called from async continuation.
-
-What if user already cancelled?
-
-You need:
-
-if (_interaction.Type != InteractionType.Calling)
-    return;
-
-
-Otherwise:
-
-User cancels →
-async continues →
-state jumps to speaking
-
-classic race.
-
-5. You are missing one abstraction (small but powerful)
-
-Right now you constantly do:
-
-var connection = peerConnector.CurrentConnections.GetValueOrDefault(contactId);
-
-
-Wrap it:
-
-RtcConnection? GetConnection()
-    => peerConnector.CurrentConnections.GetValueOrDefault(contactId);
-
-
-Cleaner and safer.
-
-Final polished version shape
-
-This is what your class is very close to:
-
-class ContactManager
-{
-    Interaction _interaction;
-
-    public InteractionType State => _interaction.Type;
-
-    void SetState(InteractionType type, Action cancel)
-    {
-        _interaction.Cancel();
-        _interaction = new(type, cancel);
-        _stateChanged.Invoke();
-    }
-}
-
-
-Then every public method just transitions:
-
-ConnectAsync() -> Connecting
-StartCallAsync() -> Calling
-AcceptCall() -> Speaking
-EndCall() -> Connected
-Disconnect() -> None
-
-
-That's clean.
-
-Overall evaluation
 
 This is:
 
-✔ correct architecture
-✔ per-contact actor
-✔ no global dispatcher logic
-✔ good cancellation model
-✔ good async usage
+✔ actor-per-contact
+✔ UI projection layer
+✔ no global state machine
+✔ no giant dispatcher
+✔ clean lifetime
+✔ easy to test
+✔ scalable
 
-You're now in very clean territory.
+This is production-grade architecture.
 
-Just fix:
+If I had to nitpick one thing
 
-auto-cancel previous state
-guard async transitions
-set _isEnabled = true
-wrap GetConnection()
+This:
 
-and it's production-grade.
+void StateHasChanged() => _ = RefreshStateAsync();
+
+
+could cause refresh storms.
+
+Cleaner:
+
+void StateHasChanged()
+{
+    _state = CalculateState();
+    _stateChanged.Invoke();
+}
+
+
+Since contexts already exist.

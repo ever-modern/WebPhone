@@ -1,7 +1,10 @@
 @page "/webrtc/manual"
+@using System.Text
 @using System.Text.Json
+@using EverModern.Blazor.DirectCommunication
+@using EverModern.Events
 @implements IAsyncDisposable
-@inject WebRtcInterop WebRtc
+@inject RtcConnector RtcConnector
 
 <PageTitle>WebRTC Manual</PageTitle>
 
@@ -45,15 +48,15 @@
             <span>Peer: @connectionState</span>
             <span>Data channel: @dataChannelState</span>
         </div>
+        <div>
+            <span>Audio in/out: @audioInState / @audioOutState</span>
+            <span>Video in/out: @videoInState / @videoOutState</span>
+        </div>
     </section>
 
     <section class="webrtc-card">
         <h2>Audio</h2>
-        <audio class="webrtc-audio" @ref="remoteAudio" autoplay controls></audio>
-        @if (!string.IsNullOrWhiteSpace(audioStatusMessage))
-        {
-            <p>@audioStatusMessage</p>
-        }
+        <p>@audioStatusMessage</p>
     </section>
 
     <section class="webrtc-card">
@@ -75,6 +78,7 @@
 @code {
     private readonly JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
     private readonly List<string> receivedMessages = [];
+
     private string connectionId = "demo";
     private string? localOffer;
     private string? remoteOffer;
@@ -82,180 +86,252 @@
     private string? remoteAnswer;
     private string? connectionState = "new";
     private string? dataChannelState = "new";
+    private string audioInState = "unknown";
+    private string audioOutState = "unknown";
+    private string videoInState = "unknown";
+    private string videoOutState = "unknown";
     private string messageToSend = string.Empty;
-    private bool isInitialized;
-    private bool isAudioStarted;
-    private ElementReference remoteAudio;
-    private string? audioStatusMessage;
+    private string? audioStatusMessage = "Audio is managed by RTC connection manager.";
+
+    private Task<RtcConnection>? pendingInitiatorConnection;
+    private TaskCompletionSource<WebRtcAnswer>? pendingAnswerTcs;
+
+    private RtcConnection? initiatorConnection;
+    private RtcConnection? responderConnection;
+
+    private Subscription? initiatorStateSubscription;
+    private Subscription? responderStateSubscription;
+    private Subscription? initiatorBytesSubscription;
+    private Subscription? responderBytesSubscription;
+    private CancellationTokenSource? mediaStatePollCts;
+    private Task? mediaStatePollTask;
+    private RtcConnection? currentConnection;
 
     private bool CanSend => dataChannelState == "open";
 
-    protected override void OnInitialized()
-    {
-        WebRtc.ConnectionStateChanged += HandleConnectionStateChanged;
-        WebRtc.DataChannelStateChanged += HandleDataChannelStateChanged;
-        WebRtc.DataMessageReceived += HandleDataMessageReceived;
-        WebRtc.RemoteStreamAvailable += HandleRemoteStreamAvailable;
-    }
-
-    private async Task EnsureInitializedAsync()
-    {
-        if (isInitialized)
-        {
-            return;
-        }
-
-        await WebRtc.InitializeAsync(connectionId, [
-            new WebRtcIceServer { Urls = ["stun:stun.l.google.com:19302"] }
-        ]);
-        isInitialized = true;
-    }
-
     private async Task CreateOfferAsync()
     {
-        await EnsureInitializedAsync();
-        await EnsureAudioAsync();
-        await WebRtc.CreateDataChannelAsync(connectionId, "chat");
-        var offer = await WebRtc.CreateOfferAsync(connectionId);
-        localOffer = JsonSerializer.Serialize(offer, jsonOptions);
+        await CleanupInitiatorAsync();
+
+        pendingAnswerTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        localOffer = null;
+        connectionState = "creating-offer";
+        dataChannelState = "connecting";
+
+        pendingInitiatorConnection = RtcConnector.InitiateConnectionAsync(async offer =>
+        {
+            localOffer = JsonSerializer.Serialize(offer, jsonOptions);
+            connectionState = "waiting-for-answer";
+            await InvokeAsync(StateHasChanged);
+
+            if (pendingAnswerTcs is null)
+                throw new InvalidOperationException("No pending answer task for manual flow.");
+
+            return await pendingAnswerTcs.Task;
+        });
+
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task AcceptOfferAsync()
     {
-        await EnsureInitializedAsync();
-        await EnsureAudioAsync();
-        var offer = DeserializeDescription(remoteOffer);
-        if (offer is null)
-        {
-            return;
-        }
+        await CleanupResponderAsync();
 
-        await WebRtc.SetRemoteDescriptionAsync(connectionId, offer);
-        var answer = await WebRtc.CreateAnswerAsync(connectionId);
-        localAnswer = JsonSerializer.Serialize(answer, jsonOptions);
+        var offer = DeserializeOffer(remoteOffer);
+        if (offer is null)
+            return;
+
+        var accepted = await RtcConnector.AcceptConnectionAsync(offer);
+        responderConnection = accepted.Connection;
+        localAnswer = JsonSerializer.Serialize(accepted.Answer, jsonOptions);
+
+        await AttachConnectionAsync(responderConnection, isInitiator: false);
+        await EnableAudioAsync(responderConnection);
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task AcceptAnswerAsync()
     {
-        await EnsureInitializedAsync();
-        var answer = DeserializeDescription(remoteAnswer);
-        if (answer is null)
-        {
+        var answer = DeserializeAnswer(remoteAnswer);
+        if (answer is null || pendingAnswerTcs is null || pendingInitiatorConnection is null)
             return;
+
+        pendingAnswerTcs.TrySetResult(answer);
+        initiatorConnection = await pendingInitiatorConnection;
+
+        await AttachConnectionAsync(initiatorConnection, isInitiator: true);
+        await EnableAudioAsync(initiatorConnection);
+
+        pendingAnswerTcs = null;
+        pendingInitiatorConnection = null;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task AttachConnectionAsync(RtcConnection connection, bool isInitiator)
+    {
+        var stateSubscription = connection.StateChanged.Subscribe(state =>
+        {
+            connectionState = state;
+            dataChannelState = state is "connected" ? "open" : "connecting";
+            _ = InvokeAsync(StateHasChanged);
+        });
+
+        var bytesSubscription = await connection.SubscribeBytesAsync(bytes =>
+        {
+            var message = Encoding.UTF8.GetString(bytes);
+            receivedMessages.Add($"Remote: {message}");
+            _ = InvokeAsync(StateHasChanged);
+        });
+
+        if (isInitiator)
+        {
+            initiatorStateSubscription?.Dispose();
+            initiatorBytesSubscription?.Dispose();
+            initiatorStateSubscription = stateSubscription;
+            initiatorBytesSubscription = bytesSubscription;
+        }
+        else
+        {
+            responderStateSubscription?.Dispose();
+            responderBytesSubscription?.Dispose();
+            responderStateSubscription = stateSubscription;
+            responderBytesSubscription = bytesSubscription;
         }
 
-        await WebRtc.SetRemoteDescriptionAsync(connectionId, answer);
-        await InvokeAsync(StateHasChanged);
+        currentConnection = connection;
+        StartMediaStatePolling(connection);
+    }
+
+    private void StartMediaStatePolling(RtcConnection connection)
+    {
+        mediaStatePollCts?.Cancel();
+        mediaStatePollCts?.Dispose();
+
+        mediaStatePollCts = new CancellationTokenSource();
+        var ct = mediaStatePollCts.Token;
+
+        mediaStatePollTask = Task.Run(async () =>
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                try
+                {
+                    var state = await connection.GetMediaExchangeStateAsync();
+                    audioInState = state.Audio.Input ? "on" : "off";
+                    audioOutState = state.Audio.Output ? "on" : "off";
+                    videoInState = state.Video.Input ? "on" : "off";
+                    videoOutState = state.Video.Output ? "on" : "off";
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
+            }
+        }, ct);
+    }
+
+    private async Task EnableAudioAsync(RtcConnection connection)
+    {
+        await connection.EnableAudioInputAsync();
+        await connection.EnableAudioOutputAsync();
+        audioStatusMessage = "Audio input/output enabled via rtcConnectionManager.";
     }
 
     private async Task SendMessageAsync()
     {
         if (string.IsNullOrWhiteSpace(messageToSend))
-        {
             return;
-        }
 
-        await WebRtc.SendMessageAsync(connectionId, messageToSend);
+        var connection = initiatorConnection ?? responderConnection;
+        if (connection is null)
+            return;
+
+        var payload = Encoding.UTF8.GetBytes(messageToSend);
+        await connection.WriteBytesAsync(payload);
         receivedMessages.Add($"Me: {messageToSend}");
         messageToSend = string.Empty;
         await InvokeAsync(StateHasChanged);
     }
 
-    private void HandleConnectionStateChanged(object? sender, WebRtcConnectionStateChangedEventArgs args)
-    {
-        if (args.ConnectionId != connectionId)
-        {
-            return;
-        }
-
-        connectionState = args.State;
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    private void HandleDataChannelStateChanged(object? sender, WebRtcDataChannelStateChangedEventArgs args)
-    {
-        if (args.ConnectionId != connectionId)
-        {
-            return;
-        }
-
-        dataChannelState = args.State;
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    private void HandleDataMessageReceived(object? sender, WebRtcDataMessageEventArgs args)
-    {
-        if (args.ConnectionId != connectionId)
-        {
-            return;
-        }
-
-        receivedMessages.Add($"Remote: {args.Message}");
-        _ = InvokeAsync(StateHasChanged);
-    }
-
-    private async void HandleRemoteStreamAvailable(object? sender, WebRtcRemoteStreamEventArgs args)
-    {
-        if (args.ConnectionId != connectionId)
-        {
-            return;
-        }
-
-        await WebRtc.AttachRemoteAudioAsync(connectionId, remoteAudio);
-    }
-
-    private async Task EnsureAudioAsync()
-    {
-        if (isAudioStarted)
-        {
-            return;
-        }
-
-        try
-        {
-            await WebRtc.StartLocalStreamAsync(connectionId, new
-            {
-                audio = new
-                {
-                    echoCancellation = true,
-                    noiseSuppression = true,
-                    autoGainControl = true
-                },
-                video = false
-            });
-            await WebRtc.AddLocalTracksAsync(connectionId);
-            isAudioStarted = true;
-            audioStatusMessage = null;
-        }
-        catch (JSException ex)
-        {
-            audioStatusMessage = ex.Message;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private static WebRtcSessionDescription? DeserializeDescription(string? payload)
+    private static WebRtcOffer? DeserializeOffer(string? payload)
     {
         if (string.IsNullOrWhiteSpace(payload))
-        {
             return null;
+
+        return JsonSerializer.Deserialize<WebRtcOffer>(payload);
+    }
+
+    private static WebRtcAnswer? DeserializeAnswer(string? payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload))
+            return null;
+
+        return JsonSerializer.Deserialize<WebRtcAnswer>(payload);
+    }
+
+    private async Task CleanupInitiatorAsync()
+    {
+        var disposingConnection = initiatorConnection;
+
+        initiatorStateSubscription?.Dispose();
+        initiatorBytesSubscription?.Dispose();
+        initiatorStateSubscription = null;
+        initiatorBytesSubscription = null;
+
+        if (disposingConnection is not null)
+        {
+            await disposingConnection.DisposeAsync();
+            initiatorConnection = null;
         }
 
-        return JsonSerializer.Deserialize<WebRtcSessionDescription>(payload);
+        if (ReferenceEquals(currentConnection, disposingConnection))
+        {
+            mediaStatePollCts?.Cancel();
+            currentConnection = null;
+        }
+    }
+
+    private async Task CleanupResponderAsync()
+    {
+        var disposingConnection = responderConnection;
+
+        responderStateSubscription?.Dispose();
+        responderBytesSubscription?.Dispose();
+        responderStateSubscription = null;
+        responderBytesSubscription = null;
+
+        if (disposingConnection is not null)
+        {
+            await disposingConnection.DisposeAsync();
+            responderConnection = null;
+        }
+
+        if (ReferenceEquals(currentConnection, disposingConnection))
+        {
+            mediaStatePollCts?.Cancel();
+            currentConnection = null;
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        WebRtc.ConnectionStateChanged -= HandleConnectionStateChanged;
-        WebRtc.DataChannelStateChanged -= HandleDataChannelStateChanged;
-        WebRtc.DataMessageReceived -= HandleDataMessageReceived;
-        WebRtc.RemoteStreamAvailable -= HandleRemoteStreamAvailable;
+        pendingAnswerTcs?.TrySetCanceled();
 
-        if (isInitialized)
-        {
-            await WebRtc.CloseAsync(connectionId);
-        }
+        mediaStatePollCts?.Cancel();
+
+        await CleanupInitiatorAsync();
+        await CleanupResponderAsync();
+
+        if (mediaStatePollTask is not null)
+            await mediaStatePollTask.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
+        mediaStatePollCts?.Dispose();
     }
 }

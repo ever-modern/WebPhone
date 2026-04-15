@@ -1,4 +1,3 @@
-using System.Diagnostics.Contracts;
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
 using WebPhone.Messages;
@@ -11,41 +10,66 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
     readonly EventSource _stateChanged = new();
     public INotifier StateChanged => _stateChanged;
 
-    public (InteractionType Type, Action Cancel) _interaction;
+    sealed class Interaction(InteractionType type, Action cancel)
+    {
+        public InteractionType Type { get; } = type;
+        readonly Action _cancel = cancel;
+
+        public void Cancel() => _cancel();
+    }
+
+    Interaction _interaction = new(InteractionType.None, () => { });
 
     public InteractionType State => _interaction.Type;
 
     bool _isEnabled = false;
+    CancellationTokenSource? _sessionCts;
+    CancellationTokenSource? _syncCts;
+    Task? _syncTask;
 
-    event Action _onDispose = () => { };
+    event Action OnDispose = () => { };
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         if (_isEnabled == true)
             return;
 
-        _onDispose += peerConnector
+        _isEnabled = true;
+        StartSyncLoop();
+
+        OnDispose += peerConnector
             .StateChanged.Subscribe(() =>
             {
-                var existingConnection = peerConnector.CurrentConnections.GetValueOrDefault(
-                    contactId
-                );
+                var existingConnection = GetConnection();
 
-                if (State is not InteractionType.None && existingConnection is null)
+                if (
+                    State
+                        is InteractionType.Connected
+                            or InteractionType.Calling
+                            or InteractionType.ReceivingCall
+                            or InteractionType.Speaking
+                    && existingConnection is null
+                )
                 {
+                    StopSession();
                     SetState(InteractionType.None, () => { });
                 }
                 else if (State < InteractionType.Connected && existingConnection is not null)
                 {
-                    SetState(
-                        InteractionType.Connected,
-                        () => _ = peerConnector.ClosePeerConnectionAsync(contactId, default)
-                    );
+                    StartSession(existingConnection);
+                    SetState(InteractionType.Connected, () => { });
                 }
             })
             .Dispose;
 
-        _isEnabled = true;
+        var existing = GetConnection();
+        if (existing is not null)
+        {
+            StartSession(existing);
+            SetState(InteractionType.Connected, () => { });
+        }
+
+        await Task.CompletedTask;
     }
 
     public void Dispose()
@@ -53,7 +77,12 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
         if (_isEnabled == false)
             return;
 
-        _onDispose();
+        _isEnabled = false;
+        StopSession();
+        _syncCts?.Cancel();
+        _syncCts?.Dispose();
+        _syncCts = null;
+        OnDispose();
     }
 
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
@@ -71,39 +100,29 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
 
         if (connection is null)
         {
-            SetState(InteractionType.None, () => { });
+            if (State is InteractionType.Connecting)
+                SetState(InteractionType.None, () => { });
             return;
         }
 
-        var disconnectCts = new CancellationTokenSource();
+        if (State is not InteractionType.Connecting)
+            return;
 
-        SetState(InteractionType.Connected, disconnectCts.Cancel);
-
-        var incomingCallListener = new CallMaintainer(connection, TimeSpan.FromMilliseconds(500));
-
-        _ = incomingCallListener
-            .WhenReceivedCallPingAsync(disconnectCts.Token)
-            .ContinueWith(
-                t =>
-                {
-                    if (t.IsCanceled || t.IsFaulted)
-                        return;
-                    SetState(InteractionType.ReceivingCall, () => { });
-                },
-                disconnectCts.Token
-            );
+        StartSession(connection);
+        SetState(InteractionType.Connected, () => { });
     }
 
     public void StopConnecting()
     {
         if (_interaction.Type == InteractionType.Connecting)
-            _interaction.Cancel();
+            SetState(InteractionType.None, () => { });
     }
 
-    public void Disconnect()
+    public async Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
-        if (_interaction.Type == InteractionType.Connected)
-            _interaction.Cancel();
+        StopSession();
+        SetState(InteractionType.None, () => { });
+        await peerConnector.ClosePeerConnectionAsync(contactId, cancellationToken);
     }
 
     public async Task StartCallAsync(CancellationToken cancellationToken = default)
@@ -111,64 +130,117 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
         if (_interaction.Type is not InteractionType.Connected)
             return;
 
-        var currentConnections = peerConnector.CurrentConnections;
-
-        var connection = currentConnections.GetValueOrDefault(contactId);
+        var connection = GetConnection();
         if (connection is null)
         {
+            StopSession();
             SetState(InteractionType.None, () => { });
             return;
         }
 
-        var callingCts = new CancellationTokenSource();
+        var sessionToken = _sessionCts?.Token ?? CancellationToken.None;
+        var callingCts = CancellationTokenSource.CreateLinkedTokenSource(
+            sessionToken,
+            cancellationToken
+        );
 
         SetState(InteractionType.Calling, callingCts.Cancel);
 
         var callMaintainer = new CallMaintainer(connection, TimeSpan.FromMilliseconds(500));
 
         _ = callMaintainer.MaintainCallAsync(callingCts.Token);
-        var __ = callMaintainer
+        _ = callMaintainer
             .WhenReceivedCallPingAsync(callingCts.Token)
             .ContinueWith(t =>
             {
-                if (t.IsCompletedSuccessfully == false)
+                if (t.IsCompletedSuccessfully == false || State is not InteractionType.Calling)
                     return;
 
-                var stopCallCts = new CancellationTokenSource();
-                callingCts.Cancel();
-
-                SetState(
-                    InteractionType.Speaking,
-                    () =>
-                    {
-                        stopCallCts.Cancel();
-                        _ = DisableMediaAsync(connection);
-                    }
-                );
-
-                _ = EnableMediaAsync(connection);
-                _ = callMaintainer
-                    .WhenCallStoppedAsync(stopCallCts.Token)
-                    .ContinueWith(t =>
-                    {
-                        if (t.IsCompletedSuccessfully)
-                        {
-                            stopCallCts.Cancel();
-                            _ = DisableMediaAsync(connection);
-                        }
-                    });
+                StartSpeaking(connection, callMaintainer);
             });
     }
 
     public void AcceptCall()
     {
-        var currentConnections = peerConnector.CurrentConnections;
-        var connection = currentConnections.GetValueOrDefault(contactId);
+        if (State is not InteractionType.ReceivingCall)
+            return;
+
+        var connection = GetConnection();
         if (connection is null)
             return;
 
-        var stopCallCts = new CancellationTokenSource();
         var callMaintainer = new CallMaintainer(connection, TimeSpan.FromMilliseconds(500));
+        StartSpeaking(connection, callMaintainer);
+    }
+
+    public void DeclineCall()
+    {
+        if (State is not InteractionType.ReceivingCall)
+            return;
+
+        var connection = GetConnection();
+        if (connection is null)
+            return;
+
+        using var channel = new RtcConnectionMessageChannel(connection);
+        _ = channel.Writer.WriteAsync(new RtcMessage(RtcMessageType.RejectCall));
+
+        SetState(InteractionType.Connected, () => { });
+        ListenIncomingCall(connection);
+    }
+
+    public void EndCall()
+    {
+        if (_interaction.Type is not InteractionType.Speaking and not InteractionType.Calling)
+            return;
+
+        var connection = GetConnection();
+        _interaction.Cancel();
+
+        if (connection is null)
+        {
+            SetState(InteractionType.None, () => { });
+            return;
+        }
+
+        SetState(InteractionType.Connected, () => { });
+        ListenIncomingCall(connection);
+    }
+
+    public async Task SendMessageAsync(string text, CancellationToken cancellationToken = default)
+    {
+        var connection = GetConnection();
+        if (connection is null)
+            return;
+
+        await using var chat = new RtcConnectionMessageChannel(connection);
+        await chat.Writer.WriteAsync(new RtcMessage(RtcMessageType.User, text), cancellationToken);
+    }
+
+    void ListenIncomingCall(RtcConnection connection)
+    {
+        var sessionToken = _sessionCts?.Token;
+        if (sessionToken is null)
+            return;
+
+        var callMaintainer = new CallMaintainer(connection, TimeSpan.FromMilliseconds(500));
+        _ = callMaintainer
+            .WhenReceivedCallPingAsync(sessionToken.Value)
+            .ContinueWith(t =>
+            {
+                if (t.IsCompletedSuccessfully == false)
+                    return;
+
+                if (State is InteractionType.Connected)
+                    SetState(InteractionType.ReceivingCall, () => { });
+            }, sessionToken.Value);
+    }
+
+    void StartSpeaking(RtcConnection connection, CallMaintainer callMaintainer)
+    {
+        var sessionToken = _sessionCts?.Token ?? CancellationToken.None;
+        var stopCallCts = CancellationTokenSource.CreateLinkedTokenSource(sessionToken);
+
         _ = callMaintainer.MaintainCallAsync(stopCallCts.Token);
         SetState(
             InteractionType.Speaking,
@@ -178,50 +250,85 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
                 _ = DisableMediaAsync(connection);
             }
         );
+
         _ = EnableMediaAsync(connection);
-    }
 
-    public void DeclineCall()
-    {
-        var currentConnections = peerConnector.CurrentConnections;
-        var connection = currentConnections.GetValueOrDefault(contactId);
-        if (connection is null)
-            return;
+        _ = callMaintainer
+            .WhenCallStoppedAsync(stopCallCts.Token)
+            .ContinueWith(t =>
+            {
+                if (t.IsCompletedSuccessfully == false || State is not InteractionType.Speaking)
+                    return;
 
-        using var channel = new RtcConnectionMessageChannel(connection);
-        _ = channel.Writer.WriteAsync(new RtcMessage(RtcMessageType.RejectCall));
-
-        SetState(
-            InteractionType.None,
-            () => _ = peerConnector.ClosePeerConnectionAsync(contactId, default)
-        );
-    }
-
-    public void EndCall()
-    {
-        if (_interaction.Type is not InteractionType.Speaking)
-            return;
-
-        _interaction.Cancel();
-    }
-
-    public void SendMessage(string text)
-    {
-        var currentConnections = peerConnector.CurrentConnections;
-        var connection = currentConnections.GetValueOrDefault(contactId);
-        if (connection is null)
-            return;
-
-        using var chat = new RtcConnectionMessageChannel(connection);
-
-        _ = chat.Writer.WriteAsync(new RtcMessage(RtcMessageType.User, text));
+                stopCallCts.Cancel();
+                _ = DisableMediaAsync(connection);
+                SetState(InteractionType.Connected, () => { });
+                ListenIncomingCall(connection);
+            });
     }
 
     void SetState(InteractionType newState, Action cancelInteraction)
     {
-        _interaction = (newState, cancelInteraction);
+        _interaction.Cancel();
+        _interaction = new(newState, cancelInteraction);
         _stateChanged.Invoke();
     }
+
+    void StartSession(RtcConnection connection)
+    {
+        StopSession();
+        _sessionCts = new CancellationTokenSource();
+        ListenIncomingCall(connection);
+    }
+
+    void StopSession()
+    {
+        _sessionCts?.Cancel();
+        _sessionCts?.Dispose();
+        _sessionCts = null;
+    }
+
+    void StartSyncLoop()
+    {
+        _syncCts?.Cancel();
+        _syncCts = new CancellationTokenSource();
+        _syncTask = Task.Run(async () =>
+        {
+            while (!_syncCts.IsCancellationRequested)
+            {
+                try
+                {
+                    var existingConnection = GetConnection();
+
+                    if (
+                        State
+                            is InteractionType.Connected
+                                or InteractionType.Calling
+                                or InteractionType.ReceivingCall
+                                or InteractionType.Speaking
+                        && existingConnection is null
+                    )
+                    {
+                        StopSession();
+                        SetState(InteractionType.None, () => { });
+                    }
+                    else if (State < InteractionType.Connected && existingConnection is not null)
+                    {
+                        StartSession(existingConnection);
+                        SetState(InteractionType.Connected, () => { });
+                    }
+
+                    await Task.Delay(250, _syncCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+            }
+        }, _syncCts.Token);
+    }
+
+    RtcConnection? GetConnection() => peerConnector.CurrentConnections.GetValueOrDefault(contactId);
 
     static async Task EnableMediaAsync(RtcConnection connection)
     {

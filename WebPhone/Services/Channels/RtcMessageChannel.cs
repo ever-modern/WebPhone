@@ -153,13 +153,7 @@ public class RtcConnectionMessageChannel : IBroadcastChannel<RtcMessage, RtcMess
         {
             var text = Encoding.UTF8.GetString(rawMessage);
             var result = JsonSerializer.Deserialize<RtcMessage>(text);
-            if (result is not null)
-            {
-                parsed = result;
-                return true;
-            }
-
-            parsed = new(RtcMessageType.User, text);
+            parsed = result;
             return true;
         }
         catch

@@ -1,5 +1,7 @@
 @using WebPhone.Services
 
+@inject PeerConnector PeerConnector
+
 @{
     var (contact, interaction, actions, onRemoteAudioElementReady) = Model;
     var (isConnected, connectionState, isConnecting, chatReady, isCallActive, isCalling, hasIncomingCall, chat) = interaction;
@@ -87,6 +89,8 @@
             {
                 <button class="webrtc-button webrtc-button--danger" @onclick="CancelCall">Cancel call</button>
             }
+
+            <button class="webrtc-button webrtc-button--danger" @onclick="ForceAudioAsync">Force audio</button>
         </div>
     </div>
 
@@ -140,6 +144,16 @@
 
     private void CancelCall()
         => Model.Actions.CancelCall?.Invoke();
+
+    async Task ForceAudioAsync()
+    {
+        var connection = PeerConnector.CurrentConnections.GetValueOrDefault(Model.Contact.Id);
+        if (connection is null)
+            return;
+
+        await connection.EnableAudioInputAsync();
+        await connection.EnableAudioOutputAsync();
+    }
 
     private void StartNicknameEdit()
     {

@@ -45,16 +45,25 @@ function waitForIceGatheringCompleteRtcMgr(connection, timeoutMs = 5000) {
 }
 function createRtcManagerConnection(stateCallback, iceServers) {
     const peerConnection = new RTCPeerConnection({ iceServers: iceServers ?? [] });
-    peerConnection.addTransceiver("audio", { direction: "sendrecv" });
-    peerConnection.addTransceiver("video", { direction: "sendrecv" });
+    const transceivers = {
+        audio: peerConnection.addTransceiver("audio", { direction: "sendrecv" }),
+        video: peerConnection.addTransceiver("video", { direction: "sendrecv" })
+    };
     const remoteAudioElement = document.createElement("audio");
     remoteAudioElement.autoplay = true;
     remoteAudioElement.setAttribute("playsinline", "true");
     remoteAudioElement.style.display = "none";
     document.body.appendChild(remoteAudioElement);
+    const remoteVideoElement = document.createElement("video");
+    remoteVideoElement.autoplay = true;
+    remoteVideoElement.setAttribute("playsinline", "true");
+    remoteVideoElement.style.display = "none";
+    document.body.appendChild(remoteVideoElement);
     const localTracks = new Map();
     const remoteAudioStream = new MediaStream();
+    const remoteVideoStream = new MediaStream();
     remoteAudioElement.srcObject = remoteAudioStream;
+    remoteVideoElement.srcObject = remoteVideoStream;
     let dataChannel = null;
     let localAnswer = null;
     const subscribers = new Map();
@@ -69,7 +78,7 @@ function createRtcManagerConnection(stateCallback, iceServers) {
     };
     const manager = Object.create(rtcConnectionManagerPrototype);
     const getSenderForKind = (kind) => {
-        const transceiver = peerConnection.getTransceivers().find((item) => item.receiver.track?.kind === kind);
+        const transceiver = transceivers[kind];
         if (transceiver) {
             return transceiver.sender;
         }
@@ -93,34 +102,54 @@ function createRtcManagerConnection(stateCallback, iceServers) {
         const sender = getSenderForKind(kind);
         if (sender) {
             await sender.replaceTrack(track);
+            if (sender.track) {
+                sender.track.enabled = true;
+            }
+            console.info("[rtcConnectionManager] replaced sender track", {
+                kind,
+                senderTrackKind: sender.track?.kind,
+                senderTrackState: sender.track?.readyState,
+                senderTrackEnabled: sender.track?.enabled
+            });
             return;
         }
-        peerConnection.addTrack(track, stream);
     };
     const setInputEnabled = async (kind, enabled) => {
         if (enabled) {
             await ensureInputTrackAsync(kind);
         }
-        peerConnection.getSenders()
-            .filter((sender) => sender.track?.kind === kind)
-            .forEach((sender) => {
+        const senders = peerConnection.getSenders()
+            .filter((sender) => sender.track?.kind === kind);
+        for (const sender of senders) {
             if (sender.track) {
                 sender.track.enabled = enabled;
             }
-        });
+            if (enabled) {
+                try {
+                    const parameters = sender.getParameters();
+                    if (!parameters.encodings || parameters.encodings.length === 0) {
+                        parameters.encodings = [{}];
+                    }
+                    parameters.encodings.forEach((encoding) => {
+                        encoding.active = true;
+                    });
+                    await sender.setParameters(parameters);
+                }
+                catch {
+                }
+            }
+        }
     };
     const setOutputEnabled = async (kind, enabled) => {
-        peerConnection.getReceivers()
-            .filter((receiver) => receiver.track?.kind === kind)
-            .forEach((receiver) => {
-            if (receiver.track) {
-                receiver.track.enabled = enabled;
-            }
-        });
         if (kind === "audio") {
             remoteAudioElement.muted = !enabled;
             if (enabled) {
                 void remoteAudioElement.play().catch(() => undefined);
+            }
+        }
+        else if (kind === "video") {
+            if (enabled) {
+                void remoteVideoElement.play().catch(() => undefined);
             }
         }
     };
@@ -140,15 +169,19 @@ function createRtcManagerConnection(stateCallback, iceServers) {
     };
     manager.enableAudioInput = async () => {
         await setInputEnabled("audio", true);
+        console.info("[rtcConnectionManager] audio input ENABLED");
     };
     manager.disableAudioInput = async () => {
         await setInputEnabled("audio", false);
+        console.info("[rtcConnectionManager] audio input DISABLED");
     };
     manager.enableAudioOutput = async () => {
         await setOutputEnabled("audio", true);
+        console.info("[rtcConnectionManager] audio output ENABLED");
     };
     manager.disableAudioOutput = async () => {
         await setOutputEnabled("audio", false);
+        console.info("[rtcConnectionManager] audio output DISABLED");
     };
     manager.enableVideoInput = async () => {
         await setInputEnabled("video", true);
@@ -161,13 +194,6 @@ function createRtcManagerConnection(stateCallback, iceServers) {
     };
     manager.disableVideoOutput = async () => {
         await setOutputEnabled("video", false);
-    };
-    manager.setAudioOutputElement = (element) => {
-        element.srcObject = remoteAudioStream;
-        void element.play().catch(() => undefined);
-        remoteAudioElement.srcObject = null;
-        remoteAudioElement.pause();
-        remoteAudioElement.remove();
     };
     manager.getMediaExchangeState = () => {
         return {
@@ -217,11 +243,17 @@ function createRtcManagerConnection(stateCallback, iceServers) {
         });
         localTracks.clear();
         remoteAudioStream.getTracks().forEach((track) => {
-            remoteAudioStream.removeTrack(track);
             track.stop();
         });
+        remoteAudioStream.getTracks().forEach((track) => remoteAudioStream.removeTrack(track));
+        remoteVideoStream.getTracks().forEach((track) => {
+            track.stop();
+        });
+        remoteVideoStream.getTracks().forEach((track) => remoteVideoStream.removeTrack(track));
         remoteAudioElement.srcObject = null;
         remoteAudioElement.remove();
+        remoteVideoElement.srcObject = null;
+        remoteVideoElement.remove();
         peerConnection.getSenders().forEach((sender) => {
             if (sender.track) {
                 sender.track.stop();
@@ -237,14 +269,45 @@ function createRtcManagerConnection(stateCallback, iceServers) {
         wireDataChannel(event.channel);
     };
     peerConnection.ontrack = (event) => {
-        if (event.track.kind !== "audio") {
+        const track = event.track;
+        if (!track) {
             return;
         }
-        const trackExists = remoteAudioStream.getTracks().some((knownTrack) => knownTrack.id === event.track.id);
-        if (!trackExists) {
-            remoteAudioStream.addTrack(event.track);
+        // Determine which stream and element to use based on track kind
+        let targetStream;
+        let targetElement;
+        if (track.kind === "audio") {
+            targetStream = remoteAudioStream;
+            targetElement = remoteAudioElement;
         }
-        void remoteAudioElement.play().catch(() => undefined);
+        else if (track.kind === "video") {
+            targetStream = remoteVideoStream;
+            targetElement = remoteVideoElement;
+        }
+        else {
+            return;
+        }
+        // Add the track to our managed stream
+        const existingTracks = targetStream.getTracks().filter((t) => t.id === track.id);
+        if (existingTracks.length === 0) {
+            targetStream.addTrack(track);
+        }
+        // Update the element's srcObject if not already set
+        if (targetElement.srcObject !== targetStream) {
+            targetElement.srcObject = targetStream;
+        }
+        // Attempt to play the element
+        void targetElement.play().catch(() => undefined);
+        // Handle track ended event
+        track.onended = () => {
+            const streams = event.streams || [];
+            streams.forEach((stream) => {
+                const streamTrack = stream.getTracks().find((t) => t.id === track.id);
+                if (streamTrack) {
+                    stream.removeTrack(streamTrack);
+                }
+            });
+        };
     };
     return {
         manager,
@@ -257,9 +320,15 @@ function createRtcManagerConnection(stateCallback, iceServers) {
 }
 async function initiateConnectionAsync(dotnetCallback, onStateChanged, iceServers) {
     const created = createRtcManagerConnection(onStateChanged, iceServers);
+    created.peerConnection.getTransceivers().forEach((transceiver) => {
+        transceiver.direction = "sendrecv";
+    });
     const channel = created.peerConnection.createDataChannel("primary", { ordered: true });
     created.wireDataChannel(channel);
-    const offer = await created.peerConnection.createOffer();
+    const offer = await created.peerConnection.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+    });
     await created.peerConnection.setLocalDescription(offer);
     await waitForIceGatheringCompleteRtcMgr(created.peerConnection);
     const answer = await dotnetCallback.invokeMethodAsync("AcceptOfferAsync", created.peerConnection.localDescription);
@@ -269,6 +338,9 @@ async function initiateConnectionAsync(dotnetCallback, onStateChanged, iceServer
 async function acceptConnectionAsync(offer, onStateChanged, iceServers) {
     const created = createRtcManagerConnection(onStateChanged, iceServers);
     await created.peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+    created.peerConnection.getTransceivers().forEach((transceiver) => {
+        transceiver.direction = "sendrecv";
+    });
     const answer = await created.peerConnection.createAnswer();
     await created.peerConnection.setLocalDescription(answer);
     await waitForIceGatheringCompleteRtcMgr(created.peerConnection);
