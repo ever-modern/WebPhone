@@ -2,13 +2,13 @@
   "compileOnSave": true,
   "compilerOptions": {
     "target": "ES2022",
-    "module": "system",
+    "module": "ES2022",
     "lib": [ "DOM", "ES2022" ],
     "strict": true,
     "skipLibCheck": true,
     "noEmitOnError": true,
     "rootDir": "./src",
-    "outFile": "../wwwroot/directCommunication.bundle.js"
+    "outDir": "../wwwroot"
   },
   "include": [
     "src/**/*.ts"

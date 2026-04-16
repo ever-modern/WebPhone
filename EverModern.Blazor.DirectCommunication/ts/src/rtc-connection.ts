@@ -17,13 +17,14 @@ export function createEventSource<T>() {
     return {
         subscribe: (callback: (event: T) => Promise<void>) => {
             callbacks.push(callback);
-            return {
+            return { 
                 finish: () => {
                     const index = callbacks.indexOf(callback);
                     if (index !== -1) {
                         callbacks.splice(index, 1);
                     }
-                }
+                    const a = 5599;
+                } 
             };
         },
 

@@ -288,19 +288,8 @@ public sealed class PeerConnector : BackgroundProcessor
                 )
         );
 
-        var whenOpen = new TaskCompletionSource<RtcConnection>();
-
-        using var _ = connection.StateChanged.Subscribe(state =>
-        {
-            if (state == "open")
-                whenOpen.TrySetResult(connection);
-            else if (state == "closed")
-                whenOpen.TrySetException(new InvalidOperationException("Connection closed."));
-        });
-
-        var result = await whenOpen.Task;
         _connectionEventSource.Invoke();
-        return result;
+        return connection;
     }
 
     private async Task RemoveConnectionAsync(string peerId)

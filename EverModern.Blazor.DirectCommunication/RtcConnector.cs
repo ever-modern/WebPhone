@@ -2,6 +2,33 @@ using Microsoft.JSInterop;
 
 namespace EverModern.Blazor.DirectCommunication;
 
+public class JsInvokableFunc<Tout>(Func<Tout> func)
+{
+    [JSInvokable("invoke")]
+    public Tout Invoke() => func();
+}
+
+public class JsInvokableFunc<TIn, TOut>(Func<TIn, TOut> func)
+{
+    [JSInvokable("invoke")]
+    public TOut Invoke(TIn p) => func(p);
+}
+
+public class JsInvokableAction<TIn>(Action<TIn> func)
+{
+    [JSInvokable("invoke")]
+    public void Invoke(TIn p1) => func(p1);
+}
+
+public static class JsFunction
+{
+    public static JsInvokableFunc<TOut> Create<TOut>(Func<TOut> func) => new(func);
+
+    public static JsInvokableFunc<TIn, TOut> Create<TIn, TOut>(Func<TIn, TOut> func) => new(func);
+
+    public static JsInvokableAction<TIn> Create<TIn>(Action<TIn> func) => new(func);
+}
+
 public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServer> iceServers)
 {
     public async Task<RtcConnection> InitiateConnectionAsync(
@@ -13,16 +40,19 @@ public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServ
         var stateChanged = new Events.EventSource<string>();
         var channelMessageReceived = new Events.EventSource<byte[]>();
 
-        var offerCallbackReference = DotNetObjectReference.Create(getAnswer);
+        var getAnswerLink = DotNetObjectReference.Create(JsFunction.Create(getAnswer));
 
         var managerReference = await jsRuntime.InvokeAsync<IJSObjectReference>(
             "rtcConnectionFactory.initiateConnectionAsync",
             [
-                offerCallbackReference,
                 iceServers,
-                DotNetObjectReference.Create(getAnswer),
-                DotNetObjectReference.Create(stateChanged.Invoke),
-                DotNetObjectReference.Create(channelMessageReceived.Invoke),
+                getAnswerLink,
+                DotNetObjectReference.Create(
+                    JsFunction.Create((string state) => stateChanged.Invoke(state))
+                ),
+                DotNetObjectReference.Create(
+                    JsFunction.Create((byte[] bytes) => channelMessageReceived.Invoke(bytes))
+                ),
             ]
         );
 
@@ -58,9 +88,13 @@ public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServ
             [
                 iceServers,
                 offer,
-                DotNetObjectReference.Create(sendAnswerBack),
-                DotNetObjectReference.Create(stateChanged.Invoke),
-                DotNetObjectReference.Create(channelMessageReceived.Invoke),
+                DotNetObjectReference.Create(JsFunction.Create(sendAnswerBack)),
+                DotNetObjectReference.Create(
+                    JsFunction.Create((string state) => stateChanged.Invoke(state))
+                ),
+                DotNetObjectReference.Create(
+                    JsFunction.Create((byte[] bytes) => channelMessageReceived.Invoke(bytes))
+                ),
             ]
         );
 

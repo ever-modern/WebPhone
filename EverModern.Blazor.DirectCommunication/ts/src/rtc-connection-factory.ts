@@ -1,5 +1,6 @@
-﻿import { waitForIceGatheringComplete } from "./ice-utilities";
-import { RtcConnectionCallbacks, RtcConnectionManager } from "./rtc-connection";
+﻿import { bindCallbacks } from "./callbacks-preparation.js";
+import { waitForIceGatheringComplete } from "./ice-utilities.js";
+import { RtcConnectionCallbacks, RtcConnectionManager } from "./rtc-connection.js";
 
 type IceServerParameters = {
     urls: string[];
@@ -10,37 +11,6 @@ type IceServerParameters = {
 type DotNetObjectReference = {
     invokeMethodAsync<T = unknown>(methodName: string, ...args: unknown[]): Promise<T>;
 };
-
-function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, onDataChannelMessage }: RtcConnectionCallbacks) {
-
-    let dataChannel: RTCDataChannel | null = null;
-
-    connection.ondatachannel = (event) => {
-        const channel = event.channel;
-        if (!channel) {
-            return;
-        }
-        dataChannel = channel;
-        channel.onmessage = (event: MessageEvent) => {
-            onDataChannelMessage?.(event.data);
-        };
-    }
-
-    const writeBytes = (input: Uint8Array | ArrayBuffer): void => {
-        if (!dataChannel || dataChannel.readyState !== "open") {
-            throw new Error("RTC data channel is not open.");
-        }
-
-        const payload = input instanceof Uint8Array ? input : new Uint8Array(input);
-        dataChannel.send(payload as any);
-    };
-
-    connection.onconnectionstatechange = () => {
-        onStateChanged?.(connection.connectionState);
-    };
-
-    return { unbind: () => { connection.ondatachannel = null, connection.onconnectionstatechange = null }, writeToChannel: writeBytes };
-}
 
 type OfferAnswerExchange = {
     offer: RTCSessionDescriptionInit;
@@ -53,12 +23,19 @@ async function createRtcConnection(
     exchangeInfo: ConnectionDescriptionExchangeInfo,
     iceServers: RTCIceServer[],
     callbacks: RtcConnectionCallbacks
-): Promise<RtcConnectionManager> {
+): Promise<RtcConnectionManager> { 
     if (!iceServers?.length) throw new Error("At least one ICE server must be provided.");
+
+    const isInitator = typeof exchangeInfo === "function";
 
     const peerConnection = new RTCPeerConnection({ iceServers });
 
-    const { unbind, writeToChannel } = bindCallbacks(peerConnection, callbacks);
+    const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
+
+    if (isInitator) {
+        const dataChannel = peerConnection.createDataChannel("data");
+        handleDataChannel(dataChannel);
+    }
 
     const agent: RtcConnectionManager = {
         close: () => {
@@ -76,8 +53,7 @@ async function createRtcConnection(
         peerConnection.addTrack(track, stream)
     );
 
-    if (typeof exchangeInfo === "function") {
-        peerConnection.createDataChannel("data");
+    if (isInitator) {
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
 
@@ -88,6 +64,7 @@ async function createRtcConnection(
     }
     else {
         const { offer, sendAnswerBack } = exchangeInfo;
+
         await peerConnection.setRemoteDescription(offer);
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
@@ -105,6 +82,8 @@ async function createRtcConnection(
             const localStream = stream;
         }
     }
+
+    await whenOpen;
 
     return agent;
 }
@@ -147,6 +126,4 @@ async function acceptConnectionAsync(
     return result;
 }
 
-const rtcConnectionFactory = { initiateConnectionAsync, acceptConnectionAsync };
-
-(window as any).rtcConnectionFactory = rtcConnectionFactory;
+export const rtcConnectionFactory = { initiateConnectionAsync, acceptConnectionAsync }; 
