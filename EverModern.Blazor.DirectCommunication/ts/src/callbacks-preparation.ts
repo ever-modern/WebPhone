@@ -26,8 +26,17 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
 
     const handleDataChannel = (channel: RTCDataChannel) => {
         dataChannel = channel;
+        channel.binaryType = "arraybuffer";
         channel.onmessage = (event: MessageEvent) => {
-            onDataChannelMessage?.(event.data);
+            if (!onDataChannelMessage) return;
+            if (event.data instanceof ArrayBuffer) {
+                const bytes = new Uint8Array(event.data);
+                let binary = '';
+                for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                onDataChannelMessage(btoa(binary));
+            } else {
+                onDataChannelMessage(event.data as string);
+            }
         };
         channel.onopen = () => {
             safeResolve();
@@ -49,13 +58,20 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
         }
     }
 
-    const writeBytes = (input: Uint8Array | ArrayBuffer): void => {
+    const writeBytes = (input: Uint8Array | ArrayBuffer | string): void => {
         if (!dataChannel || dataChannel.readyState !== "open") {
             throw new Error("RTC data channel is not open.");
         }
 
-        const payload = input instanceof Uint8Array ? input : new Uint8Array(input);
-        dataChannel.send(payload as any);
+        let payload: Uint8Array;
+        if (typeof input === "string") {
+            const binary = atob(input);
+            payload = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) payload[i] = binary.charCodeAt(i);
+        } else {
+            payload = input instanceof Uint8Array ? input : new Uint8Array(input);
+        }
+        dataChannel.send(payload as unknown as ArrayBufferView<ArrayBuffer>);
     };
 
     connection.onconnectionstatechange = () => {

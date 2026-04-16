@@ -33,18 +33,6 @@ async function createRtcConnection(
     peerConnection.oniceconnectionstatechange = () => console.log("ICE:", peerConnection.iceConnectionState);
     peerConnection.onsignalingstatechange = () => console.log("SIGNAL:", peerConnection.signalingState);
 
-    peerConnection.oniceconnectionstatechange = () => {
-        console.log("ICE:", peerConnection.iceConnectionState);
-    };
-
-    peerConnection.onconnectionstatechange = () => {
-        console.log("STATE:", peerConnection.connectionState);
-    };
-
-    peerConnection.onsignalingstatechange = () => {
-        console.log("SIGNAL:", peerConnection.signalingState);
-    };
-
     const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
 
     if (isInitator) {
@@ -67,6 +55,12 @@ async function createRtcConnection(
     stream.getTracks().forEach((track) =>
         peerConnection.addTrack(track, stream)
     );
+
+    peerConnection.ontrack = (event) => {
+        const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
+        audioElement.srcObject = remoteStream;
+        audioElement.play().catch(() => { });
+    };
 
     if (isInitator) {
         const offer = await peerConnection.createOffer();
@@ -94,20 +88,9 @@ async function createRtcConnection(
         await sendAnswerBack(peerConnection.localDescription!);
     }
 
-    peerConnection.ontrack = (event) => {
-        const stream = event.streams[0];
-        if (stream) {
-            audioElement.srcObject = stream;
-            audioElement.play()?.catch(() => { });
-            const localStream = stream;
-        }
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 5000));
-
     await whenOpen;
 
-    return agent; 
+    return agent;
 }
 
 function createAudioElement() {

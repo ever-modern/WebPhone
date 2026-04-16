@@ -2,6 +2,7 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
     let dataChannel = null;
     let finishWaitingForOpening;
     let failOpening;
+    let resolved = false;
     const timeout = setTimeout(() => {
         failOpening();
     }, 30000);
@@ -9,18 +10,35 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
         finishWaitingForOpening = resolve;
         failOpening = reject;
     });
+    const safeResolve = () => {
+        if (resolved)
+            return;
+        resolved = true;
+        clearTimeout(timeout);
+        finishWaitingForOpening();
+    };
     const handleDataChannel = (channel) => {
         dataChannel = channel;
+        channel.binaryType = "arraybuffer";
         channel.onmessage = (event) => {
-            onDataChannelMessage?.(event.data);
+            if (!onDataChannelMessage)
+                return;
+            if (event.data instanceof ArrayBuffer) {
+                const bytes = new Uint8Array(event.data);
+                let binary = '';
+                for (let i = 0; i < bytes.length; i++)
+                    binary += String.fromCharCode(bytes[i]);
+                onDataChannelMessage(btoa(binary));
+            }
+            else {
+                onDataChannelMessage(event.data);
+            }
         };
         channel.onopen = () => {
-            clearTimeout(timeout);
-            finishWaitingForOpening();
+            safeResolve();
         };
         if (channel.readyState === "open") {
-            clearTimeout(timeout);
-            finishWaitingForOpening();
+            safeResolve();
         }
         channel.onerror = () => failOpening();
         channel.onclose = () => {
@@ -38,10 +56,20 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
         if (!dataChannel || dataChannel.readyState !== "open") {
             throw new Error("RTC data channel is not open.");
         }
-        const payload = input instanceof Uint8Array ? input : new Uint8Array(input);
+        let payload;
+        if (typeof input === "string") {
+            const binary = atob(input);
+            payload = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++)
+                payload[i] = binary.charCodeAt(i);
+        }
+        else {
+            payload = input instanceof Uint8Array ? input : new Uint8Array(input);
+        }
         dataChannel.send(payload);
     };
     connection.onconnectionstatechange = () => {
+        console.log("STATE:", connection.connectionState);
         onStateChanged?.(connection.connectionState);
         if (connection.connectionState === "connected") {
             finishWaitingForOpening();
