@@ -6,6 +6,7 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
 
     let finishWaitingForOpening!: () => void;
     let failOpening!: () => void;
+    let resolved = false;
 
     const timeout = setTimeout(() => {
         failOpening();
@@ -16,15 +17,24 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
         failOpening = reject;
     });
 
+    const safeResolve = () => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeout);
+        finishWaitingForOpening();
+    };
+
     const handleDataChannel = (channel: RTCDataChannel) => {
         dataChannel = channel;
         channel.onmessage = (event: MessageEvent) => {
             onDataChannelMessage?.(event.data);
         };
         channel.onopen = () => {
-            clearTimeout(timeout);
-            finishWaitingForOpening();
+            safeResolve();
         };
+        if (channel.readyState === "open") {
+            safeResolve();
+        }
         channel.onerror = () => failOpening();
         channel.onclose = () => {
             if (channel.readyState !== "open") {
@@ -38,7 +48,7 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
             handleDataChannel(event.channel);
         }
     }
-     
+
     const writeBytes = (input: Uint8Array | ArrayBuffer): void => {
         if (!dataChannel || dataChannel.readyState !== "open") {
             throw new Error("RTC data channel is not open.");
@@ -49,6 +59,7 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
     };
 
     connection.onconnectionstatechange = () => {
+        console.log("STATE:", connection.connectionState);
         onStateChanged?.(connection.connectionState);
         if (connection.connectionState === "connected") {
             finishWaitingForOpening();

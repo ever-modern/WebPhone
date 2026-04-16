@@ -18,6 +18,10 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
             clearTimeout(timeout);
             finishWaitingForOpening();
         };
+        if (channel.readyState === "open") {
+            clearTimeout(timeout);
+            finishWaitingForOpening();
+        }
         channel.onerror = () => failOpening();
         channel.onclose = () => {
             if (channel.readyState !== "open") {

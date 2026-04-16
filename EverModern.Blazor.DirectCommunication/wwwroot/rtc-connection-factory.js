@@ -5,6 +5,17 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         throw new Error("At least one ICE server must be provided.");
     const isInitator = typeof exchangeInfo === "function";
     const peerConnection = new RTCPeerConnection({ iceServers });
+    peerConnection.oniceconnectionstatechange = () => console.log("ICE:", peerConnection.iceConnectionState);
+    peerConnection.onsignalingstatechange = () => console.log("SIGNAL:", peerConnection.signalingState);
+    peerConnection.oniceconnectionstatechange = () => {
+        console.log("ICE:", peerConnection.iceConnectionState);
+    };
+    peerConnection.onconnectionstatechange = () => {
+        console.log("STATE:", peerConnection.connectionState);
+    };
+    peerConnection.onsignalingstatechange = () => {
+        console.log("SIGNAL:", peerConnection.signalingState);
+    };
     const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
     if (isInitator) {
         const dataChannel = peerConnection.createDataChannel("data");
@@ -22,18 +33,22 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
     stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
     if (isInitator) {
         const offer = await peerConnection.createOffer();
+        console.log("OFFER:", offer);
         await peerConnection.setLocalDescription(offer);
         await waitForIceGatheringComplete(peerConnection);
-        const answer = await exchangeInfo(offer);
+        const answer = await exchangeInfo(peerConnection.localDescription);
+        console.log("ANSWER:", answer);
         await peerConnection.setRemoteDescription(answer);
     }
     else {
         const { offer, sendAnswerBack } = exchangeInfo;
+        console.log("OFFER:", offer);
         await peerConnection.setRemoteDescription(offer);
         const answer = await peerConnection.createAnswer();
+        console.log("ANSWER:", answer);
         await peerConnection.setLocalDescription(answer);
         await waitForIceGatheringComplete(peerConnection);
-        await sendAnswerBack(answer);
+        await sendAnswerBack(peerConnection.localDescription);
     }
     peerConnection.ontrack = (event) => {
         const stream = event.streams[0];
@@ -43,6 +58,7 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
             const localStream = stream;
         }
     };
+    await new Promise((resolve) => setTimeout(resolve, 5000));
     await whenOpen;
     return agent;
 }

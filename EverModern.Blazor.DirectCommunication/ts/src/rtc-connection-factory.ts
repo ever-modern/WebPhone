@@ -23,12 +23,27 @@ async function createRtcConnection(
     exchangeInfo: ConnectionDescriptionExchangeInfo,
     iceServers: RTCIceServer[],
     callbacks: RtcConnectionCallbacks
-): Promise<RtcConnectionManager> { 
+): Promise<RtcConnectionManager> {
     if (!iceServers?.length) throw new Error("At least one ICE server must be provided.");
-
+     
     const isInitator = typeof exchangeInfo === "function";
-
+    
     const peerConnection = new RTCPeerConnection({ iceServers });
+
+    peerConnection.oniceconnectionstatechange = () => console.log("ICE:", peerConnection.iceConnectionState);
+    peerConnection.onsignalingstatechange = () => console.log("SIGNAL:", peerConnection.signalingState);
+
+    peerConnection.oniceconnectionstatechange = () => {
+        console.log("ICE:", peerConnection.iceConnectionState);
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+        console.log("STATE:", peerConnection.connectionState);
+    };
+
+    peerConnection.onsignalingstatechange = () => {
+        console.log("SIGNAL:", peerConnection.signalingState);
+    };
 
     const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
 
@@ -55,23 +70,28 @@ async function createRtcConnection(
 
     if (isInitator) {
         const offer = await peerConnection.createOffer();
+        console.log("OFFER:", offer);
         await peerConnection.setLocalDescription(offer);
 
         await waitForIceGatheringComplete(peerConnection);
 
-        const answer = await exchangeInfo(offer);
+        const answer = await exchangeInfo(peerConnection.localDescription!);
+        console.log("ANSWER:", answer);
         await peerConnection.setRemoteDescription(answer);
     }
     else {
         const { offer, sendAnswerBack } = exchangeInfo;
+        console.log("OFFER:", offer);
 
         await peerConnection.setRemoteDescription(offer);
         const answer = await peerConnection.createAnswer();
+
+        console.log("ANSWER:", answer);
         await peerConnection.setLocalDescription(answer);
 
         await waitForIceGatheringComplete(peerConnection);
 
-        await sendAnswerBack(answer);
+        await sendAnswerBack(peerConnection.localDescription!);
     }
 
     peerConnection.ontrack = (event) => {
@@ -83,9 +103,11 @@ async function createRtcConnection(
         }
     }
 
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+
     await whenOpen;
 
-    return agent;
+    return agent; 
 }
 
 function createAudioElement() {
