@@ -6,7 +6,8 @@ export type RtcConnectionCallbacks = {
 export type RtcConnectionManager = {
     close?: () => void;
     getState: () => RTCPeerConnectionState;
-};
+    writeToChannel: (message: Uint8Array | ArrayBuffer) => void;
+};  
 
 type SubscriptionParameter<T> = (event: T) => Promise<void>;
 

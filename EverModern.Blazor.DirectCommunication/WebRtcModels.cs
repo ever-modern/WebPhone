@@ -50,25 +50,3 @@ public sealed record WebRtcDataChannelOptions
     [JsonPropertyName("maxRetransmits")]
     public int? MaxRetransmits { get; init; }
 }
-
-public sealed record WebRtcConnectionStateChangedEventArgs(string ConnectionId, string State);
-
-public sealed record WebRtcDataChannelStateChangedEventArgs(string ConnectionId, string State);
-
-public sealed record WebRtcDataMessageEventArgs(string ConnectionId, string Message);
-
-public sealed record WebRtcDataBytesMessageEventArgs(string ConnectionId, byte[] Message);
-
-public sealed record WebRtcRemoteStreamEventArgs(string ConnectionId);
-
-public sealed record WebRtcIceCandidateEventArgs(string ConnectionId, WebRtcIceCandidate Candidate);
-
-public sealed record WebRtcMediaDirectionState(
-    [property: JsonPropertyName("input")] bool Input,
-    [property: JsonPropertyName("output")] bool Output
-);
-
-public sealed record WebRtcMediaExchangeState(
-    [property: JsonPropertyName("audio")] WebRtcMediaDirectionState Audio,
-    [property: JsonPropertyName("video")] WebRtcMediaDirectionState Video
-);

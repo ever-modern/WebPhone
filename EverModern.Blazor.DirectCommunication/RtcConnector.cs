@@ -2,75 +2,81 @@ using Microsoft.JSInterop;
 
 namespace EverModern.Blazor.DirectCommunication;
 
-public sealed record RtcAcceptedConnection(RtcConnection Connection, WebRtcAnswer Answer);
-
-public sealed class RtcConnector(IJSRuntime jsRuntime)
+public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServer> iceServers)
 {
-    private readonly IJSRuntime _jsRuntime = jsRuntime;
-    private readonly WebRtcIceServer[] _defaultIceServers = [];
-
-    public RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServer>? defaultIceServers)
-        : this(jsRuntime)
+    public async Task<RtcConnection> InitiateConnectionAsync(
+        Func<WebRtcOffer, Task<WebRtcAnswer>> getAnswer
+    )
     {
-        _defaultIceServers = defaultIceServers?.ToArray() ?? [];
-    }
+        ArgumentNullException.ThrowIfNull(getAnswer);
 
-    public async Task<RtcConnection> InitiateConnectionAsync(Func<WebRtcOffer, Task<WebRtcAnswer>> acceptOffer)
-    {
-        ArgumentNullException.ThrowIfNull(acceptOffer);
+        var stateChanged = new Events.EventSource<string>();
+        var channelMessageReceived = new Events.EventSource<byte[]>();
 
-        var offerCallbackReference = DotNetObjectReference.Create(new OfferExchangeCallback(acceptOffer));
-        var agent = new RtcConnection();
+        var offerCallbackReference = DotNetObjectReference.Create(getAnswer);
 
-        try
-        {
-            var managerReference = await _jsRuntime.InvokeAsync<IJSObjectReference>(
-                "rtcConnectionManagerInterop.initiateConnectionAsync",
+        var managerReference = await jsRuntime.InvokeAsync<IJSObjectReference>(
+            "rtcConnectionFactory.initiateConnectionAsync",
+            [
                 offerCallbackReference,
-                agent.StateChangedCallbackReference,
-                _defaultIceServers);
+                iceServers,
+                DotNetObjectReference.Create(getAnswer),
+                DotNetObjectReference.Create(stateChanged.Invoke),
+                DotNetObjectReference.Create(channelMessageReceived.Invoke),
+            ]
+        );
 
-            await agent.AttachManagerAsync(managerReference);
-            return agent;
-        }
-        catch(Exception ex)
+        var onDispose = () =>
         {
-            await agent.DisposeAsync();
-            throw;
-        }
-        finally
-        {
-            offerCallbackReference.Dispose();
-        }
+            _ = managerReference.InvokeVoidAsync("close", []);
+        };
+
+        var result = new RtcConnection(
+            onDispose,
+            stateChanged,
+            channelMessageReceived,
+            async () => await managerReference.InvokeAsync<string>("getState"),
+            bytes => _ = managerReference.InvokeVoidAsync("writeToChannel", bytes)
+        );
+
+        return result;
     }
 
-    public async Task<RtcAcceptedConnection> AcceptConnectionAsync(WebRtcOffer offer)
+    public async Task<RtcConnection> AcceptConnectionAsync(
+        WebRtcOffer offer,
+        Func<WebRtcAnswer, Task> sendAnswerBack
+    )
     {
         ArgumentNullException.ThrowIfNull(offer);
+        ArgumentNullException.ThrowIfNull(sendAnswerBack);
 
-        var agent = new RtcConnection();
-        try
-        {
-            var managerReference = await _jsRuntime.InvokeAsync<IJSObjectReference>(
-                "rtcConnectionManagerInterop.acceptConnectionAsync",
+        var stateChanged = new Events.EventSource<string>();
+        var channelMessageReceived = new Events.EventSource<byte[]>();
+
+        var managerReference = await jsRuntime.InvokeAsync<IJSObjectReference>(
+            "rtcConnectionFactory.acceptConnectionAsync",
+            [
+                iceServers,
                 offer,
-                agent.StateChangedCallbackReference,
-                _defaultIceServers);
+                DotNetObjectReference.Create(sendAnswerBack),
+                DotNetObjectReference.Create(stateChanged.Invoke),
+                DotNetObjectReference.Create(channelMessageReceived.Invoke),
+            ]
+        );
 
-            await agent.AttachManagerAsync(managerReference);
-            var answer = await agent.GetLocalAnswerAsync();
-            return new RtcAcceptedConnection(agent, answer);
-        }
-        catch
+        var onDispose = () =>
         {
-            await agent.DisposeAsync();
-            throw;
-        }
-    }
+            _ = managerReference.InvokeVoidAsync("close", []);
+        };
 
-    private sealed class OfferExchangeCallback(Func<WebRtcOffer, Task<WebRtcAnswer>> callback)
-    {
-        [JSInvokable]
-        public Task<WebRtcAnswer> AcceptOfferAsync(WebRtcOffer offer) => callback(offer);
+        var result = new RtcConnection(
+            onDispose,
+            stateChanged,
+            channelMessageReceived,
+            async () => await managerReference.InvokeAsync<string>("getState"),
+            bytes => _ = managerReference.InvokeVoidAsync("writeToChannel", bytes)
+        );
+
+        return result;
     }
 }

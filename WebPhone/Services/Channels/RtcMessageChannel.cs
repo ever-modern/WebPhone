@@ -104,7 +104,7 @@ public class RtcConnectionMessageChannel : IBroadcastChannel<RtcMessage, RtcMess
 
     private async Task InitializeAsync(CancellationToken ct)
     {
-        _bytesSubscription = await _rtcConnection.SubscribeBytesAsync(OnBytesReceived);
+        _bytesSubscription = _rtcConnection.BytesReceived.Subscribe(OnBytesReceived);
         ct.ThrowIfCancellationRequested();
     }
 

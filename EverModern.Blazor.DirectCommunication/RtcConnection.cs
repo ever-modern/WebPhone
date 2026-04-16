@@ -4,85 +4,62 @@ using Microsoft.JSInterop;
 
 namespace EverModern.Blazor.DirectCommunication;
 
-public sealed class RtcConnection : IAsyncDisposable, IDisposable
+public record MediaState(bool InputEnabled, bool OutputEnabled);
+
+public record WebRtcMediaExchangeState(MediaState Audio, MediaState Video);
+
+public sealed class RtcConnection(
+    Action dispose,
+    INotifier<string> stateChanged,
+    INotifier<byte[]> bytesReceived,
+    Func<Task<string>> getState,
+    Action<byte[]> writeBytes
+) : IDisposable
 {
-    private readonly DotNetObjectReference<StateChangedCallback> _stateChangedCallbackReference;
-    private readonly DotNetObjectReference<BytesBridgeCallback> _bytesBridgeCallbackReference;
-    private readonly EventSource<string> _stateChanged = new();
-    private readonly EventSource<byte[]> _bytesReceived = new();
-    private IJSObjectReference? _managerReference;
-    private int? _bytesBridgeSubscriptionId;
     private bool _disposed;
 
-    internal DotNetObjectReference<StateChangedCallback> StateChangedCallbackReference => _stateChangedCallbackReference;
+    public INotifier<string> StateChanged => stateChanged;
 
-    public INotifier<string> StateChanged => _stateChanged;
+    public INotifier<byte[]> BytesReceived => bytesReceived;
 
-    public INotifier<byte[]> BytesReceived => _bytesReceived;
+    public Task<string> GetStateAsync() => getState();
 
-    internal RtcConnection()
-    {
-        _stateChangedCallbackReference = DotNetObjectReference.Create(new StateChangedCallback(state =>
-        {
-            _stateChanged.Invoke(state);
-        }));
-
-        _bytesBridgeCallbackReference = DotNetObjectReference.Create(new BytesBridgeCallback(bytes =>
-        {
-            _bytesReceived.Invoke(bytes);
-        }));
-    }
-
-    internal async Task AttachManagerAsync(IJSObjectReference managerReference)
+    public Task SetMediaAsync(WebRtcMediaExchangeState mediaExchangeState)
     {
         ThrowIfDisposed();
-        _managerReference = managerReference;
-        await EnsureBytesBridgeAsync();
+        return Task.CompletedTask;
     }
 
-    public async Task EnableAudioInputAsync() => await InvokeVoidAsync("enableAudioInput");
+    public Task EnableAudioInputAsync() => Task.CompletedTask;
 
-    public async Task DisableAudioInputAsync() => await InvokeVoidAsync("disableAudioInput");
+    public Task DisableAudioInputAsync() => Task.CompletedTask;
 
-    public async Task EnableAudioOutputAsync() => await InvokeVoidAsync("enableAudioOutput");
+    public Task EnableAudioOutputAsync() => Task.CompletedTask;
 
-    public async Task DisableAudioOutputAsync() => await InvokeVoidAsync("disableAudioOutput");
+    public Task DisableAudioOutputAsync() => Task.CompletedTask;
 
-    public async Task EnableVideoInputAsync() => await InvokeVoidAsync("enableVideoInput");
+    public Task EnableVideoInputAsync() => Task.CompletedTask;
 
-    public async Task DisableVideoInputAsync() => await InvokeVoidAsync("disableVideoInput");
+    public Task DisableVideoInputAsync() => Task.CompletedTask;
 
-    public async Task EnableVideoOutputAsync() => await InvokeVoidAsync("enableVideoOutput");
+    public Task EnableVideoOutputAsync() => Task.CompletedTask;
 
-    public async Task DisableVideoOutputAsync() => await InvokeVoidAsync("disableVideoOutput");
+    public Task DisableVideoOutputAsync() => Task.CompletedTask;
 
-    public async Task<WebRtcMediaExchangeState> GetMediaExchangeStateAsync()
-    {
-        ThrowIfDisposed();
-        var managerReference = GetManagerReference();
-        return await managerReference.InvokeAsync<WebRtcMediaExchangeState>("getMediaExchangeState");
-    }
+    //public async Task<WebRtcMediaExchangeState> GetMediaExchangeStateAsync()
+    //{
+    //    ThrowIfDisposed();
+    //    var managerReference = GetManagerReference();
+    //    return await managerReference.InvokeAsync<WebRtcMediaExchangeState>(
+    //        "getMediaExchangeState"
+    //    );
+    //}
 
     public async Task WriteBytesAsync(byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);
-        await InvokeVoidAsync("writeBytes", bytes);
-    }
-
-    public async Task<Subscription> SubscribeBytesAsync(Action<byte[]> onBytesReceived)
-    {
-        ArgumentNullException.ThrowIfNull(onBytesReceived);
-
         ThrowIfDisposed();
-        await EnsureBytesBridgeAsync();
-        return _bytesReceived.Subscribe(onBytesReceived);
-    }
-
-    public async Task<WebRtcAnswer> GetLocalAnswerAsync()
-    {
-        ThrowIfDisposed();
-        var managerReference = GetManagerReference();
-        return await managerReference.InvokeAsync<WebRtcAnswer>("getLocalAnswer");
+        writeBytes(bytes);
     }
 
     public void Dispose()
@@ -99,86 +76,18 @@ public sealed class RtcConnection : IAsyncDisposable, IDisposable
 
         _disposed = true;
 
-        if (_managerReference is not null)
-        {
-            if (_bytesBridgeSubscriptionId.HasValue)
-            {
-                try
-                {
-                    await _managerReference.InvokeVoidAsync("unsubscribeBytes", _bytesBridgeSubscriptionId.Value);
-                }
-                catch (JSDisconnectedException)
-                {
-                }
-            }
-
-            try
-            {
-                await _managerReference.InvokeVoidAsync("close");
-            }
-            catch (JSDisconnectedException)
-            {
-            }
-
-            try
-            {
-                await _managerReference.DisposeAsync();
-            }
-            catch (JSDisconnectedException)
-            {
-            }
-        }
-
-        _stateChangedCallbackReference.Dispose();
-        _bytesBridgeCallbackReference.Dispose();
+        dispose();
     }
 
-    private async Task EnsureBytesBridgeAsync()
-    {
-        if (_bytesBridgeSubscriptionId.HasValue)
-        {
-            return;
-        }
-
-        var managerReference = GetManagerReference();
-        _bytesBridgeSubscriptionId = await managerReference.InvokeAsync<int>("subscribeBytes", _bytesBridgeCallbackReference);
-    }
-
-    private async Task InvokeVoidAsync(string methodName, params object[] args)
-    {
-        ThrowIfDisposed();
-        var managerReference = GetManagerReference();
-        await managerReference.InvokeVoidAsync(methodName, args);
-    }
-
-    private IJSObjectReference GetManagerReference() =>
-        _managerReference ?? throw new InvalidOperationException("The RTC connection agent has not been initialized.");
+    //private async Task InvokeVoidAsync(string methodName, params object[] args)
+    //{
+    //    ThrowIfDisposed();
+    //    var managerReference = GetManagerReference();
+    //    await managerReference.InvokeVoidAsync(methodName, args);
+    //}
 
     private void ThrowIfDisposed()
     {
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(nameof(RtcConnection));
-        }
-    }
-
-    internal sealed class StateChangedCallback(Action<string> callback)
-    {
-        [JSInvokable]
-        public Task OnStateChanged(string state)
-        {
-            callback(state);
-            return Task.CompletedTask;
-        }
-    }
-
-    internal sealed class BytesBridgeCallback(Action<byte[]> callback)
-    {
-        [JSInvokable]
-        public Task OnBytesReceived(byte[] bytes)
-        {
-            callback(bytes);
-            return Task.CompletedTask;
-        }
+        ObjectDisposedException.ThrowIf(_disposed, this);
     }
 }

@@ -11,23 +11,35 @@ type DotNetObjectReference = {
     invokeMethodAsync<T = unknown>(methodName: string, ...args: unknown[]): Promise<T>;
 };
 
-function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, onDataChannelMessage }: RtcConnectionCallbacks): () => void {
+function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, onDataChannelMessage }: RtcConnectionCallbacks) {
+
+    let dataChannel: RTCDataChannel | null = null;
 
     connection.ondatachannel = (event) => {
         const channel = event.channel;
         if (!channel) {
             return;
         }
+        dataChannel = channel;
         channel.onmessage = (event: MessageEvent) => {
             onDataChannelMessage?.(event.data);
         };
     }
 
+    const writeBytes = (input: Uint8Array | ArrayBuffer): void => {
+        if (!dataChannel || dataChannel.readyState !== "open") {
+            throw new Error("RTC data channel is not open.");
+        }
+
+        const payload = input instanceof Uint8Array ? input : new Uint8Array(input);
+        dataChannel.send(payload as any);
+    };
+
     connection.onconnectionstatechange = () => {
         onStateChanged?.(connection.connectionState);
     };
 
-    return () => { connection.ondatachannel = null, connection.onconnectionstatechange = null };
+    return { unbind: () => { connection.ondatachannel = null, connection.onconnectionstatechange = null }, writeToChannel: writeBytes };
 }
 
 type OfferAnswerExchange = {
@@ -36,7 +48,6 @@ type OfferAnswerExchange = {
 }
 
 type ConnectionDescriptionExchangeInfo = ((offer: RTCSessionDescriptionInit) => Promise<RTCSessionDescriptionInit>) | OfferAnswerExchange;
-
 
 async function createRtcConnection(
     exchangeInfo: ConnectionDescriptionExchangeInfo,
@@ -47,13 +58,14 @@ async function createRtcConnection(
 
     const peerConnection = new RTCPeerConnection({ iceServers });
 
-    const unbindCallbacks = bindCallbacks(peerConnection, callbacks);
+    const { unbind, writeToChannel } = bindCallbacks(peerConnection, callbacks);
 
     const agent: RtcConnectionManager = {
         close: () => {
-            unbindCallbacks();
+            unbind();
             peerConnection.close();
-        }, getState: () => peerConnection.connectionState
+        }, getState: () => peerConnection.connectionState,
+        writeToChannel
     };
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });

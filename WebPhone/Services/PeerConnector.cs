@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
+using WebPhone.Contract;
 using WebPhone.Messages;
 using WebPhone.Services.Channels;
 
@@ -90,14 +91,13 @@ public sealed class PeerConnector : BackgroundProcessor
         }
     }
 
-    public async Task ClosePeerConnectionAsync(string peerId, CancellationToken cancellationToken = default)
+    public async Task ClosePeerConnectionAsync(
+        string peerId,
+        CancellationToken cancellationToken = default
+    )
     {
         await _messagesChannel.Writer.WriteAsync(
-            new OutgoingMessage(
-                MessageType.ConnectionClosed,
-                new JsonElement(),
-                peerId
-            ),
+            new OutgoingMessage(MessageType.ConnectionClosed, new JsonElement(), peerId),
             cancellationToken
         );
         await RemoveConnectionAsync(peerId);
@@ -106,11 +106,11 @@ public sealed class PeerConnector : BackgroundProcessor
     public async Task HandleIncomingConnectionRequestAsync(
         string peerId,
         ConnectionRequestPayload request,
-        CancellationToken cancellationToken = default)
-        => await HandleIncomingAttemptAsync(peerId, request, cancellationToken);
+        CancellationToken cancellationToken = default
+    ) => await HandleIncomingAttemptAsync(peerId, request, cancellationToken);
 
-    public async Task HandlePeerConnectionClosedAsync(string peerId)
-        => await RemoveConnectionAsync(peerId);
+    public async Task HandlePeerConnectionClosedAsync(string peerId) =>
+        await RemoveConnectionAsync(peerId);
 
     private async Task<RtcConnection> CreateOutgoingConnectionAsync(
         string peerId,
@@ -236,9 +236,7 @@ public sealed class PeerConnector : BackgroundProcessor
 
             if (shouldAcceptIncoming)
             {
-                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
-                    cancellationToken
-                );
+                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var incomingTask = AcceptIncomingConnectionAsync(peerId, incoming, linkedCts.Token);
                 _connections[peerId] = new AccountedConnection(
                     peerId,
@@ -271,26 +269,38 @@ public sealed class PeerConnector : BackgroundProcessor
         }
     }
 
-    private async Task<RtcConnection> AcceptIncomingConnectionAsync(
+    async Task<RtcConnection> AcceptIncomingConnectionAsync(
         string peerId,
         ConnectionRequestPayload incoming,
         CancellationToken cancellationToken
     )
     {
-        var accepted = await _webRtcConnector.AcceptConnectionAsync(incoming.Offer);
-
-        await _messagesChannel.Writer.WriteAsync(
-            new OutgoingMessage<AnswerPayload>(
-                MessageType.ConnectionAccepted,
-                new(incoming.RequestId, accepted.Answer),
-                peerId
-            ),
-            cancellationToken
+        var connection = await _webRtcConnector.AcceptConnectionAsync(
+            incoming.Offer,
+            async (answer) =>
+                await _messagesChannel.Writer.WriteAsync(
+                    new OutgoingMessage<AnswerPayload>(
+                        MessageType.ConnectionAccepted,
+                        new(incoming.RequestId, answer),
+                        peerId
+                    ),
+                    cancellationToken
+                )
         );
 
-        _connectionEventSource.Invoke();
+        var whenOpen = new TaskCompletionSource<RtcConnection>();
 
-        return accepted.Connection;
+        using var _ = connection.StateChanged.Subscribe(state =>
+        {
+            if (state == "open")
+                whenOpen.TrySetResult(connection);
+            else if (state == "closed")
+                whenOpen.TrySetException(new InvalidOperationException("Connection closed."));
+        });
+
+        var result = await whenOpen.Task;
+        _connectionEventSource.Invoke();
+        return result;
     }
 
     private async Task RemoveConnectionAsync(string peerId)
@@ -358,7 +368,7 @@ public sealed class PeerConnector : BackgroundProcessor
         _connections.Clear();
     }
 
-    private static string NewId() => Guid.NewGuid().ToString("N");
+    private static string NewId() => CommonIdsGenerator.NewId().ToString();
 
     record AccountedConnection(
         string PeerId,

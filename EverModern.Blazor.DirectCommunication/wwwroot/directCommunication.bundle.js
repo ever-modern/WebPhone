@@ -67,30 +67,40 @@ System.register("rtc-connection-factory", ["ice-utilities"], function (exports_3
     var ice_utilities_1, rtcConnectionFactory;
     var __moduleName = context_3 && context_3.id;
     function bindCallbacks(connection, { onStateChanged, onDataChannelMessage }) {
+        let dataChannel = null;
         connection.ondatachannel = (event) => {
             const channel = event.channel;
             if (!channel) {
                 return;
             }
+            dataChannel = channel;
             channel.onmessage = (event) => {
                 onDataChannelMessage?.(event.data);
             };
         };
+        const writeBytes = (input) => {
+            if (!dataChannel || dataChannel.readyState !== "open") {
+                throw new Error("RTC data channel is not open.");
+            }
+            const payload = input instanceof Uint8Array ? input : new Uint8Array(input);
+            dataChannel.send(payload);
+        };
         connection.onconnectionstatechange = () => {
             onStateChanged?.(connection.connectionState);
         };
-        return () => { connection.ondatachannel = null, connection.onconnectionstatechange = null; };
+        return { unbind: () => { connection.ondatachannel = null, connection.onconnectionstatechange = null; }, writeToChannel: writeBytes };
     }
     async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         if (!iceServers?.length)
             throw new Error("At least one ICE server must be provided.");
         const peerConnection = new RTCPeerConnection({ iceServers });
-        const unbindCallbacks = bindCallbacks(peerConnection, callbacks);
+        const { unbind, writeToChannel } = bindCallbacks(peerConnection, callbacks);
         const agent = {
             close: () => {
-                unbindCallbacks();
+                unbind();
                 peerConnection.close();
-            }, getState: () => peerConnection.connectionState
+            }, getState: () => peerConnection.connectionState,
+            writeToChannel
         };
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         const audioElement = createAudioElement();
