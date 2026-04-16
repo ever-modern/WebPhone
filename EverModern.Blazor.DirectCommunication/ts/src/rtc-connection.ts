@@ -3,9 +3,9 @@ export type RtcConnectionCallbacks = {
     onDataChannelMessage?: SubscriptionParameter<string>;
 }
 
-export type RtcConnectionAgent = {
+export type RtcConnectionManager = {
     close?: () => void;
-    state: () => RTCPeerConnectionState;
+    getState: () => RTCPeerConnectionState;
 };
 
 type SubscriptionParameter<T> = (event: T) => Promise<void>;
@@ -36,8 +36,4 @@ export function createEventSource<T>() {
             }
         }
     }
-}
-
-type Subscription = {
-    finish: () => void;
 }

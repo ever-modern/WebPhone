@@ -2,13 +2,12 @@
   "compileOnSave": true,
   "compilerOptions": {
     "target": "ES2022",
-    "module": "none",
-    "lib": ["DOM", "ES2022"],
+    "module": "system",
+    "lib": [ "DOM", "ES2022" ],
     "strict": true,
     "skipLibCheck": true,
     "noEmitOnError": true,
     "rootDir": "./src",
-    "ignoreDeprecations": "6.0",
     "outFile": "../wwwroot/directCommunication.bundle.js"
   },
   "include": [

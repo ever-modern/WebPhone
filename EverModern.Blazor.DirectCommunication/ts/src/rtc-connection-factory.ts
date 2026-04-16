@@ -1,5 +1,5 @@
-﻿import { RtcConnectionCallbacks, RtcConnectionAgent } from "./rtcConnectionAgent";
-import { waitForIceGatheringComplete } from "./waitForIceGatheringComplete";
+﻿import { waitForIceGatheringComplete } from "./ice-utilities";
+import { RtcConnectionCallbacks, RtcConnectionManager } from "./rtc-connection";
 
 type IceServerParameters = {
     urls: string[];
@@ -30,24 +30,30 @@ function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, onDataCh
     return () => { connection.ondatachannel = null, connection.onconnectionstatechange = null };
 }
 
-type ConnectionDescriptionParameter = ((offer: RTCSessionDescriptionInit) => Promise<RTCSessionDescriptionInit>) | RTCSessionDescriptionInit;
+type OfferAnswerExchange = {
+    offer: RTCSessionDescriptionInit;
+    sendAnswerBack: (answer: RTCSessionDescriptionInit) => Promise<void>;
+}
 
-async function createRtcConnectionAgent(
-    description: ConnectionDescriptionParameter,
+type ConnectionDescriptionExchangeInfo = ((offer: RTCSessionDescriptionInit) => Promise<RTCSessionDescriptionInit>) | OfferAnswerExchange;
+
+
+async function createRtcConnection(
+    exchangeInfo: ConnectionDescriptionExchangeInfo,
     iceServers: RTCIceServer[],
     callbacks: RtcConnectionCallbacks
-): Promise<RtcConnectionAgent> {
+): Promise<RtcConnectionManager> {
     if (!iceServers?.length) throw new Error("At least one ICE server must be provided.");
 
     const peerConnection = new RTCPeerConnection({ iceServers });
 
     const unbindCallbacks = bindCallbacks(peerConnection, callbacks);
 
-    const agent: RtcConnectionAgent = {
+    const agent: RtcConnectionManager = {
         close: () => {
             unbindCallbacks();
             peerConnection.close();
-        }, state: () => peerConnection.connectionState
+        }, getState: () => peerConnection.connectionState
     };
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -58,27 +64,33 @@ async function createRtcConnectionAgent(
         peerConnection.addTrack(track, stream)
     );
 
-    if (typeof description === "function") {
+    if (typeof exchangeInfo === "function") {
+        peerConnection.createDataChannel("data");
         const offer = await peerConnection.createOffer();
         await peerConnection.setLocalDescription(offer);
 
-        await waitForIceGatheringComplete(peerConnection, 2000);
+        await waitForIceGatheringComplete(peerConnection);
 
-        const answer = await description(offer);
+        const answer = await exchangeInfo(offer);
         await peerConnection.setRemoteDescription(answer);
     }
     else {
-        await peerConnection.setRemoteDescription(description);
+        const { offer, sendAnswerBack } = exchangeInfo;
+        await peerConnection.setRemoteDescription(offer);
         const answer = await peerConnection.createAnswer();
         await peerConnection.setLocalDescription(answer);
 
-        await waitForIceGatheringComplete(peerConnection, 2000);
+        await waitForIceGatheringComplete(peerConnection);
+
+        await sendAnswerBack(answer);
     }
 
     peerConnection.ontrack = (event) => {
         const stream = event.streams[0];
         if (stream) {
             audioElement.srcObject = stream;
+            audioElement.play()?.catch(() => { });
+            const localStream = stream;
         }
     }
 
@@ -99,12 +111,12 @@ async function initiateConnectionAsync(
     getAnswerAsync: DotNetObjectReference,
     onStateChangedAsync: DotNetObjectReference,
     onDataChannelMessageAsync: DotNetObjectReference
-): Promise<RtcConnectionAgent> {
+): Promise<RtcConnectionManager> {
     const getAnswer = (offer: RTCSessionDescriptionInit) => getAnswerAsync.invokeMethodAsync<RTCSessionDescriptionInit>("invoke", offer);
     const onStateChanged = (state: RTCPeerConnectionState) => onStateChangedAsync.invokeMethodAsync("invoke", state) as Promise<void>;
     const onDataChannelMessage = (message: string) => onDataChannelMessageAsync.invokeMethodAsync("invoke", message) as Promise<void>;
 
-    const result = await createRtcConnectionAgent(getAnswer, iceServers, { onStateChanged, onDataChannelMessage });
+    const result = await createRtcConnection(getAnswer, iceServers, { onStateChanged, onDataChannelMessage });
 
     return result;
 }
@@ -112,12 +124,14 @@ async function initiateConnectionAsync(
 async function acceptConnectionAsync(
     iceServers: IceServerParameters[],
     offer: RTCSessionDescriptionInit,
+    sendAnswerBackAsync: DotNetObjectReference,
     onStateChangedAsync: DotNetObjectReference,
     onDataChannelMessageAsync: DotNetObjectReference
-): Promise<RtcConnectionAgent> {
+): Promise<RtcConnectionManager> {
     const onStateChanged = (state: RTCPeerConnectionState) => onStateChangedAsync.invokeMethodAsync("invoke", state) as Promise<void>;
     const onDataChannelMessage = (message: string) => onDataChannelMessageAsync.invokeMethodAsync("invoke", message) as Promise<void>;
-    const result = await createRtcConnectionAgent(offer, iceServers, { onStateChanged, onDataChannelMessage });
+    const sendAnswerBack = (answer: RTCSessionDescriptionInit) => sendAnswerBackAsync.invokeMethodAsync("invoke", answer) as Promise<void>;
+    const result = await createRtcConnection({ offer, sendAnswerBack }, iceServers, { onStateChanged, onDataChannelMessage });
     return result;
 }
 

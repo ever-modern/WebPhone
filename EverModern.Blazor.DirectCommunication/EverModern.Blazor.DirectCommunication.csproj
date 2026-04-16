@@ -7,10 +7,6 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-	  <Compile Include="ts\src\rtcConnectionAgent.ts" />
-	</ItemGroup>
-
-	<ItemGroup>
 		<SupportedPlatform Include="browser" />
 	</ItemGroup>
 
