@@ -17,15 +17,14 @@ export function createEventSource<T>() {
                     if (index !== -1) {
                         callbacks.splice(index, 1);
                     }
-                    const a = 5599;
                 } 
             }; 
-        },
+        }, 
 
         invoke: async (event: T) => {
             for (const callback of callbacks) {
                 try {
-                    await callback(event);
+                    await callback(event); 
                 } catch (error) {
                     console.error("Error invoking callback:", error);
                 }

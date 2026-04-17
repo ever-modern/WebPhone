@@ -9,7 +9,6 @@ export function createEventSource() {
                     if (index !== -1) {
                         callbacks.splice(index, 1);
                     }
-                    const a = 5599;
                 }
             };
         },

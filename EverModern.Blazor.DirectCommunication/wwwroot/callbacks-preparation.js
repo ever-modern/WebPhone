@@ -35,13 +35,16 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
             }
         };
         channel.onopen = () => {
+            console.log("[RTC] data channel opened");
             safeResolve();
         };
         if (channel.readyState === "open") {
+            console.log("[RTC] data channel already open at handleDataChannel time");
             safeResolve();
         }
-        channel.onerror = () => failOpening();
+        channel.onerror = (e) => { console.warn("[RTC] data channel error:", e); failOpening(); };
         channel.onclose = () => {
+            console.log("[RTC] data channel closed, readyState:", channel.readyState);
             if (channel.readyState !== "open") {
                 failOpening();
             }
@@ -69,12 +72,14 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
         dataChannel.send(payload);
     };
     connection.onconnectionstatechange = () => {
-        console.log("STATE:", connection.connectionState);
+        console.log("[RTC] peer connection state:", connection.connectionState);
         onStateChanged?.(connection.connectionState);
         if (connection.connectionState === "connected") {
+            console.log("[RTC] whenOpen resolving (connected)");
             finishWaitingForOpening();
         }
         else if (connection.connectionState === "disconnected" || connection.connectionState === "failed" || connection.connectionState === "closed") {
+            console.warn("[RTC] whenOpen rejecting, state:", connection.connectionState);
             failOpening();
         }
     };

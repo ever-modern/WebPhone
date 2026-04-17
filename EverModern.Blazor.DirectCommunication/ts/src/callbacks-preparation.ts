@@ -39,13 +39,16 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
             }
         };
         channel.onopen = () => {
+            console.log("[RTC] data channel opened");
             safeResolve();
         };
         if (channel.readyState === "open") {
+            console.log("[RTC] data channel already open at handleDataChannel time");
             safeResolve();
         }
-        channel.onerror = () => failOpening();
+        channel.onerror = (e) => { console.warn("[RTC] data channel error:", e); failOpening(); };
         channel.onclose = () => {
+            console.log("[RTC] data channel closed, readyState:", channel.readyState);
             if (channel.readyState !== "open") {
                 failOpening();
             }
@@ -68,21 +71,23 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
             const binary = atob(input);
             payload = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) payload[i] = binary.charCodeAt(i);
-        } else {
+        } else { 
             payload = input instanceof Uint8Array ? input : new Uint8Array(input);
         }
         dataChannel.send(payload as unknown as ArrayBufferView<ArrayBuffer>);
-    }; 
+    };  
 
-    connection.onconnectionstatechange = () => {
-        console.log("STATE:", connection.connectionState);
+    connection.onconnectionstatechange = () => { 
+        console.log("[RTC] peer connection state:", connection.connectionState);
         onStateChanged?.(connection.connectionState);
         if (connection.connectionState === "connected") {
+            console.log("[RTC] whenOpen resolving (connected)");
             finishWaitingForOpening();
         } else if (connection.connectionState === "disconnected" || connection.connectionState === "failed" || connection.connectionState === "closed") {
+            console.warn("[RTC] whenOpen rejecting, state:", connection.connectionState);
             failOpening();
         }
-    };
+    }; 
 
     return { unbind: () => { connection.ondatachannel = null, connection.onconnectionstatechange = null; }, handleDataChannel, writeToChannel: writeBytes, whenOpen };
 }

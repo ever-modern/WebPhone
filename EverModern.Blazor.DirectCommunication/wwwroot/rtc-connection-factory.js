@@ -6,9 +6,11 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         throw new Error("At least one ICE server must be provided.");
     const isInitator = typeof exchangeInfo === "function";
     const peerConnection = new RTCPeerConnection({ iceServers });
-    peerConnection.oniceconnectionstatechange = () => console.log("ICE:", peerConnection.iceConnectionState);
-    peerConnection.onsignalingstatechange = () => console.log("SIGNAL:", peerConnection.signalingState);
-    const { getMediaState, setMediaState } = bindMediaManager(peerConnection);
+    peerConnection.oniceconnectionstatechange = () => console.log("[RTC] ICE connection state:", peerConnection.iceConnectionState);
+    peerConnection.onsignalingstatechange = () => console.log("[RTC] signaling state:", peerConnection.signalingState);
+    peerConnection.onicegatheringstatechange = () => console.log("[RTC] ICE gathering state:", peerConnection.iceGatheringState);
+    peerConnection.onicecandidate = (e) => console.log("[RTC] ICE candidate:", e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)");
+    const { getMediaState, setMediaState } = bindMediaManager(peerConnection, isInitator);
     const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
     if (isInitator) {
         const dataChannel = peerConnection.createDataChannel("data");
@@ -36,6 +38,12 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         const { offer, sendAnswerBack } = exchangeInfo;
         console.log("OFFER:", offer);
         await peerConnection.setRemoteDescription(offer);
+        // Chrome initialises auto-created transceivers as recvonly.
+        // Explicitly set all of them to sendrecv before creating the answer
+        // so both sides can send and receive audio/video.
+        peerConnection.getTransceivers()
+            .filter(t => t.direction !== "stopped")
+            .forEach(t => { t.direction = "sendrecv"; });
         const answer = await peerConnection.createAnswer();
         console.log("ANSWER:", answer);
         await peerConnection.setLocalDescription(answer);

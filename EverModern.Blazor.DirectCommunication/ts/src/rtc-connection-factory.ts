@@ -28,18 +28,20 @@ async function createRtcConnection(
     callbacks: RtcConnectionCallbacks
 ) {
     if (!iceServers?.length) throw new Error("At least one ICE server must be provided.");
-
+     
     const isInitator = typeof exchangeInfo === "function";
 
-    const peerConnection = new RTCPeerConnection({ iceServers });
+    const peerConnection = new RTCPeerConnection({ iceServers }); 
 
-    peerConnection.oniceconnectionstatechange = () => console.log("ICE:", peerConnection.iceConnectionState);
-    peerConnection.onsignalingstatechange = () => console.log("SIGNAL:", peerConnection.signalingState);
+    peerConnection.oniceconnectionstatechange = () => console.log("[RTC] ICE connection state:", peerConnection.iceConnectionState);
+    peerConnection.onsignalingstatechange = () => console.log("[RTC] signaling state:", peerConnection.signalingState);
+    peerConnection.onicegatheringstatechange = () => console.log("[RTC] ICE gathering state:", peerConnection.iceGatheringState);
+    peerConnection.onicecandidate = (e) => console.log("[RTC] ICE candidate:", e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)");
 
-    const { getMediaState, setMediaState } = bindMediaManager(peerConnection);
+    const { getMediaState, setMediaState } = bindMediaManager(peerConnection, isInitator);
     const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
 
-    if (isInitator) {
+    if (isInitator) { 
         const dataChannel = peerConnection.createDataChannel("data");
         handleDataChannel(dataChannel);
     }
@@ -70,6 +72,14 @@ async function createRtcConnection(
         console.log("OFFER:", offer);
 
         await peerConnection.setRemoteDescription(offer);
+
+        // Chrome initialises auto-created transceivers as recvonly.
+        // Explicitly set all of them to sendrecv before creating the answer
+        // so both sides can send and receive audio/video.
+        peerConnection.getTransceivers()
+            .filter(t => t.direction !== "stopped")
+            .forEach(t => { t.direction = "sendrecv"; });
+
         const answer = await peerConnection.createAnswer();
 
         console.log("ANSWER:", answer);
@@ -98,7 +108,7 @@ async function initiateConnectionAsync(
     const result = await createRtcConnection(getAnswer, iceServers, { onStateChanged, onDataChannelMessage });
 
     return result;
-}
+} 
 
 async function acceptConnectionAsync(
     iceServers: IceServerParameters[],
