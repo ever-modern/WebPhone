@@ -79,7 +79,7 @@
             }
             @if (startCall is not null)
             {
-                @* <button class="webrtc-button" @onclick="StartCall">Call</button> *@
+                <button class="webrtc-button" @onclick="StartCall">Call</button>
             }
             @if (endCall is not null)
             {
@@ -89,8 +89,6 @@
             {
                 <button class="webrtc-button webrtc-button--danger" @onclick="CancelCall">Cancel call</button>
             }
-
-            <button class="webrtc-button webrtc-button--danger" @onclick="ForceAudioAsync">Force audio</button>
         </div>
     </div>
 
@@ -144,16 +142,6 @@
 
     private void CancelCall()
         => Model.Actions.CancelCall?.Invoke();
-
-    async Task ForceAudioAsync()
-    {
-        var connection = PeerConnector.CurrentConnections.GetValueOrDefault(Model.Contact.Id);
-        if (connection is null)
-            return;
-
-        await connection.EnableAudioInputAsync();
-        await connection.EnableAudioOutputAsync();
-    }
 
     private void StartNicknameEdit()
     {

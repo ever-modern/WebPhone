@@ -1,3 +1,5 @@
+import { RtcConnectionManager } from "./rtc-connection";
+
 export function waitForIceGatheringComplete(
     peerConnection: RTCPeerConnection,
     timeoutMs = 2000): Promise<void> {
@@ -23,7 +25,10 @@ export function waitForIceGatheringComplete(
                 "icegatheringstatechange",
                 handler
             );
-            resolve();
+            resolve(); 
         }, timeoutMs);
-    }); 
+    });
 }
+
+
+

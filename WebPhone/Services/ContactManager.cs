@@ -226,14 +226,17 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
         var callMaintainer = new CallMaintainer(connection, TimeSpan.FromMilliseconds(500));
         _ = callMaintainer
             .WhenReceivedCallPingAsync(sessionToken.Value)
-            .ContinueWith(t =>
-            {
-                if (t.IsCompletedSuccessfully == false)
-                    return;
+            .ContinueWith(
+                t =>
+                {
+                    if (t.IsCompletedSuccessfully == false)
+                        return;
 
-                if (State is InteractionType.Connected)
-                    SetState(InteractionType.ReceivingCall, () => { });
-            }, sessionToken.Value);
+                    if (State is InteractionType.Connected)
+                        SetState(InteractionType.ReceivingCall, () => { });
+                },
+                sessionToken.Value
+            );
     }
 
     void StartSpeaking(RtcConnection connection, CallMaintainer callMaintainer)
@@ -292,58 +295,61 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
     {
         _syncCts?.Cancel();
         _syncCts = new CancellationTokenSource();
-        _syncTask = Task.Run(async () =>
-        {
-            while (!_syncCts.IsCancellationRequested)
+        _syncTask = Task.Run(
+            async () =>
             {
-                try
+                while (!_syncCts.IsCancellationRequested)
                 {
-                    var existingConnection = GetConnection();
-
-                    if (
-                        State
-                            is InteractionType.Connected
-                                or InteractionType.Calling
-                                or InteractionType.ReceivingCall
-                                or InteractionType.Speaking
-                        && existingConnection is null
-                    )
+                    try
                     {
-                        StopSession();
-                        SetState(InteractionType.None, () => { });
-                    }
-                    else if (State < InteractionType.Connected && existingConnection is not null)
-                    {
-                        StartSession(existingConnection);
-                        SetState(InteractionType.Connected, () => { });
-                    }
+                        var existingConnection = GetConnection();
 
-                    await Task.Delay(250, _syncCts.Token);
+                        if (
+                            State
+                                is InteractionType.Connected
+                                    or InteractionType.Calling
+                                    or InteractionType.ReceivingCall
+                                    or InteractionType.Speaking
+                            && existingConnection is null
+                        )
+                        {
+                            StopSession();
+                            SetState(InteractionType.None, () => { });
+                        }
+                        else if (
+                            State < InteractionType.Connected
+                            && existingConnection is not null
+                        )
+                        {
+                            StartSession(existingConnection);
+                            SetState(InteractionType.Connected, () => { });
+                        }
+
+                        await Task.Delay(250, _syncCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
                 }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-            }
-        }, _syncCts.Token);
+            },
+            _syncCts.Token
+        );
     }
 
     RtcConnection? GetConnection() => peerConnector.CurrentConnections.GetValueOrDefault(contactId);
 
     static async Task EnableMediaAsync(RtcConnection connection)
     {
-        await connection.EnableAudioInputAsync();
-        await connection.EnableAudioOutputAsync();
-
-        //await connection.EnableVideoInputAsync();
-        //await connection.EnableVideoOutputAsync();
+        await connection.SetMediaStateAsync(
+            new MediaState(new(true, true), new MediaPartState(false, false))
+        );
     }
 
     static async Task DisableMediaAsync(RtcConnection connection)
     {
-        await connection.DisableAudioInputAsync();
-        await connection.DisableVideoInputAsync();
-        await connection.DisableAudioOutputAsync();
-        await connection.DisableVideoOutputAsync();
+        await connection.SetMediaStateAsync(
+            new MediaState(new(false, false), new MediaPartState(false, false))
+        );
     }
 }

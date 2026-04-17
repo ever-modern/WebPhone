@@ -1,5 +1,6 @@
 import { bindCallbacks } from "./callbacks-preparation.js";
 import { waitForIceGatheringComplete } from "./ice-utilities.js";
+import { bindMediaManager } from "./media-manager.js";
 async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
     if (!iceServers?.length)
         throw new Error("At least one ICE server must be provided.");
@@ -7,25 +8,20 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
     const peerConnection = new RTCPeerConnection({ iceServers });
     peerConnection.oniceconnectionstatechange = () => console.log("ICE:", peerConnection.iceConnectionState);
     peerConnection.onsignalingstatechange = () => console.log("SIGNAL:", peerConnection.signalingState);
+    const { getMediaState, setMediaState } = bindMediaManager(peerConnection);
     const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
     if (isInitator) {
         const dataChannel = peerConnection.createDataChannel("data");
         handleDataChannel(dataChannel);
     }
-    const agent = {
+    const connectionManager = {
         close: () => {
             unbind();
             peerConnection.close();
         }, getState: () => peerConnection.connectionState,
-        writeToChannel
-    };
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    const audioElement = createAudioElement();
-    stream.getTracks().forEach((track) => peerConnection.addTrack(track, stream));
-    peerConnection.ontrack = (event) => {
-        const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
-        audioElement.srcObject = remoteStream;
-        audioElement.play().catch(() => { });
+        writeToChannel,
+        getMediaState,
+        setMediaState
     };
     if (isInitator) {
         const offer = await peerConnection.createOffer();
@@ -47,15 +43,7 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         await sendAnswerBack(peerConnection.localDescription);
     }
     await whenOpen;
-    return agent;
-}
-function createAudioElement() {
-    const remoteAudioElement = document.createElement("audio");
-    remoteAudioElement.autoplay = true;
-    remoteAudioElement.setAttribute("playsinline", "true");
-    remoteAudioElement.style.display = "none";
-    document.body.appendChild(remoteAudioElement);
-    return remoteAudioElement;
+    return connectionManager;
 }
 async function initiateConnectionAsync(iceServers, getAnswerAsync, onStateChangedAsync, onDataChannelMessageAsync) {
     const getAnswer = (offer) => getAnswerAsync.invokeMethodAsync("invoke", offer);

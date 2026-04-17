@@ -3,12 +3,6 @@ export type RtcConnectionCallbacks = {
     onDataChannelMessage?: SubscriptionParameter<string>;
 }
 
-export type RtcConnectionManager = {
-    close?: () => void;
-    getState: () => RTCPeerConnectionState;
-    writeToChannel: (message: Uint8Array | ArrayBuffer) => void;
-};  
-
 type SubscriptionParameter<T> = (event: T) => Promise<void>;
 
 export function createEventSource<T>() {
@@ -25,7 +19,7 @@ export function createEventSource<T>() {
                     }
                     const a = 5599;
                 } 
-            };
+            }; 
         },
 
         invoke: async (event: T) => {

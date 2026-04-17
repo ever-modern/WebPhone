@@ -66,7 +66,10 @@ public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServ
             stateChanged,
             channelMessageReceived,
             async () => await managerReference.InvokeAsync<string>("getState"),
-            bytes => _ = managerReference.InvokeVoidAsync("writeToChannel", bytes)
+            async bytes => await managerReference.InvokeVoidAsync("writeToChannel", bytes),
+            async () => await managerReference.InvokeAsync<MediaState>("getMediaState", []),
+            async (mediaState) =>
+                await managerReference.InvokeVoidAsync("setMediaState", mediaState)
         );
 
         return result;
@@ -108,7 +111,10 @@ public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServ
             stateChanged,
             channelMessageReceived,
             async () => await managerReference.InvokeAsync<string>("getState"),
-            bytes => _ = managerReference.InvokeVoidAsync("writeToChannel", bytes)
+            async bytes => await managerReference.InvokeVoidAsync("writeToChannel", bytes),
+            async () => await managerReference.InvokeAsync<MediaState>("getMediaState", []),
+            async (mediaState) =>
+                await managerReference.InvokeVoidAsync("setMediaState", mediaState)
         );
 
         return result;

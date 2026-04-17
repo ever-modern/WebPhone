@@ -1,19 +1,19 @@
 using EverModern.Events;
-using EverModern.Threading.Channels;
-using Microsoft.JSInterop;
 
 namespace EverModern.Blazor.DirectCommunication;
 
-public record MediaState(bool InputEnabled, bool OutputEnabled);
+public record MediaPartState(bool InputEnabled, bool OutputEnabled);
 
-public record WebRtcMediaExchangeState(MediaState Audio, MediaState Video);
+public record MediaState(MediaPartState Audio, MediaPartState Video);
 
 public sealed class RtcConnection(
     Action dispose,
     INotifier<string> stateChanged,
     INotifier<byte[]> bytesReceived,
     Func<Task<string>> getState,
-    Action<byte[]> writeBytes
+    Action<byte[]> writeBytes,
+    Func<Task<MediaState>> getMediaState,
+    Func<MediaState, Task> setMediaState
 ) : IDisposable
 {
     private bool _disposed;
@@ -24,36 +24,18 @@ public sealed class RtcConnection(
 
     public Task<string> GetStateAsync() => getState();
 
-    public Task SetMediaAsync(WebRtcMediaExchangeState mediaExchangeState)
+    public async Task<MediaState> GetMediaStateAsync()
     {
         ThrowIfDisposed();
-        return Task.CompletedTask;
+        return await getMediaState();
     }
 
-    public Task EnableAudioInputAsync() => Task.CompletedTask;
-
-    public Task DisableAudioInputAsync() => Task.CompletedTask;
-
-    public Task EnableAudioOutputAsync() => Task.CompletedTask;
-
-    public Task DisableAudioOutputAsync() => Task.CompletedTask;
-
-    public Task EnableVideoInputAsync() => Task.CompletedTask;
-
-    public Task DisableVideoInputAsync() => Task.CompletedTask;
-
-    public Task EnableVideoOutputAsync() => Task.CompletedTask;
-
-    public Task DisableVideoOutputAsync() => Task.CompletedTask;
-
-    //public async Task<WebRtcMediaExchangeState> GetMediaExchangeStateAsync()
-    //{
-    //    ThrowIfDisposed();
-    //    var managerReference = GetManagerReference();
-    //    return await managerReference.InvokeAsync<WebRtcMediaExchangeState>(
-    //        "getMediaExchangeState"
-    //    );
-    //}
+    public async Task SetMediaStateAsync(MediaState mediaState)
+    {
+        ArgumentNullException.ThrowIfNull(mediaState);
+        ThrowIfDisposed();
+        await setMediaState(mediaState);
+    }
 
     public async Task WriteBytesAsync(byte[] bytes)
     {
@@ -78,13 +60,6 @@ public sealed class RtcConnection(
 
         dispose();
     }
-
-    //private async Task InvokeVoidAsync(string methodName, params object[] args)
-    //{
-    //    ThrowIfDisposed();
-    //    var managerReference = GetManagerReference();
-    //    await managerReference.InvokeVoidAsync(methodName, args);
-    //}
 
     private void ThrowIfDisposed()
     {

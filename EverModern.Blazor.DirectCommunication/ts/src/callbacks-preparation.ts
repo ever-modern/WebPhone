@@ -72,7 +72,7 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
             payload = input instanceof Uint8Array ? input : new Uint8Array(input);
         }
         dataChannel.send(payload as unknown as ArrayBufferView<ArrayBuffer>);
-    };
+    }; 
 
     connection.onconnectionstatechange = () => {
         console.log("STATE:", connection.connectionState);
