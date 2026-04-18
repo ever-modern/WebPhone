@@ -245,6 +245,10 @@ public sealed class PeerConnector : BackgroundProcessor
                     linkedCts,
                     incomingTask
                 );
+                _ = incomingTask.ContinueWith(
+                    t => _ = RemoveConnectionIfMatchesAsync(peerId, incoming.RequestId),
+                    TaskContinuationOptions.NotOnRanToCompletion
+                );
                 _connectionEventSource.Invoke();
             }
         }

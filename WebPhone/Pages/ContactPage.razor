@@ -1,0 +1,56 @@
+@page "/contact/{ContactId}"
+@using WebPhone.Services
+@inherits DisposableComponent
+
+@inject ContactsDispatcher Dispatcher
+
+<PageTitle>@(_card?.Contact.Name ?? ContactId)</PageTitle>
+
+@if (_card is not null)
+{
+    <div class="contact-panel">
+        <ContactCard Model="_card" />
+    </div>
+}
+else
+{
+    <div class="webphone-empty"><p>Contact not found.</p></div>
+}
+
+@code {
+    [Parameter] public string ContactId { get; set; } = "";
+
+    ContactCardModel? _card;
+    string _lastContactId = "";
+
+    protected override void OnInitialized()
+    {
+        BoundToLifetime(Dispatcher.StateChanged.Subscribe(SyncAndRender));
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (ContactId == _lastContactId) return;
+        _lastContactId = ContactId;
+        SyncCard();
+        // Auto-connect: ContactManager.ConnectAsync guards against double-connect
+        _card?.Actions.Connect?.Invoke();
+    }
+
+    void SyncCard()
+    {
+        var state = Dispatcher.State.Contacts.FirstOrDefault(c => c.Contact.Id == ContactId);
+        _card = state is null ? null : new ContactCardModel(
+            Contact: state.Contact,
+            InteractionState: state.InteractionState,
+            Actions: state.AvailableActions,
+            OnRemoteAudioElementReady: null
+        );
+    }
+
+    async void SyncAndRender()
+    {
+        SyncCard();
+        await InvokeAsync(StateHasChanged);
+    }
+}

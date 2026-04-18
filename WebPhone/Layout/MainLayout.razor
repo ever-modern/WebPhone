@@ -3,6 +3,7 @@
 @using WebPhone.Services.Channels
 @using WebPhone.Services.Data
 @inherits LayoutComponentBase
+@implements IDisposable
 
 @inject ProfileStore profileStore
 @inject ContactsRepository contacts
@@ -10,41 +11,101 @@
 @inject NicknamesRepository nicknames
 @inject AzureMessagesChannel azureMessagesChannel
 @inject IncomingConnectionsHandler incomingConnectionsHandler
+@inject ContactsDispatcher Dispatcher
+@inject IProfile Profile
+@inject NavigationManager Nav
 
 <div class="page-container">
     @if (ready)
     {
-        <nav>
-            <NavLink href="/" Match="NavLinkMatch.All">Home</NavLink>
-            <span> | </span>
-            @* <NavLink href="/webrtc/manual">Manual</NavLink> *@
-        </nav>
-
-        <div class="content-wrap">
-            @Body
+        <div class="webphone-shell">
+            @if (Profile.User.Name.Length > 0)
+            {
+                <ContactsSidebar Cards="_contactCards"
+                                 IsDocked="true"
+                                 SelectedId="@_selectedId"
+                                 OnContactSelected="HandleContactSelected" />
+            }
+            <main class="webphone-main">
+                @Body
+            </main>
         </div>
     }
-
     <footer class="page-footer">@($"v{BuildInfo.BuildVersion}")</footer>
 </div>
 
 @code {
     bool ready;
+    IReadOnlyList<ContactCardModel> _contactCards = [];
+    string? _selectedId;
+
+    IDisposable? _dispatcherSub;
+    IDisposable? _profileSub;
 
     protected override async Task OnInitializedAsync()
     {
         await base.OnInitializedAsync();
 
         await profileStore.InitializeAsync();
-
         _ = azureMessagesChannel.StartAsync();
-
         await contacts.InitializeAsync();
         await nicknames.StartTrackingAsync();
         contacts.StartTracking();
         incomingConnectionsHandler.Start();
         await presenceAnnouncer.StartAsync();
 
+        await Dispatcher.StartAsync();
+
+        _dispatcherSub = Dispatcher.StateChanged.Subscribe(OnDispatcherChanged);
+        _profileSub = Profile.UserChanged.Subscribe(_ => InvokeAsync(StateHasChanged));
+        Nav.LocationChanged += OnLocationChanged;
+
+        SyncSelectedId();
+        SyncCards();
+
         ready = true;
+    }
+
+    void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        SyncSelectedId();
+        InvokeAsync(StateHasChanged);
+    }
+
+    void OnDispatcherChanged()
+    {
+        SyncCards();
+        InvokeAsync(StateHasChanged);
+    }
+
+    void SyncSelectedId()
+    {
+        var path = new Uri(Nav.Uri).AbsolutePath;
+        const string prefix = "/contact/";
+        _selectedId = path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+            ? Uri.UnescapeDataString(path[prefix.Length..])
+            : null;
+    }
+
+    void SyncCards()
+    {
+        _contactCards = Dispatcher.State.Contacts
+            .Select(s => new ContactCardModel(
+                Contact: s.Contact,
+                InteractionState: s.InteractionState,
+                Actions: s.AvailableActions,
+                OnRemoteAudioElementReady: null))
+            .ToList();
+    }
+
+    void HandleContactSelected(string id) =>
+        Nav.NavigateTo($"/contact/{Uri.EscapeDataString(id)}");
+
+    public void Dispose()
+    {
+        _dispatcherSub?.Dispose();
+        _profileSub?.Dispose();
+        Nav.LocationChanged -= OnLocationChanged;
+        Dispatcher.Dispose();
     }
 }

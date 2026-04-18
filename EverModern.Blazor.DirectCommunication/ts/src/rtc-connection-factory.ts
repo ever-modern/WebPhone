@@ -90,7 +90,13 @@ async function createRtcConnection(
         await sendAnswerBack(peerConnection.localDescription!);
     }
 
-    await whenOpen;
+    try {
+        await whenOpen;
+    } catch (e) {
+        unbind();
+        peerConnection.close();
+        throw e;
+    }
 
     return connectionManager;
 }

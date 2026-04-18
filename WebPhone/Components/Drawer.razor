@@ -1,0 +1,43 @@
+@{
+    var posClass = IsDocked ? "drawer--docked" : Position switch {
+        DrawerPosition.Right  => "drawer--right",
+        DrawerPosition.Top    => "drawer--top",
+        DrawerPosition.Bottom => "drawer--bottom",
+        _                     => "drawer--left"
+    };
+}
+
+<div class="drawer @posClass @(IsModal && !IsDocked ? "drawer--modal" : string.Empty) @(!IsDocked && _open ? "drawer--open" : string.Empty)">
+    @if (!IsDocked)
+    {
+        <button class="drawer-toggle @(_open ? "drawer-toggle--open" : string.Empty)"
+                @onclick="Toggle"
+                title="@(_open ? "Close" : "Open")">
+            <span></span><span></span><span></span>
+        </button>
+    }
+    <div class="drawer-content">
+        @ChildContent
+    </div>
+</div>
+
+@if (!IsDocked && _open)
+{
+    <div class="drawer-backdrop @(IsModal ? "drawer-backdrop--modal" : string.Empty)"
+         @onclick="Close"></div>
+}
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public DrawerPosition Position { get; set; } = DrawerPosition.Left;
+    [Parameter] public bool IsModal { get; set; }
+    [Parameter] public bool IsDocked { get; set; }
+
+    bool _open;
+
+    public void Open()   { if (!IsDocked) { _open = true;   StateHasChanged(); } }
+    public void Close()  { if (!IsDocked) { _open = false;  StateHasChanged(); } }
+    public void Toggle() { if (!IsDocked) { _open = !_open; StateHasChanged(); } }
+
+    public bool IsOpen => IsDocked || _open;
+}

@@ -1,78 +1,25 @@
 @page "/"
-@using WebPhone.Services
 @using WebPhone.Services.Data
 @inherits DisposableComponent
 
 @inject IProfile Profile
-@inject ContactsDispatcher Dispatcher
 
 <PageTitle>Web Phone</PageTitle>
 
-<div class="webrtc-page">
-    @*  <header class="webrtc-header">
-        <h1>WebRTC Demo</h1>
-        <p>Enter your name to announce your presence. Select a user to connect.</p>
-    </header> *@
+<div class="webphone-topbar">
+    <ProfileSettingsCard />
+</div>
 
-    <button class="webrtc-button" @onclick="HandleNotifySelfAsync">Notify self</button>
-
-    <div class="webrtc-shell">
-        <main class="webrtc-main">
-            <ProfileSettingsCard />
-
-            @if (Profile.User.Name.Length > 0)
-            {
-                <ContactCardsGrid Cards="_contactCards" />
-            }
-        </main>
+@if (Profile.User.Name.Length > 0)
+{
+    <div class="webphone-empty">
+        <p>Select a contact to start chatting</p>
     </div>
+}
 
 @code {
-    private IReadOnlyList<ContactCardModel> _contactCards = [];
-
     protected override void OnInitialized()
     {
-        BoundToLifetime(Profile.UserChanged.Subscribe(HandleUserChanged));
-        BoundToLifetime(Dispatcher.StateChanged.Subscribe(HandleDispatcherStateChanged));
-        _ = Dispatcher.StartAsync();
-        SyncState();
-    }
-
-    private async void HandleUserChanged(User _)
-    {
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async void HandleDispatcherStateChanged()
-    {
-        SyncState();
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private void SyncState()
-    {
-        _contactCards = Dispatcher.State.Contacts
-            .Select(contactState =>
-            {
-                var (contact, interactionState, actions) = contactState;
-                return new ContactCardModel(
-                    Contact: contact,
-                    InteractionState: interactionState,
-                    Actions: actions,
-                    OnRemoteAudioElementReady: null
-                );
-            })
-            .ToList();
-    }
-
-    private Task HandleNotifySelfAsync()
-        => Dispatcher.NotifySelfAsync("Self test notification");
-
-    public override async ValueTask DisposeAsync()
-    {
-        base.Dispose();
-        Dispatcher.Dispose();
-        await Task.CompletedTask;
+        BoundToLifetime(Profile.UserChanged.Subscribe(_ => InvokeAsync(StateHasChanged)));
     }
 }
-</div>

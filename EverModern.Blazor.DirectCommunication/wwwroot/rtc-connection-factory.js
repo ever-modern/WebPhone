@@ -50,7 +50,14 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         await waitForIceGatheringComplete(peerConnection);
         await sendAnswerBack(peerConnection.localDescription);
     }
-    await whenOpen;
+    try {
+        await whenOpen;
+    }
+    catch (e) {
+        unbind();
+        peerConnection.close();
+        throw e;
+    }
     return connectionManager;
 }
 async function initiateConnectionAsync(iceServers, getAnswerAsync, onStateChangedAsync, onDataChannelMessageAsync) {

@@ -26,6 +26,7 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
     CancellationTokenSource? _sessionCts;
     CancellationTokenSource? _syncCts;
     Task? _syncTask;
+    Subscription? _connectionStateSubscription;
 
     event Action OnDispose = () => { };
 
@@ -100,8 +101,7 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
 
         if (connection is null)
         {
-            if (State is InteractionType.Connecting)
-                SetState(InteractionType.None, () => { });
+            SetState(InteractionType.None, () => { });
             return;
         }
 
@@ -281,6 +281,11 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
     {
         StopSession();
         _sessionCts = new CancellationTokenSource();
+        _connectionStateSubscription = connection.StateChanged.Subscribe(state =>
+        {
+            if (state is "disconnected" or "failed" or "closed")
+                _ = peerConnector.ClosePeerConnectionAsync(contactId);
+        });
         ListenIncomingCall(connection);
     }
 
@@ -289,6 +294,8 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
         _sessionCts?.Cancel();
         _sessionCts?.Dispose();
         _sessionCts = null;
+        _connectionStateSubscription?.Dispose();
+        _connectionStateSubscription = null;
     }
 
     void StartSyncLoop()

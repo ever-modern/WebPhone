@@ -1,19 +1,21 @@
 @using WebPhone.Messages
 @using WebPhone.Services
 
-<details class="webrtc-chat" open="@IsOpen">
-    <summary>Chat</summary>
-    <div class="webrtc-chat-compose">
-        <input class="webrtc-chat-input" @bind="_text" @bind:event="oninput" @onkeydown="HandleKeyDownAsync" placeholder="Type a message..." disabled="@(!IsEnabled)" />
-        <button class="webrtc-send-btn" @onclick="HandleSendAsync" disabled="@(!CanSend)" title="Send">&#10148;</button>
-    </div>
-    <ul class="webrtc-messages">
-        @foreach (var message in Messages)
-        {
-            <li class="webrtc-message-bubble @(message.IsOwn ? "is-own" : "is-peer")">@message.Text</li>
-        }
-    </ul>
-</details>
+<div class="chat-messages">
+    @if (Messages.Count == 0)
+    {
+        <p class="chat-empty">No messages yet.</p>
+    }
+    @foreach (var message in Messages)
+    {
+        <div class="webrtc-message-bubble @(message.IsOwn ? "is-own" : "is-peer")">@message.Text</div>
+    }
+</div>
+<div class="chat-compose">
+    <input class="webrtc-chat-input" @bind="_text" @bind:event="oninput" @onkeydown="HandleKeyDownAsync"
+           placeholder="@(IsEnabled ? "Type a message…" : "Connect to chat")" disabled="@(!IsEnabled)" />
+    <button class="webrtc-send-btn" @onclick="HandleSendAsync" disabled="@(!CanSend)" title="Send">&#10148;</button>
+</div>
 
 @code {
     [Parameter]
@@ -24,9 +26,6 @@
 
     [Parameter]
     public bool IsEnabled { get; set; }
-
-    [Parameter]
-    public bool IsOpen { get; set; }
 
     private string _text = string.Empty;
     private bool CanSend => IsEnabled && OnSend is not null;

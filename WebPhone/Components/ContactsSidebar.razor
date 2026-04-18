@@ -1,0 +1,54 @@
+@using WebPhone.Services
+
+<Drawer @ref="_drawer" Position="DrawerPosition.Left" IsDocked="IsDocked">
+    <div class="sidebar-header">
+        <h2 class="sidebar-title">Contacts</h2>
+    </div>
+
+    <div class="sidebar-filter">
+        <input class="webrtc-input sidebar-search"
+               type="search"
+               placeholder="Filter by name or nickname…"
+               @bind="_filter"
+               @bind:event="oninput" />
+    </div>
+
+    <div class="sidebar-list">
+        @foreach (var card in FilteredCards)
+        {
+            <ContactListItem @key="card.Contact.Id"
+                             Card="card"
+                             IsSelected="SelectedId == card.Contact.Id"
+                             OnSelect="() => HandleSelect(card.Contact.Id)" />
+        }
+
+        @if (!FilteredCards.Any())
+        {
+            <p class="sidebar-empty">No contacts match.</p>
+        }
+    </div>
+</Drawer>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<ContactCardModel> Cards { get; set; } = [];
+    [Parameter] public string? SelectedId { get; set; }
+    [Parameter] public EventCallback<string> OnContactSelected { get; set; }
+    [Parameter] public bool IsDocked { get; set; }
+
+    Drawer _drawer = default!;
+    string _filter = string.Empty;
+
+    IEnumerable<ContactCardModel> FilteredCards =>
+        string.IsNullOrWhiteSpace(_filter)
+            ? Cards
+            : Cards.Where(c =>
+                (c.Contact.Nickname ?? string.Empty).Contains(_filter, StringComparison.OrdinalIgnoreCase)
+                || c.Contact.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase));
+
+    async Task HandleSelect(string id)
+    {
+        if (!IsDocked) _drawer.Close();
+        await OnContactSelected.InvokeAsync(id);
+    }    
+}
+
