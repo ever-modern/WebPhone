@@ -22,6 +22,7 @@ else
 
     ContactCardModel? _card;
     string _lastContactId = "";
+    CancellationTokenSource _retryCts = new();
 
     protected override void OnInitialized()
     {
@@ -32,9 +33,35 @@ else
     {
         if (ContactId == _lastContactId) return;
         _lastContactId = ContactId;
+
+        // Cancel the previous contact's retry loop before starting a fresh one.
+        _retryCts.Cancel();
+        _retryCts.Dispose();
+        _retryCts = new CancellationTokenSource();
+
         SyncCard();
-        // Auto-connect: ContactManager.ConnectAsync guards against double-connect
-        _card?.Actions.Connect?.Invoke();
+        _ = RunAutoConnectAsync(_retryCts.Token);
+    }
+
+    // Keeps trying to connect (and reconnect after drop) until the page is left.
+    // Connect() is null when already connected/connecting — no double-connect risk.
+    async Task RunAutoConnectAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            TryConnect("poll");
+            try { await Task.Delay(TimeSpan.FromSeconds(3), ct); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    // Call this whenever we know the contact is disconnected so recovery is immediate.
+    void TryConnect(string source)
+    {
+        var action = _card?.Actions.Connect;
+        if (action is null) return;
+        Console.WriteLine($"[CONNECT] ContactPage.TryConnect({source}): calling Connect for {ContactId}");
+        action.Invoke();
     }
 
     void SyncCard()
@@ -51,6 +78,15 @@ else
     async void SyncAndRender()
     {
         SyncCard();
+        // Reconnect immediately when state drops to None — don't wait for the poll loop.
+        TryConnect("stateChange");
         await InvokeAsync(StateHasChanged);
+    }
+
+    public override void Dispose()
+    {
+        _retryCts.Cancel();
+        _retryCts.Dispose();
+        base.Dispose();
     }
 }

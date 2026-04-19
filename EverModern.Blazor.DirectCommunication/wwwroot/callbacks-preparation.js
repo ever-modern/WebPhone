@@ -4,11 +4,11 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
     let failOpening;
     let resolved = false;
     const timeout = setTimeout(() => {
-        failOpening();
+        failOpening(new Error("Connection timed out after 30 s"));
     }, 30000);
     const whenOpen = new Promise((resolve, reject) => {
         finishWaitingForOpening = resolve;
-        failOpening = reject;
+        failOpening = (reason) => reject(reason instanceof Error ? reason : new Error(reason !== undefined ? String(reason) : "Connection failed to open"));
     });
     const safeResolve = () => {
         if (resolved)

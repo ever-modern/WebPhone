@@ -7,5 +7,23 @@ window.appInterop = {
   },
   removeLocalStorageItem(key) {
     window.localStorage.removeItem(key);
+  },
+  startResize(startX, currentWidth, dotNetRef) {
+    function onMove(e) {
+      const w = Math.min(600, Math.max(150, currentWidth + (e.clientX - startX)));
+      dotNetRef.invokeMethodAsync('OnResizeDrag', w);
+    }
+    function onUp(e) {
+      const w = Math.min(600, Math.max(150, currentWidth + (e.clientX - startX)));
+      dotNetRef.invokeMethodAsync('OnResizeDrop', w);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ew-resize';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
 };

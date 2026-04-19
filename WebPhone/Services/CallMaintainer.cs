@@ -6,19 +6,20 @@ namespace WebPhone.Services;
 
 class CallMaintainer(RtcConnection connection, TimeSpan criticalTime)
 {
-    public Task WhenReceivedCallPingAsync(CancellationToken cancellationToken = default)
+    // Returns true when the received ping is a video-call ping.
+    public Task<bool> WhenReceivedCallPingAsync(CancellationToken cancellationToken = default)
     {
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         _ = Task.Run(
             async () =>
             {
                 using var channel = new RtcConnectionMessageChannel(connection);
                 using var callDesireReader = channel.Subscribe(message =>
-                    message.Type is RtcMessageType.WantCall
+                    message.Type is RtcMessageType.WantCall or RtcMessageType.VideoWantCall
                 );
-                var _ = await callDesireReader.ReadAsync(cancellationToken);
-                tcs.TrySetResult();
+                var msg = await callDesireReader.ReadAsync(cancellationToken);
+                tcs.TrySetResult(msg.Type is RtcMessageType.VideoWantCall);
             },
             cancellationToken
         );
@@ -35,7 +36,7 @@ class CallMaintainer(RtcConnection connection, TimeSpan criticalTime)
             {
                 using var channel = new RtcConnectionMessageChannel(connection);
                 using var callDesireReader = channel.Subscribe(message =>
-                    message.Type is RtcMessageType.WantCall or RtcMessageType.RejectCall
+                    message.Type is RtcMessageType.WantCall or RtcMessageType.VideoWantCall or RtcMessageType.RejectCall
                 );
 
                 var lastRequest = Stopwatch.GetTimestamp();
@@ -72,24 +73,22 @@ class CallMaintainer(RtcConnection connection, TimeSpan criticalTime)
         return tcs.Task;
     }
 
-    public Task MaintainCallAsync(CancellationToken cancellationToken = default)
+    public Task MaintainCallAsync(bool isVideo = false, CancellationToken cancellationToken = default)
     {
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var pingType = isVideo ? RtcMessageType.VideoWantCall : RtcMessageType.WantCall;
         _ = Task.Run(
             async () =>
             {
                 using var channel = new RtcConnectionMessageChannel(connection);
-                using var callDesireReader = channel.Subscribe(message =>
-                    message.Type is RtcMessageType.WantCall
-                );
 
-                var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
+                var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
 
                 while (await timer.WaitForNextTickAsync(cts.Token))
                 {
                     await channel.Writer.WriteAsync(
-                        new RtcMessage(RtcMessageType.WantCall, null),
+                        new RtcMessage(pingType, null),
                         cts.Token
                     );
                 }

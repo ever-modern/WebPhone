@@ -38,7 +38,7 @@ async function createRtcConnection(
     peerConnection.onicegatheringstatechange = () => console.log("[RTC] ICE gathering state:", peerConnection.iceGatheringState);
     peerConnection.onicecandidate = (e) => console.log("[RTC] ICE candidate:", e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)");
 
-    const { getMediaState, setMediaState } = bindMediaManager(peerConnection, isInitator);
+    const { getMediaState, setMediaState, setVideoTarget } = bindMediaManager(peerConnection, isInitator);
     const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
 
     if (isInitator) { 
@@ -53,7 +53,8 @@ async function createRtcConnection(
         }, getState: () => peerConnection.connectionState,
         writeToChannel,
         getMediaState,
-        setMediaState
+        setMediaState,
+        setVideoTarget
     };
 
     if (isInitator) {
@@ -101,7 +102,7 @@ async function createRtcConnection(
     return connectionManager;
 }
 
-async function initiateConnectionAsync(
+function initiateConnectionAsync(
     iceServers: IceServerParameters[],
     getAnswerAsync: DotNetObjectReference,
     onStateChangedAsync: DotNetObjectReference,
@@ -111,12 +112,15 @@ async function initiateConnectionAsync(
     const onStateChanged = (state: RTCPeerConnectionState) => onStateChangedAsync.invokeMethodAsync("invoke", state) as Promise<void>;
     const onDataChannelMessage = (message: string) => onDataChannelMessageAsync.invokeMethodAsync("invoke", message) as Promise<void>;
 
-    const result = await createRtcConnection(getAnswer, iceServers, { onStateChanged, onDataChannelMessage });
+    const p = createRtcConnection(getAnswer, iceServers, { onStateChanged, onDataChannelMessage });
+    // Attaching .catch() here marks p as "handled" in the browser rejection tracker.
+    // Returning p directly (not await p) means there is exactly one Promise object.
+    // C# still receives the rejection when it IS waiting; no Uncaught (in promise) when it isn’t.
+    p.catch((e: unknown) => console.warn("[RTC] initiateConnectionAsync: connection failed (C# may have already cancelled):", e));
+    return p;
+}
 
-    return result;
-} 
-
-async function acceptConnectionAsync(
+function acceptConnectionAsync(
     iceServers: IceServerParameters[],
     offer: RTCSessionDescriptionInit,
     sendAnswerBackAsync: DotNetObjectReference,
@@ -126,8 +130,9 @@ async function acceptConnectionAsync(
     const onStateChanged = (state: RTCPeerConnectionState) => onStateChangedAsync.invokeMethodAsync("invoke", state) as Promise<void>;
     const onDataChannelMessage = (message: string) => onDataChannelMessageAsync.invokeMethodAsync("invoke", message) as Promise<void>;
     const sendAnswerBack = (answer: RTCSessionDescriptionInit) => sendAnswerBackAsync.invokeMethodAsync("invoke", answer) as Promise<void>;
-    const result = await createRtcConnection({ offer, sendAnswerBack }, iceServers, { onStateChanged, onDataChannelMessage });
-    return result;
+    const p = createRtcConnection({ offer, sendAnswerBack }, iceServers, { onStateChanged, onDataChannelMessage });
+    p.catch((e: unknown) => console.warn("[RTC] acceptConnectionAsync: connection failed (C# may have already cancelled):", e));
+    return p;
 }
 
 export const rtcConnectionFactory = { initiateConnectionAsync, acceptConnectionAsync }; 

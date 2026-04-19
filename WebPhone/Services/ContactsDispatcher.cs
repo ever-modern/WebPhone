@@ -28,7 +28,8 @@ public enum InteractionType
 public sealed class ContactsDispatcher(
     PeerConnector peerConnector,
     ContactsRepository contactsRepository,
-    BackendClient backendClient
+    BackendClient backendClient,
+    VideoCallState videoCallState
 ) : IDisposable
 {
     readonly EventSource _stateChanged = new();
@@ -107,7 +108,7 @@ public sealed class ContactsDispatcher(
             if (_contexts.ContainsKey(contact.Id))
                 continue;
 
-            var manager = new ContactManager(peerConnector, contact.Id);
+            var manager = new ContactManager(peerConnector, contact.Id, videoCallState);
             var subscription = manager.StateChanged.Subscribe(StateHasChanged);
             var context = new ContactContext(manager, subscription);
             _contexts[contact.Id] = context;
@@ -255,6 +256,11 @@ public sealed class ContactsDispatcher(
             {
                 SendMessage = text => SendUserMessage(contact.Id, text),
                 StartCall = () => _ = context.Manager.StartCallAsync(),
+                StartVideoCall = () =>
+                {
+                    videoCallState.Open(contact.Id);
+                    _ = context.Manager.StartVideoCallAsync();
+                },
                 Disconnect = () => _ = context.Manager.DisconnectAsync(),
             }
         );
@@ -275,7 +281,11 @@ public sealed class ContactsDispatcher(
             {
                 Connect = null,
                 SendMessage = text => SendUserMessage(contact.Id, text),
-                EndCall = context.Manager.EndCall,
+                EndCall = () =>
+                {
+                    if (videoCallState.ContactId == contact.Id) videoCallState.Close();
+                    context.Manager.EndCall();
+                },
                 Disconnect = () => _ = context.Manager.DisconnectAsync(),
             }
         );

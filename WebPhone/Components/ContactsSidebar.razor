@@ -1,6 +1,12 @@
 @using WebPhone.Services
+@using WebPhone.Services.Data
+@implements IDisposable
 
-<Drawer @ref="_drawer" Position="DrawerPosition.Left" IsDocked="IsDocked">
+@inject ILocalStore Store
+@inject IJSRuntime JS
+
+<Drawer @ref="_drawer" Position="DrawerPosition.Left" IsDocked="IsDocked"
+        Width="IsDocked ? _width : (int?)null">
     <div class="sidebar-header">
         <h2 class="sidebar-title">Contacts</h2>
     </div>
@@ -28,6 +34,10 @@
         }
     </div>
 </Drawer>
+@if (IsDocked)
+{
+    <div class="sidebar-resizer" @onmousedown="OnResizerMouseDown"></div>
+}
 
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<ContactCardModel> Cards { get; set; } = [];
@@ -37,6 +47,20 @@
 
     Drawer _drawer = default!;
     string _filter = string.Empty;
+    int _width = 280;
+    DotNetObjectReference<ContactsSidebar>? _dotNetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _dotNetRef = DotNetObjectReference.Create(this);
+        var stored = await Store.GetAsync<int>("sidebar-width");
+        if (stored > 0)
+        {
+            _width = stored;
+            StateHasChanged();
+        }
+    }
 
     IEnumerable<ContactCardModel> FilteredCards =>
         string.IsNullOrWhiteSpace(_filter)
@@ -49,6 +73,29 @@
     {
         if (!IsDocked) _drawer.Close();
         await OnContactSelected.InvokeAsync(id);
-    }    
+    }
+
+    void OnResizerMouseDown(MouseEventArgs e)
+    {
+        if (_dotNetRef is null) return;
+        _ = JS.InvokeVoidAsync("appInterop.startResize", e.ClientX, _width, _dotNetRef);
+    }
+
+    [JSInvokable]
+    public void OnResizeDrag(int width)
+    {
+        _width = width;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public async Task OnResizeDrop(int width)
+    {
+        _width = width;
+        await Store.SetAsync("sidebar-width", width);
+        StateHasChanged();
+    }
+
+    public void Dispose() => _dotNetRef?.Dispose();
 }
 

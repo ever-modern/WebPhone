@@ -28,6 +28,7 @@ services.AddScoped(sp =>
 services.AddScoped<PeerConnector>();
 services.AddScoped<IncomingConnectionsHandler>();
 services.AddScoped<ContactsDispatcher>();
+services.AddScoped<VideoCallState>();
 services.AddScoped<ContactsRepository>();
 services.AddScoped<PresenceAnnouncer>();
 services.AddScoped<IWebRtcConfigurator, AzureWebRtcChannelsRegistrator>();

@@ -7,7 +7,8 @@
     };
 }
 
-<div class="drawer @posClass @(IsModal && !IsDocked ? "drawer--modal" : string.Empty) @(!IsDocked && _open ? "drawer--open" : string.Empty)">
+<div class="drawer @posClass @(IsModal && !IsDocked ? "drawer--modal" : string.Empty) @(!IsDocked && _open ? "drawer--open" : string.Empty)"
+     style="@(Width.HasValue ? $"width:{Width.Value}px" : null)">
     @if (!IsDocked)
     {
         <button class="drawer-toggle @(_open ? "drawer-toggle--open" : string.Empty)"
@@ -32,6 +33,7 @@
     [Parameter] public DrawerPosition Position { get; set; } = DrawerPosition.Left;
     [Parameter] public bool IsModal { get; set; }
     [Parameter] public bool IsDocked { get; set; }
+    [Parameter] public int? Width { get; set; }
 
     bool _open;
 

@@ -13,7 +13,8 @@ public sealed class RtcConnection(
     Func<Task<string>> getState,
     Action<byte[]> writeBytes,
     Func<Task<MediaState>> getMediaState,
-    Func<MediaState, Task> setMediaState
+    Func<MediaState, Task> setMediaState,
+    Func<Microsoft.AspNetCore.Components.ElementReference, Task> setVideoTarget
 ) : IDisposable
 {
     private bool _disposed;
@@ -35,6 +36,12 @@ public sealed class RtcConnection(
         ArgumentNullException.ThrowIfNull(mediaState);
         ThrowIfDisposed();
         await setMediaState(mediaState);
+    }
+
+    public async Task SetVideoTargetAsync(Microsoft.AspNetCore.Components.ElementReference videoElement)
+    {
+        ThrowIfDisposed();
+        await setVideoTarget(videoElement);
     }
 
     public async Task WriteBytesAsync(byte[] bytes)

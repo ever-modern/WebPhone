@@ -34,6 +34,8 @@
     <footer class="page-footer">@($"v{BuildInfo.BuildVersion}")</footer>
 </div>
 
+<VideoCallScreen />
+
 @code {
     bool ready;
     IReadOnlyList<ContactCardModel> _contactCards = [];

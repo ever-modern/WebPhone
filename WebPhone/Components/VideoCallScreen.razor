@@ -1,0 +1,82 @@
+@using WebPhone.Services
+@implements IAsyncDisposable
+
+@inject VideoCallState VideoCallState
+@inject PeerConnector PeerConnector
+
+@if (VideoCallState.IsOpen)
+{
+    <div class="video-call-screen">
+        <video class="video-call-remote" autoplay playsinline muted @ref="_remoteVideo"></video>
+        <div class="video-call-overlay">
+            <button class="video-call-hangup webrtc-button webrtc-button--danger"
+                    @onclick="HangUpAsync">
+                &#128222; Hang up
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    ElementReference _remoteVideo;
+    bool _targetConnected;
+
+    protected override void OnInitialized() =>
+        VideoCallState.Changed += OnStateChanged;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (VideoCallState.IsOpen && !_targetConnected)
+        {
+            Console.WriteLine($"[VIDEO] VideoCallScreen.OnAfterRender: IsOpen=true, _targetConnected=false → calling ConnectTargetAsync for contact={VideoCallState.ContactId}");
+            if (await ConnectTargetAsync())
+                _targetConnected = true;
+            else
+                Console.WriteLine("[VIDEO] VideoCallScreen.OnAfterRender: ConnectTargetAsync returned false — will retry on next render");
+        }
+        else if (!VideoCallState.IsOpen)
+        {
+            _targetConnected = false;
+        }
+    }
+
+    async Task<bool> ConnectTargetAsync()
+    {
+        var contactId = VideoCallState.ContactId;
+        var connections = PeerConnector.CurrentConnections;
+        Console.WriteLine($"[VIDEO] ConnectTargetAsync: contactId={contactId} connections.Count={connections.Count} keys=[{string.Join(",", connections.Keys)}]");
+
+        if (contactId is not null && connections.TryGetValue(contactId, out var conn))
+        {
+            Console.WriteLine($"[VIDEO] ConnectTargetAsync: found connection → calling SetVideoTargetAsync");
+            await conn.SetVideoTargetAsync(_remoteVideo);
+            Console.WriteLine("[VIDEO] ConnectTargetAsync: SetVideoTargetAsync completed");
+            return true;
+        }
+
+        Console.WriteLine($"[VIDEO] ConnectTargetAsync: connection NOT found for contactId={contactId}");
+        return false;
+    }
+
+    async void OnStateChanged()
+    {
+        await InvokeAsync(StateHasChanged);
+    }
+
+    async Task HangUpAsync()
+    {
+        if (VideoCallState.ContactId is not null &&
+            PeerConnector.CurrentConnections.TryGetValue(VideoCallState.ContactId, out var conn))
+        {
+            var current = await conn.GetMediaStateAsync();
+            await conn.SetMediaStateAsync(current with { Video = new(false, false) });
+        }
+        VideoCallState.Close();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        VideoCallState.Changed -= OnStateChanged;
+        await Task.CompletedTask;
+    }
+}

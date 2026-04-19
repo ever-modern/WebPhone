@@ -23,6 +23,7 @@ public record ContactActions(
     Action? CancelConnect = null,
     Action? Disconnect = null,
     Action? StartCall = null,
+    Action? StartVideoCall = null,
     Action? AcceptCall = null,
     Action? DeclineCall = null,
     Action? EndCall = null,

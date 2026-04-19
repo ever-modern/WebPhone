@@ -5,7 +5,7 @@
 @{
     var (contact, interaction, actions, onRemoteAudioElementReady) = Model;
     var (isConnected, connectionState, isConnecting, chatReady, isCallActive, isCalling, hasIncomingCall, chat) = interaction;
-    var (toggleFavorite, setNickname, notify, connect, cancelConnect, disconnect, startCall, acceptCall, declineCall, endCall, cancelCall, sendMessage) = actions;
+    var (toggleFavorite, setNickname, notify, connect, cancelConnect, disconnect, startCall, startVideoCall, acceptCall, declineCall, endCall, cancelCall, sendMessage) = actions;
 }
 
 <div class="contact-detail">
@@ -52,17 +52,9 @@
             {
                 <button class="webrtc-button" @onclick="Notify">Notify</button>
             }
-            @if (cancelConnect is not null)
-            {
-                <button class="webrtc-button webrtc-button--danger" @onclick="CancelConnect">Cancel</button>
-            }
-            else if (disconnect is not null)
+            @if (disconnect is not null)
             {
                 <button class="webrtc-button" @onclick="Disconnect">Disconnect</button>
-            }
-            else if (connect is not null)
-            {
-                <button class="webrtc-button webrtc-contact-connect-button" @onclick="Connect">Connect</button>
             }
             @if (hasIncomingCall)
             {
@@ -78,6 +70,10 @@
             @if (startCall is not null)
             {
                 <button class="webrtc-button" @onclick="StartCall">Call</button>
+            }
+            @if (startVideoCall is not null)
+            {
+                <button class="webrtc-button" @onclick="StartVideoCall">&#127909; Video call</button>
             }
             @if (endCall is not null)
             {
@@ -117,6 +113,7 @@
     private void CancelConnect()    => Model.Actions.CancelConnect?.Invoke();
     private void Disconnect()       => Model.Actions.Disconnect?.Invoke();
     private void StartCall()        => Model.Actions.StartCall?.Invoke();
+    private void StartVideoCall()   => Model.Actions.StartVideoCall?.Invoke();
     private void AcceptCall()       => Model.Actions.AcceptCall?.Invoke();
     private void DeclineCall()      => Model.Actions.DeclineCall?.Invoke();
     private void EndCall()          => Model.Actions.EndCall?.Invoke();

@@ -5,7 +5,7 @@ using WebPhone.Services.Channels;
 
 namespace WebPhone.Services;
 
-class ContactManager(PeerConnector peerConnector, string contactId) : IDisposable
+class ContactManager(PeerConnector peerConnector, string contactId, VideoCallState videoCallState) : IDisposable
 {
     readonly EventSource _stateChanged = new();
     public INotifier StateChanged => _stateChanged;
@@ -23,6 +23,8 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
     public InteractionType State => _interaction.Type;
 
     bool _isEnabled = false;
+    bool _useVideo = false;
+    bool _incomingIsVideoCall = false;
     CancellationTokenSource? _sessionCts;
     CancellationTokenSource? _syncCts;
     Task? _syncTask;
@@ -127,6 +129,18 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
 
     public async Task StartCallAsync(CancellationToken cancellationToken = default)
     {
+        _useVideo = false;
+        await StartCallCoreAsync(cancellationToken);
+    }
+
+    public async Task StartVideoCallAsync(CancellationToken cancellationToken = default)
+    {
+        _useVideo = true;
+        await StartCallCoreAsync(cancellationToken);
+    }
+
+    async Task StartCallCoreAsync(CancellationToken cancellationToken = default)
+    {
         if (_interaction.Type is not InteractionType.Connected)
             return;
 
@@ -146,9 +160,9 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
 
         SetState(InteractionType.Calling, callingCts.Cancel);
 
-        var callMaintainer = new CallMaintainer(connection, TimeSpan.FromMilliseconds(500));
+        var callMaintainer = new CallMaintainer(connection, TimeSpan.FromSeconds(8));
 
-        _ = callMaintainer.MaintainCallAsync(callingCts.Token);
+        _ = callMaintainer.MaintainCallAsync(_useVideo, callingCts.Token);
         _ = callMaintainer
             .WhenReceivedCallPingAsync(callingCts.Token)
             .ContinueWith(t =>
@@ -169,7 +183,12 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
         if (connection is null)
             return;
 
-        var callMaintainer = new CallMaintainer(connection, TimeSpan.FromMilliseconds(500));
+        _useVideo = _incomingIsVideoCall;
+        Console.WriteLine($"[VIDEO] AcceptCall({contactId}): _incomingIsVideoCall={_incomingIsVideoCall} → _useVideo={_useVideo}");
+        if (_incomingIsVideoCall)
+            videoCallState.Open(contactId);
+
+        var callMaintainer = new CallMaintainer(connection, TimeSpan.FromSeconds(8));
         StartSpeaking(connection, callMaintainer);
     }
 
@@ -197,6 +216,9 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
         var connection = GetConnection();
         _interaction.Cancel();
 
+        if (videoCallState.ContactId == contactId)
+            videoCallState.Close();
+
         if (connection is null)
         {
             SetState(InteractionType.None, () => { });
@@ -223,7 +245,7 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
         if (sessionToken is null)
             return;
 
-        var callMaintainer = new CallMaintainer(connection, TimeSpan.FromMilliseconds(500));
+        var callMaintainer = new CallMaintainer(connection, TimeSpan.FromSeconds(8));
         _ = callMaintainer
             .WhenReceivedCallPingAsync(sessionToken.Value)
             .ContinueWith(
@@ -233,7 +255,11 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
                         return;
 
                     if (State is InteractionType.Connected)
+                    {
+                        _incomingIsVideoCall = t.Result;
+                        Console.WriteLine($"[VIDEO] ListenIncomingCall({contactId}): ping received isVideoCall={_incomingIsVideoCall}");
                         SetState(InteractionType.ReceivingCall, () => { });
+                    }
                 },
                 sessionToken.Value
             );
@@ -244,7 +270,7 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
         var sessionToken = _sessionCts?.Token ?? CancellationToken.None;
         var stopCallCts = CancellationTokenSource.CreateLinkedTokenSource(sessionToken);
 
-        _ = callMaintainer.MaintainCallAsync(stopCallCts.Token);
+        _ = callMaintainer.MaintainCallAsync(_useVideo, stopCallCts.Token);
         SetState(
             InteractionType.Speaking,
             () =>
@@ -254,7 +280,8 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
             }
         );
 
-        _ = EnableMediaAsync(connection);
+        _ = _useVideo ? EnableVideoMediaAsync(connection) : EnableMediaAsync(connection);
+        Console.WriteLine($"[VIDEO] StartSpeaking({contactId}): _useVideo={_useVideo} → EnableMedia called");
 
         _ = callMaintainer
             .WhenCallStoppedAsync(stopCallCts.Token)
@@ -265,6 +292,7 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
 
                 stopCallCts.Cancel();
                 _ = DisableMediaAsync(connection);
+                if (videoCallState.ContactId == contactId) videoCallState.Close();
                 SetState(InteractionType.Connected, () => { });
                 ListenIncomingCall(connection);
             });
@@ -350,6 +378,13 @@ class ContactManager(PeerConnector peerConnector, string contactId) : IDisposabl
     {
         await connection.SetMediaStateAsync(
             new MediaState(new(true, true), new MediaPartState(false, false))
+        );
+    }
+
+    static async Task EnableVideoMediaAsync(RtcConnection connection)
+    {
+        await connection.SetMediaStateAsync(
+            new MediaState(new(true, true), new MediaPartState(true, true))
         );
     }
 

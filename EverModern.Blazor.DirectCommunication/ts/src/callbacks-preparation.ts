@@ -5,16 +5,17 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
     let dataChannel: RTCDataChannel | null = null;
 
     let finishWaitingForOpening!: () => void;
-    let failOpening!: () => void;
+    let failOpening!: (reason?: unknown) => void;
     let resolved = false;
 
     const timeout = setTimeout(() => {
-        failOpening();
+        failOpening(new Error("Connection timed out after 30 s"));
     }, 30000);
 
     const whenOpen = new Promise<void>((resolve, reject) => {
         finishWaitingForOpening = resolve;
-        failOpening = reject;
+        failOpening = (reason?: unknown) =>
+            reject(reason instanceof Error ? reason : new Error(reason !== undefined ? String(reason) : "Connection failed to open"));
     });
 
     const safeResolve = () => {

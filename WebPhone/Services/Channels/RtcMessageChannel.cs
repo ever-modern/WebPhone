@@ -11,7 +11,8 @@ public enum RtcMessageType
 {
     User,
     WantCall,
-    RejectCall
+    RejectCall,
+    VideoWantCall
 }
 
 public record struct RtcMessage(RtcMessageType Type, string? Payload = null);
