@@ -38,7 +38,7 @@ async function createRtcConnection(
     peerConnection.onicegatheringstatechange = () => console.log("[RTC] ICE gathering state:", peerConnection.iceGatheringState);
     peerConnection.onicecandidate = (e) => console.log("[RTC] ICE candidate:", e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)");
 
-    const { getMediaState, setMediaState, setVideoTarget } = bindMediaManager(peerConnection, isInitator);
+    const { getMediaState, setMediaState, setVideoTarget, setLocalVideoTarget } = bindMediaManager(peerConnection, isInitator);
     const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
 
     if (isInitator) { 
@@ -54,7 +54,8 @@ async function createRtcConnection(
         writeToChannel,
         getMediaState,
         setMediaState,
-        setVideoTarget
+        setVideoTarget,
+        setLocalVideoTarget
     };
 
     if (isInitator) {

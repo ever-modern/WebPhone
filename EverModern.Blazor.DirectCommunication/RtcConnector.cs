@@ -71,7 +71,9 @@ public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServ
             async (mediaState) =>
                 await managerReference.InvokeVoidAsync("setMediaState", mediaState),
             async (videoElement) =>
-                await managerReference.InvokeVoidAsync("setVideoTarget", videoElement)
+                await managerReference.InvokeVoidAsync("setVideoTarget", videoElement),
+            async (videoElement) =>
+                await managerReference.InvokeVoidAsync("setLocalVideoTarget", videoElement)
         );
 
         return result;
@@ -118,7 +120,9 @@ public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServ
             async (mediaState) =>
                 await managerReference.InvokeVoidAsync("setMediaState", mediaState),
             async (videoElement) =>
-                await managerReference.InvokeVoidAsync("setVideoTarget", videoElement)
+                await managerReference.InvokeVoidAsync("setVideoTarget", videoElement),
+            async (videoElement) =>
+                await managerReference.InvokeVoidAsync("setLocalVideoTarget", videoElement)
         );
 
         return result;

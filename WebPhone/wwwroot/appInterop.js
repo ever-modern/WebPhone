@@ -25,5 +25,14 @@ window.appInterop = {
     document.body.style.cursor = 'ew-resize';
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+  },
+  isMobile() {
+    return window.matchMedia('(max-width: 767px)').matches;
+  },
+  startMobileWatcher(dotNetRef) {
+    const mql = window.matchMedia('(max-width: 767px)');
+    mql.addEventListener('change', e => {
+      dotNetRef.invokeMethodAsync('SetMobile', e.matches);
+    });
   }
 };

@@ -36,6 +36,7 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
     let localVideoTrack: MediaStreamTrack | null = null;
     let remoteVideoStream: MediaStream | null = null;
     let activeVideoTarget: HTMLVideoElement | null = null;
+    let localVideoTarget: HTMLVideoElement | null = null;
 
     connection.ontrack = (event) => {
         const { kind, id, readyState } = event.track;
@@ -201,6 +202,11 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
                                     + " readyState=" + track.readyState + " enabled=" + track.enabled);
                                 await vTransceiver.sender.replaceTrack(track);
                                 console.log("[VIDEO] setMediaState: video sender replaceTrack completed");
+                                // Mirror local camera in the self-view PiP element
+                                if (localVideoTarget) {
+                                    localVideoTarget.srcObject = new MediaStream([track]);
+                                    localVideoTarget.play().catch((e: unknown) => console.warn("[VIDEO] local play() rejected:", e));
+                                }
                                 acquired = true;
                             }
                         } catch (err: unknown) {
@@ -216,6 +222,7 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
                     await vTransceiver.sender.replaceTrack(null);
                     localVideoTrack?.stop();
                     localVideoTrack = null;
+                    if (localVideoTarget) localVideoTarget.srcObject = null;
                     console.log("[VIDEO] setMediaState: camera stopped");
                 } else {
                     console.log("[VIDEO] setMediaState: video path skipped (no state change needed)");
@@ -246,6 +253,14 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
                 console.log("[VIDEO] setVideoTarget: no srcObject assigned"
                     + " (activeVideoTarget=" + (activeVideoTarget ? "ok" : "null")
                     + " remoteVideoStream=" + (remoteVideoStream ? "ok" : "null") + ")");
+            }
+        },
+
+        setLocalVideoTarget: (element: HTMLVideoElement | null) => {
+            localVideoTarget = element instanceof HTMLVideoElement ? element : null;
+            if (localVideoTarget && localVideoTrack) {
+                localVideoTarget.srcObject = new MediaStream([localVideoTrack]);
+                localVideoTarget.play().catch((e: unknown) => console.warn("[VIDEO] local play() rejected:", e));
             }
         }
     };

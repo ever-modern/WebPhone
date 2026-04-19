@@ -3,11 +3,13 @@
 
 @inject VideoCallState VideoCallState
 @inject PeerConnector PeerConnector
+@inject ContactsDispatcher Dispatcher
 
 @if (VideoCallState.IsOpen)
 {
     <div class="video-call-screen">
         <video class="video-call-remote" autoplay playsinline muted @ref="_remoteVideo"></video>
+        <video class="video-call-local"  autoplay playsinline muted @ref="_localVideo"></video>
         <div class="video-call-overlay">
             <button class="video-call-hangup webrtc-button webrtc-button--danger"
                     @onclick="HangUpAsync">
@@ -19,6 +21,7 @@
 
 @code {
     ElementReference _remoteVideo;
+    ElementReference _localVideo;
     bool _targetConnected;
 
     protected override void OnInitialized() =>
@@ -48,8 +51,9 @@
 
         if (contactId is not null && connections.TryGetValue(contactId, out var conn))
         {
-            Console.WriteLine($"[VIDEO] ConnectTargetAsync: found connection → calling SetVideoTargetAsync");
+            Console.WriteLine("[VIDEO] ConnectTargetAsync: found connection → calling SetVideoTargetAsync");
             await conn.SetVideoTargetAsync(_remoteVideo);
+            await conn.SetLocalVideoTargetAsync(_localVideo);
             Console.WriteLine("[VIDEO] ConnectTargetAsync: SetVideoTargetAsync completed");
             return true;
         }
@@ -65,12 +69,15 @@
 
     async Task HangUpAsync()
     {
-        if (VideoCallState.ContactId is not null &&
-            PeerConnector.CurrentConnections.TryGetValue(VideoCallState.ContactId, out var conn))
-        {
-            var current = await conn.GetMediaStateAsync();
-            await conn.SetMediaStateAsync(current with { Video = new(false, false) });
-        }
+        // EndCall stops the call on both sides (cancels pings → remote side detects and hangs up too),
+        // disables audio+video media, and closes the video screen via VideoCallState.
+        var contactId = VideoCallState.ContactId;
+        var state = contactId is not null
+            ? Dispatcher.State.Contacts.FirstOrDefault(c => c.Contact.Id == contactId)
+            : null;
+        state?.AvailableActions.EndCall?.Invoke();
+
+        // Fallback close in case EndCall wasn't available (e.g. state already reset)
         VideoCallState.Close();
     }
 
@@ -80,3 +87,4 @@
         await Task.CompletedTask;
     }
 }
+

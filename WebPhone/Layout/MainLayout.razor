@@ -14,6 +14,7 @@
 @inject ContactsDispatcher Dispatcher
 @inject IProfile Profile
 @inject NavigationManager Nav
+@inject IJSRuntime JS
 
 <div class="page-container">
     @if (ready)
@@ -22,7 +23,7 @@
             @if (Profile.User.Name.Length > 0)
             {
                 <ContactsSidebar Cards="_contactCards"
-                                 IsDocked="true"
+                                 IsDocked="!_isMobile"
                                  SelectedId="@_selectedId"
                                  OnContactSelected="HandleContactSelected" />
             }
@@ -38,6 +39,8 @@
 
 @code {
     bool ready;
+    bool _isMobile;
+    DotNetObjectReference<MainLayout>? _mobileRef;
     IReadOnlyList<ContactCardModel> _contactCards = [];
     string? _selectedId;
 
@@ -62,10 +65,24 @@
         _profileSub = Profile.UserChanged.Subscribe(_ => InvokeAsync(StateHasChanged));
         Nav.LocationChanged += OnLocationChanged;
 
+        // Detect viewport before first meaningful render so there is no layout flash.
+        _isMobile = await JS.InvokeAsync<bool>("appInterop.isMobile");
+        _mobileRef = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("appInterop.startMobileWatcher", _mobileRef);
+
         SyncSelectedId();
         SyncCards();
 
         ready = true;
+    }
+
+    /// <summary>Called by the matchMedia watcher whenever the viewport crosses 767 px.</summary>
+    [JSInvokable]
+    public void SetMobile(bool isMobile)
+    {
+        if (_isMobile == isMobile) return;
+        _isMobile = isMobile;
+        InvokeAsync(StateHasChanged);
     }
 
     void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
@@ -105,6 +122,7 @@
 
     public void Dispose()
     {
+        _mobileRef?.Dispose();
         _dispatcherSub?.Dispose();
         _profileSub?.Dispose();
         Nav.LocationChanged -= OnLocationChanged;

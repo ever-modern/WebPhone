@@ -22,6 +22,7 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
     let localVideoTrack = null;
     let remoteVideoStream = null;
     let activeVideoTarget = null;
+    let localVideoTarget = null;
     connection.ontrack = (event) => {
         const { kind, id, readyState } = event.track;
         console.log("[MEDIA] ontrack kind=" + kind + " id=" + id + " readyState=" + readyState + " streams=" + event.streams.length);
@@ -171,6 +172,11 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
                                     + " readyState=" + track.readyState + " enabled=" + track.enabled);
                                 await vTransceiver.sender.replaceTrack(track);
                                 console.log("[VIDEO] setMediaState: video sender replaceTrack completed");
+                                // Mirror local camera in the self-view PiP element
+                                if (localVideoTarget) {
+                                    localVideoTarget.srcObject = new MediaStream([track]);
+                                    localVideoTarget.play().catch((e) => console.warn("[VIDEO] local play() rejected:", e));
+                                }
                                 acquired = true;
                             }
                         }
@@ -189,6 +195,8 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
                     await vTransceiver.sender.replaceTrack(null);
                     localVideoTrack?.stop();
                     localVideoTrack = null;
+                    if (localVideoTarget)
+                        localVideoTarget.srcObject = null;
                     console.log("[VIDEO] setMediaState: camera stopped");
                 }
                 else {
@@ -218,6 +226,13 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
                 console.log("[VIDEO] setVideoTarget: no srcObject assigned"
                     + " (activeVideoTarget=" + (activeVideoTarget ? "ok" : "null")
                     + " remoteVideoStream=" + (remoteVideoStream ? "ok" : "null") + ")");
+            }
+        },
+        setLocalVideoTarget: (element) => {
+            localVideoTarget = element instanceof HTMLVideoElement ? element : null;
+            if (localVideoTarget && localVideoTrack) {
+                localVideoTarget.srcObject = new MediaStream([localVideoTrack]);
+                localVideoTarget.play().catch((e) => console.warn("[VIDEO] local play() rejected:", e));
             }
         }
     };
