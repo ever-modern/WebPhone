@@ -48,6 +48,7 @@
         }
 
         <div class="contact-detail-actions">
+            <ContactSettingsSection ContactId="@contact.Id" />
             @if (notify is not null)
             {
                 <button class="webrtc-button" @onclick="Notify">Notify</button>
@@ -85,11 +86,6 @@
             }
         </div>
     </div>
-
-    <ChatPanel OnSend="sendMessage"
-               Messages="chat"
-               IsEnabled="chatReady" />
-
     <audio class="webrtc-audio" autoplay playsinline @ref="_remoteAudio"></audio>
 </div>
 

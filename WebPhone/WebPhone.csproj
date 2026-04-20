@@ -25,6 +25,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Folder Include="netlify\" />
 		<Folder Include="Properties\PublishProfiles\" />
 	</ItemGroup>
 

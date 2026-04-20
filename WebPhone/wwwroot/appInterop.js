@@ -34,5 +34,8 @@ window.appInterop = {
     mql.addEventListener('change', e => {
       dotNetRef.invokeMethodAsync('SetMobile', e.matches);
     });
+  },
+  scrollToBottom(element) {
+    if (element instanceof Element) element.scrollTop = element.scrollHeight;
   }
 };

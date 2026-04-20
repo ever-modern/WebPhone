@@ -1,25 +1,74 @@
 @using WebPhone.Services
 @using WebPhone.Services.Data
+@using WebPhone.Contract
 
 @inject ProfileStore profile
+@inject BackendClient backendClient
 
-<section class="webrtc-card webrtc-profile-card">
-    <div class="webrtc-field webrtc-field-inline">
-        @*  <label>Name</label> *@
-        <input class="webrtc-input" @bind="Name" placeholder="Your name" />
-        <button class="webrtc-button" @onclick="() => profile.SetUser(profile.User with { Name = Name })">
-            @(profile.User.Name.Length > 0 ? "Change name" : "Register")
-        </button>        
+<section class="profile-dropdown-card">
+    <label class="profile-field-label">Name</label>
+    <input class="webrtc-input profile-name-input" @bind="Name" @bind:event="oninput" @onblur="SaveNameAsync" placeholder="Your name" />
+
+    <div class="profile-settings-panel">
+        <label class="profile-setting-row">
+            <input type="checkbox" checked="@NotifyCalls" @onchange="OnNotifyCallsChanged" />
+            <span>Notify calls</span>
+        </label>
+        <label class="profile-setting-row">
+            <input type="checkbox" checked="@NotifyMessages" @onchange="OnNotifyMessagesChanged" />
+            <span>Notify messages</span>
+        </label>
+        <label class="profile-setting-row">
+            <input type="checkbox" checked="@NotifyFromEveryone" @onchange="OnNotifyFromEveryoneChanged" />
+            <span>Notify from everyone (otherwise favourites only)</span>
+        </label>
     </div>
-    <p>@(profile.User.Id)</p>
+
+    <p class="profile-id">@profile.User.Id</p>
 </section>
 
 @code {
     string Name { get; set; } = "";
+    bool NotifyCalls = true;
+    bool NotifyMessages = true;
+    bool NotifyFromEveryone = false;
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        base.OnInitialized();
+        await base.OnInitializedAsync();
         Name = profile.User.Name;
+
+        var settings = await backendClient.GetUserSettingsAsync();
+        NotifyCalls = settings.NotifyCalls;
+        NotifyMessages = settings.NotifyMessages;
+        NotifyFromEveryone = settings.NotifyFromEveryone;
     }
+
+    async Task SaveNameAsync()
+    {
+        Name = Name.Trim();
+        profile.SetUser(profile.User with { Name = Name });
+        await SaveSettingsAsync();
+    }
+
+    async Task OnNotifyCallsChanged(ChangeEventArgs e)
+    {
+        NotifyCalls = e.Value is bool b ? b : bool.Parse(e.Value?.ToString() ?? "false");
+        await SaveSettingsAsync();
+    }
+
+    async Task OnNotifyMessagesChanged(ChangeEventArgs e)
+    {
+        NotifyMessages = e.Value is bool b ? b : bool.Parse(e.Value?.ToString() ?? "false");
+        await SaveSettingsAsync();
+    }
+
+    async Task OnNotifyFromEveryoneChanged(ChangeEventArgs e)
+    {
+        NotifyFromEveryone = e.Value is bool b ? b : bool.Parse(e.Value?.ToString() ?? "false");
+        await SaveSettingsAsync();
+    }
+
+    Task SaveSettingsAsync() => backendClient.UpsertUserSettingsAsync(
+        new UserSettingsDto(Name, NotifyCalls, NotifyMessages, NotifyFromEveryone));
 }

@@ -54,10 +54,11 @@ services.AddSingleton<AzureMessagesChannel>(sp =>
 
 services.AddSingleton<IMessagesChannel>(sp => sp.GetRequiredService<AzureMessagesChannel>());
 
+services.AddSingleton<ChatMessagesChannel>();
+
 services.Configure<PhoneOptions>(builder.Configuration.GetSection("Phone"));
 
 services.AddSingleton<ILocalStore, BrowserLocalStore>();
-services.AddSingleton<NicknamesRepository>();
 services.AddSingleton<ProfileStore>();
 services.AddSingleton<IProfile>(sp => sp.GetRequiredService<ProfileStore>());
 

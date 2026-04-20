@@ -1,0 +1,55 @@
+@using WebPhone.Contract
+@using WebPhone.Services
+@using WebPhone.Services.Data
+
+@inject BackendClient BackendClient
+@inject IProfile Profile
+
+<section class="contact-settings-inline">
+    <label class="contact-setting-inline">
+        <input type="checkbox" checked="@NotifyCalls" @onchange="OnNotifyCallsChanged" />
+        <span>Calls</span>
+    </label>
+
+    <label class="contact-setting-inline">
+        <input type="checkbox" checked="@NotifyMessages" @onchange="OnNotifyMessagesChanged" />
+        <span>Messages</span>
+    </label>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string ContactId { get; set; } = "";
+
+    bool NotifyCalls = true;
+    bool NotifyMessages = true;
+    bool IsFavourite;
+    string? Nickname;
+    string _lastContactId = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (ContactId == _lastContactId) return;
+        _lastContactId = ContactId;
+
+        var settings = await BackendClient.GetContactSettingsAsync(ContactId);
+        IsFavourite = settings.IsFavourite;
+        Nickname = settings.Nickname;
+        NotifyCalls = settings.NotifyCalls;
+        NotifyMessages = settings.NotifyMessages;
+    }
+
+    async Task OnNotifyCallsChanged(ChangeEventArgs e)
+    {
+        NotifyCalls = e.Value is bool b ? b : bool.Parse(e.Value?.ToString() ?? "false");
+        await SaveAsync();
+    }
+
+    async Task OnNotifyMessagesChanged(ChangeEventArgs e)
+    {
+        NotifyMessages = e.Value is bool b ? b : bool.Parse(e.Value?.ToString() ?? "false");
+        await SaveAsync();
+    }
+
+    Task SaveAsync() => BackendClient.UpsertContactSettingsAsync(
+        new ContactSettingsDto(Profile.User.Id, ContactId, IsFavourite, NotifyCalls, NotifyMessages, Nickname));
+}

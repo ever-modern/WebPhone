@@ -8,31 +8,59 @@
 @inject ProfileStore profileStore
 @inject ContactsRepository contacts
 @inject PresenceAnnouncer presenceAnnouncer
-@inject NicknamesRepository nicknames
 @inject AzureMessagesChannel azureMessagesChannel
 @inject IncomingConnectionsHandler incomingConnectionsHandler
 @inject ContactsDispatcher Dispatcher
 @inject IProfile Profile
+@inject BackendClient BackendClient
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
 <div class="page-container">
-    @if (ready)
+    @if (ready && !string.IsNullOrWhiteSpace(Profile.User.Name))
     {
         <div class="webphone-shell">
-            @if (Profile.User.Name.Length > 0)
-            {
-                <ContactsSidebar Cards="_contactCards"
-                                 IsDocked="!_isMobile"
-                                 SelectedId="@_selectedId"
-                                 OnContactSelected="HandleContactSelected" />
-            }
+            <ContactsSidebar Cards="_contactCards"
+                             IsDocked="!_isMobile"
+                             SelectedId="@_selectedId"
+                             OnContactSelected="HandleContactSelected" />
             <main class="webphone-main">
+                <div class="layout-topbar-right">
+                    <button class="profile-avatar-btn" @onclick="ToggleProfileMenu" title="Profile">
+                        @GetAvatarText()
+                    </button>
+                </div>
                 @Body
             </main>
         </div>
+
+        @if (_profileMenuOpen)
+        {
+            <div class="profile-menu-backdrop" @onclick="CloseProfileMenu"></div>
+            <div class="profile-menu-popover" @onclick:stopPropagation="true">
+                <ProfileSettingsCard />
+            </div>
+        }
     }
-    <footer class="page-footer">@($"v{BuildInfo.BuildVersion}")</footer>
+    else if (ready)
+    {
+        <div class="register-gate">
+            <section class="register-gate-card">
+                <h2>Welcome to WebPhone</h2>
+                <p>Please enter your name to continue.</p>
+                <input class="webrtc-input register-name-input"
+                       @bind="_registerName"
+                       @bind:event="oninput"
+                       @onkeydown="HandleRegisterKeyDownAsync"
+                       placeholder="Your name" />
+                <button class="webrtc-button" @onclick="RegisterAsync" disabled="@string.IsNullOrWhiteSpace(_registerName)">Register</button>
+            </section>
+        </div>
+    }
+    @if (ready && !string.IsNullOrWhiteSpace(Profile.User.Name))
+    {
+        <footer class="page-footer">@($"v{BuildInfo.BuildVersion}")</footer>
+    }
 </div>
 
 <VideoCallScreen />
@@ -40,6 +68,8 @@
 @code {
     bool ready;
     bool _isMobile;
+    bool _profileMenuOpen;
+    string _registerName = "";
     DotNetObjectReference<MainLayout>? _mobileRef;
     IReadOnlyList<ContactCardModel> _contactCards = [];
     string? _selectedId;
@@ -54,7 +84,6 @@
         await profileStore.InitializeAsync();
         _ = azureMessagesChannel.StartAsync();
         await contacts.InitializeAsync();
-        await nicknames.StartTrackingAsync();
         contacts.StartTracking();
         incomingConnectionsHandler.Start();
         await presenceAnnouncer.StartAsync();
@@ -87,6 +116,7 @@
 
     void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
+        _profileMenuOpen = false;
         SyncSelectedId();
         InvokeAsync(StateHasChanged);
     }
@@ -119,6 +149,32 @@
 
     void HandleContactSelected(string id) =>
         Nav.NavigateTo($"/contact/{Uri.EscapeDataString(id)}");
+
+    string GetAvatarText()
+        => string.IsNullOrWhiteSpace(Profile.User.Name)
+            ? "👤"
+            : Profile.User.Name[0].ToString().ToUpperInvariant();
+
+    void ToggleProfileMenu() => _profileMenuOpen = !_profileMenuOpen;
+    void CloseProfileMenu() => _profileMenuOpen = false;
+
+    async Task RegisterAsync()
+    {
+        var name = _registerName.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+            return;
+
+        profileStore.SetUser(profileStore.User with { Name = name });
+        await BackendClient.UpsertUserSettingsAsync(new WebPhone.Contract.UserSettingsDto(name, true, true, false));
+        _registerName = name;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    async Task HandleRegisterKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await RegisterAsync();
+    }
 
     public void Dispose()
     {

@@ -1,0 +1,23 @@
+
+CREATE TABLE IF NOT EXISTS profiles (
+    user_id               TEXT PRIMARY KEY,
+    name                  TEXT NOT NULL DEFAULT '',
+    notify_calls          BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_messages       BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_from_everyone  BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS contacts (
+    owner_id        TEXT NOT NULL,
+    contact_id      TEXT NOT NULL,
+    is_favourite    BOOLEAN NOT NULL DEFAULT FALSE,
+    notify_calls    BOOLEAN NOT NULL DEFAULT TRUE,
+    notify_messages BOOLEAN NOT NULL DEFAULT TRUE,
+    nickname        TEXT NULL,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (owner_id, contact_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_contacts_owner_id   ON contacts(owner_id);
+CREATE INDEX IF NOT EXISTS ix_contacts_contact_id ON contacts(contact_id);

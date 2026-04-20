@@ -26,6 +26,9 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
         int batchSize = DefaultWriteBatchSize,
         CancellationToken cancellationToken = default)
     {
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(cancellationToken);
+
         if (messages.Count == 0)
         {
             return DateTime.UtcNow;
@@ -51,7 +54,7 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
                 var receiverIdParameter = $"ReceiverId{parameterSuffix}";
 
                 values.Add($"(@{idParameter}, @{dateTimeParameter}, @{typeParameter}, @{payloadParameter}::jsonb, @{publisherIdParameter}, @{receiverIdParameter})");
-                parameters.Add(idParameter, CommonIdsGenerator.NewId());
+                parameters.Add(idParameter, message.Id ?? CommonIdsGenerator.NewId());
                 parameters.Add(dateTimeParameter, DateTime.SpecifyKind(message.DateTime ?? DateTime.UtcNow, DateTimeKind.Unspecified));
                 parameters.Add(typeParameter, message.Type as object ?? DBNull.Value);
                 parameters.Add(payloadParameter, message.Payload is null ? "{}" : JsonSerializer.Serialize(message.Payload));
@@ -75,6 +78,9 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
 
     public async Task<StoredMessage[]> ReadMessagesAsync(MessagesFilter filter, CancellationToken cancellationToken = default)
     {
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(cancellationToken);
+
         var sql = """
             SELECT id, date_time, type, payload, publisher_id, receiver_id
             FROM messages
@@ -123,6 +129,83 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
 
         return [.. result];
     }
+
+    /// <summary>
+    /// Returns chat messages between two users.
+    /// When <paramref name="sinceId"/> is null the most recent <paramref name="limit"/> messages
+    /// are returned (newest-first in SQL, then reversed to chronological order for the caller).
+    /// When <paramref name="sinceId"/> is provided, all newer messages up to <paramref name="limit"/>
+    /// are returned in ascending order — suitable for incremental polling.
+    /// </summary>
+    public async Task<StoredMessage[]> ReadChatHistoryAsync(
+        string userId,
+        string peerId,
+        long? sinceId = null,
+        int limit = 50,
+        CancellationToken cancellationToken = default)
+    {
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(cancellationToken);
+
+        string sql;
+        if (sinceId is null)
+        {
+            // Initial load: grab the most recent `limit` rows then flip them to chronological order.
+            sql = """
+                SELECT id, date_time, type, payload, publisher_id, receiver_id
+                FROM (
+                    SELECT id, date_time, type, payload, publisher_id, receiver_id
+                    FROM messages
+                    WHERE type = 'UserChat'
+                      AND (
+                            (publisher_id = @UserId  AND receiver_id = @PeerId)
+                         OR (publisher_id = @PeerId  AND receiver_id = @UserId)
+                          )
+                    ORDER BY id DESC
+                    LIMIT @Limit
+                ) sub
+                ORDER BY id ASC;
+                """;
+        }
+        else
+        {
+            // Incremental poll: everything newer than the watermark.
+            sql = """
+                SELECT id, date_time, type, payload, publisher_id, receiver_id
+                FROM messages
+                WHERE type = 'UserChat'
+                  AND id > @SinceId
+                  AND (
+                        (publisher_id = @UserId  AND receiver_id = @PeerId)
+                     OR (publisher_id = @PeerId  AND receiver_id = @UserId)
+                      )
+                ORDER BY id ASC
+                LIMIT @Limit;
+                """;
+        }
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("UserId", userId);
+        command.Parameters.AddWithValue("PeerId", peerId);
+        command.Parameters.AddWithValue("Limit", limit);
+        if (sinceId is not null)
+            command.Parameters.AddWithValue("SinceId", sinceId.Value);
+
+        var result = new List<StoredMessage>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            result.Add(new StoredMessage(
+                reader.GetInt64(0),
+                DateTime.SpecifyKind(reader.GetDateTime(1), DateTimeKind.Utc),
+                reader.GetString(2),
+                JsonSerializer.Deserialize<JsonElement>(reader.GetString(3)),
+                reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetString(5)));
+        }
+
+        return [.. result];
+    }
 }
 
 public record MessagesFilter(
@@ -137,7 +220,8 @@ public record MessageWriteEntry(
     JsonElement? Payload,
     string PublisherId,
     string? ReceiverId = null,
-    DateTime? DateTime = null);
+    DateTime? DateTime = null,
+    long? Id = null);
 
 public sealed record StoredMessage(
     long Id, DateTime DateTime, string Type, JsonElement Payload, string PublisherId, string? ReceiverId);

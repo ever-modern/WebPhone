@@ -1,9 +1,10 @@
 @{
-    var posClass = IsDocked ? "drawer--docked" : Position switch {
-        DrawerPosition.Right  => "drawer--right",
-        DrawerPosition.Top    => "drawer--top",
+    var posClass = IsDocked ? "drawer--docked" : Position switch
+    {
+        DrawerPosition.Right => "drawer--right",
+        DrawerPosition.Top => "drawer--top",
         DrawerPosition.Bottom => "drawer--bottom",
-        _                     => "drawer--left"
+        _ => "drawer--left"
     };
 }
 
@@ -37,8 +38,8 @@
 
     bool _open;
 
-    public void Open()   { if (!IsDocked) { _open = true;   StateHasChanged(); } }
-    public void Close()  { if (!IsDocked) { _open = false;  StateHasChanged(); } }
+    public void Open() { if (!IsDocked) { _open = true; StateHasChanged(); } }
+    public void Close() { if (!IsDocked) { _open = false; StateHasChanged(); } }
     public void Toggle() { if (!IsDocked) { _open = !_open; StateHasChanged(); } }
 
     public bool IsOpen => IsDocked || _open;

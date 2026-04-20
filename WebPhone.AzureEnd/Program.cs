@@ -17,12 +17,15 @@ builder.Services.AddScoped(sp =>
     var connectionString = configuration.GetValue<string>("WebPhoneDbConnectionString")
         ?? throw new InvalidOperationException("Postgres connection string is not configured.");
 
-    var connection = new NpgsqlConnection(connectionString);
-    connection.Open();
-    return connection;
+    // Do not open a DB connection in DI construction path.
+    // Opening here can block function-start coordination and cause HTTP trigger timeout
+    // before the invocation actually begins.
+    return new NpgsqlConnection(connectionString);
 });
 
 builder.Services.AddScoped<MessagesRepository>();
+builder.Services.AddScoped<ProfileSettingsRepository>();
+builder.Services.AddScoped<ContactSettingsRepository>();
 builder.Services.AddScoped<PushSubscriptionsRepository>();
 builder.Services.AddScoped<PushNotificationService>();
 

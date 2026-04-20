@@ -14,6 +14,9 @@ public sealed class PushSubscriptionsRepository(NpgsqlConnection connection)
 
     public async Task InsertOrUpdateAsync(string clientId, PushSubscriptionDto subscription, CancellationToken cancellationToken = default)
     {
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(cancellationToken);
+
         var endpoint = subscription.Endpoint;
         var p256dh = subscription.Keys?.P256dh;
         var auth = subscription.Keys?.Auth;
@@ -36,6 +39,9 @@ ON CONFLICT (client_id) DO UPDATE SET
 
     public async Task<bool> RemoveByEndpointAsync(string endpoint, CancellationToken cancellationToken = default)
     {
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(cancellationToken);
+
         var sql = "DELETE FROM push_subscriptions WHERE endpoint = @Endpoint;";
         var affected = await connection.ExecuteAsync(sql, new { Endpoint = endpoint });
         return affected > 0;
@@ -43,6 +49,9 @@ ON CONFLICT (client_id) DO UPDATE SET
 
     public async Task<IEnumerable<(string Endpoint, string? P256dh, string? Auth)>> GetByClientIdAsync(string clientId, CancellationToken cancellationToken = default)
     {
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(cancellationToken);
+
         var sql = "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE client_id = @ClientId;";
         var rows = await connection.QueryAsync(sql, new { ClientId = clientId });
         return rows.Select(r => ((string)r.endpoint, (string?)r.p256dh, (string?)r.auth));
@@ -50,6 +59,9 @@ ON CONFLICT (client_id) DO UPDATE SET
 
     public async Task<IEnumerable<(string Endpoint, string? P256dh, string? Auth)>> GetAllAsync(CancellationToken cancellationToken = default)
     {
+        if (connection.State != System.Data.ConnectionState.Open)
+            await connection.OpenAsync(cancellationToken);
+
         var sql = "SELECT endpoint, p256dh, auth FROM push_subscriptions;";
         var rows = await connection.QueryAsync(sql);
         return rows.Select(r => ((string)r.endpoint, (string?)r.p256dh, (string?)r.auth));

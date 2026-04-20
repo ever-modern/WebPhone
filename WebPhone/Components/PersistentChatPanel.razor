@@ -1,0 +1,190 @@
+@using WebPhone.Contract
+@using WebPhone.Services
+
+@implements IAsyncDisposable
+
+@inject ChatMessagesChannel ChatChannel
+@inject IJSRuntime JS
+
+<div class="pchat">
+    <div class="pchat-messages" @ref="_scrollContainer">
+        @if (_loading)
+        {
+            <p class="pchat-empty">Loading messages…</p>
+        }
+        else if (_messages.Count == 0)
+        {
+            <p class="pchat-empty">No messages yet. Say hello! 👋</p>
+        }
+        else
+        {
+            <Virtualize Items="_messages" Context="msg" ItemSize="72" OverscanCount="4" @ref="_virtualize">
+                <div class="pchat-message @(msg.IsOwn ? "pchat-own" : "pchat-peer")">
+                    <div class="pchat-bubble">@msg.Text</div>
+                    <div class="pchat-meta">@msg.SentAt.ToLocalTime().ToString("HH:mm")</div>
+                </div>
+            </Virtualize>
+        }
+    </div>
+
+    <div class="pchat-compose">
+        <input class="webrtc-input pchat-input"
+               type="text"
+               placeholder="Type a message…"
+               @bind="_draft"
+               @bind:event="oninput"
+               @onkeydown="HandleKeyDownAsync" />
+        <button class="webrtc-send-btn"
+                @onclick="HandleSendAsync"
+                disabled="@(!CanSend)"
+                title="Send">&#10148;</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string PeerId { get; set; } = "";
+
+    // ── State ──────────────────────────────────────────────────────────────
+    List<ChatMessageItem> _messages = [];
+    string _draft = string.Empty;
+    bool _loading = true;
+    bool _sending;
+    string _lastPeerId = string.Empty;
+
+    ElementReference _scrollContainer;
+    Virtualize<ChatMessageItem>? _virtualize;
+    CancellationTokenSource _cts = new();
+
+    bool CanSend => !string.IsNullOrWhiteSpace(_draft);
+
+    // ── Lifecycle ──────────────────────────────────────────────────────────
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (PeerId == _lastPeerId) return;
+        _lastPeerId = PeerId;
+
+        // Cancel previous peer's listener and reset state.
+        await _cts.CancelAsync();
+        _cts.Dispose();
+        _cts = new CancellationTokenSource();
+        _messages = [];
+        _draft = string.Empty;
+        _loading = true;
+
+        await LoadHistoryAsync();
+
+        // Listen for incoming messages in the background.
+        _ = ListenAsync(_cts.Token);
+    }
+
+    // ── Data ───────────────────────────────────────────────────────────────
+
+    async Task LoadHistoryAsync()
+    {
+        try
+        {
+            var history = await ChatChannel.GetHistoryAsync(PeerId, _cts.Token);
+            _messages = history.Select(Map).ToList();
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            _loading = false;
+            await InvokeAsync(StateHasChanged);
+            await ScrollToBottomAsync();
+        }
+    }
+
+    async Task ListenAsync(CancellationToken ct)
+    {
+        var reader = ChatChannel.Subscribe(PeerId);
+
+        await foreach (var dto in reader.ReadAllAsync(ct))
+        {
+            _messages.Add(Map(dto));
+            if (_virtualize is not null)
+                await _virtualize.RefreshDataAsync();
+            await InvokeAsync(StateHasChanged);
+            await ScrollToBottomAsync();
+        }
+    }
+
+    // ── Send ───────────────────────────────────────────────────────────────
+
+    async Task HandleSendAsync()
+    {
+        if (!CanSend) return;
+
+        var text = _draft.Trim();
+        _draft = string.Empty;
+        _sending = true;
+
+        try
+        {
+            var dto = await ChatChannel.SendAsync(PeerId, text, _cts.Token);
+            _messages.Add(Map(dto));
+
+            if (_virtualize is not null)
+                await _virtualize.RefreshDataAsync();
+
+            await InvokeAsync(StateHasChanged);
+            await ScrollToBottomAsync();
+        }
+        catch (OperationCanceledException) { }
+        catch
+        {
+            // Keep UI responsive even if send fails transiently.
+        }
+        finally
+        {
+            _sending = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    async Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+            await HandleSendAsync();
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+
+    string _myId = string.Empty;
+
+    protected override void OnInitialized()
+    {
+        // Cache own ID for IsOwn checks — profile is resolved at this point.
+    }
+
+    ChatMessageItem Map(ChatMessageDto dto)
+    {
+        if (string.IsNullOrEmpty(_myId))
+        {
+            // Lazily grab own ID from the first message or from peerId inference.
+            _myId = dto.SenderId == PeerId ? dto.RecipientId : dto.SenderId;
+        }
+
+        var isOwn = dto.SenderId != PeerId;
+        return new ChatMessageItem(dto.Id, dto.Text, dto.SentAt, isOwn);
+    }
+
+    async Task ScrollToBottomAsync()
+    {
+        try { await JS.InvokeVoidAsync("appInterop.scrollToBottom", _scrollContainer); }
+        catch { /* element may not exist yet */ }
+    }
+
+    // ── Disposal ───────────────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        await _cts.CancelAsync();
+        _cts.Dispose();
+    }
+
+    // ── View model ─────────────────────────────────────────────────────────
+
+    record ChatMessageItem(long Id, string Text, DateTime SentAt, bool IsOwn);
+}

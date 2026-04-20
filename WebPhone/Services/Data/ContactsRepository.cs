@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using EverModern.Events;
+using WebPhone.Contract;
 using WebPhone.Messages;
 using WebPhone.Services.Channels;
 
@@ -7,13 +8,12 @@ namespace WebPhone.Services.Data;
 
 public class ContactsRepository(
     IMessagesChannel messagesChannel,
-    ILocalStore localStore,
-    NicknamesRepository nicknamesRepository
+    BackendClient backendClient,
+    IProfile profile
 ) : IAsyncDisposable
 {
-    private const string FavoriteContactsStorageKey = "favorite-contacts";
     private readonly ConcurrentDictionary<string, Contact> _presences = [];
-    private readonly ConcurrentDictionary<string, string> _favorites = [];
+    private readonly ConcurrentDictionary<string, ContactSettingsDto> _contactSettings = [];
     private CancellationTokenSource? _cts;
     private Task? _readerTask;
 
@@ -24,16 +24,19 @@ public class ContactsRepository(
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        var favorites =
-            await localStore.GetAsync<List<FavoriteContact>>(
-                FavoriteContactsStorageKey,
-                cancellationToken
-            ) ?? [];
-        foreach (var f in favorites)
+        var all = await backendClient.GetAllContactSettingsAsync(cancellationToken);
+        _contactSettings.Clear();
+        foreach (var s in all)
         {
-            if (!string.IsNullOrWhiteSpace(f.Id))
-                _favorites[f.Id] = f.Name;
+            if (!string.IsNullOrWhiteSpace(s.ContactId))
+                _contactSettings[s.ContactId] = s;
         }
+
+        // Ensure user settings exist server-side (at least defaults) and keep name in sync.
+        var user = await backendClient.GetUserSettingsAsync(cancellationToken);
+        if (!string.Equals(user.Name, profile.User.Name, StringComparison.Ordinal))
+            await backendClient.UpsertUserSettingsAsync(user with { Name = profile.User.Name }, cancellationToken);
+
         RebuildContacts();
     }
 
@@ -49,17 +52,32 @@ public class ContactsRepository(
         CancellationToken cancellationToken = default
     )
     {
-        if (!_favorites.TryRemove(userId, out _))
-            _favorites[userId] = userName;
+        var current = _contactSettings.TryGetValue(userId, out var existing)
+            ? existing
+            : new ContactSettingsDto(profile.User.Id, userId, false, true, true, null);
 
-        await SaveFavoritesAsync(cancellationToken);
+        var updated = current with
+        {
+            IsFavourite = !current.IsFavourite,
+            // Keep a friendly display fallback so offline favourites don't render raw IDs.
+            Nickname = string.IsNullOrWhiteSpace(current.Nickname) ? userName : current.Nickname
+        };
+        _contactSettings[userId] = updated;
+        await backendClient.UpsertContactSettingsAsync(updated, cancellationToken);
         RebuildContacts();
         _stateChanged.Invoke();
     }
 
     public async Task SetNicknameAsync(string userId, string? nickname)
     {
-        await nicknamesRepository.SetNicknameAsync(userId, nickname);
+        var current = _contactSettings.TryGetValue(userId, out var existing)
+            ? existing
+            : new ContactSettingsDto(profile.User.Id, userId, false, true, true, null);
+
+        var updated = current with { Nickname = string.IsNullOrWhiteSpace(nickname) ? null : nickname.Trim() };
+        _contactSettings[userId] = updated;
+        await backendClient.UpsertContactSettingsAsync(updated);
+        RebuildContacts();
         _stateChanged.Invoke();
     }
 
@@ -72,7 +90,8 @@ public class ContactsRepository(
             if (payload is null)
                 continue;
 
-            var nickname = nicknamesRepository.GetNickname(message.SenderClientId);
+            _contactSettings.TryGetValue(message.SenderClientId, out var settings);
+            var nickname = settings?.Nickname;
 
             var prev = _presences.TryGetValue(message.SenderClientId, out var existing)
                 ? existing
@@ -82,7 +101,7 @@ public class ContactsRepository(
                 Id: message.SenderClientId,
                 Name: payload.Payload.Name,
                 LastSeen: DateTimeOffset.UtcNow,
-                IsFavorite: _favorites.ContainsKey(message.SenderClientId),
+                IsFavorite: settings?.IsFavourite ?? false,
                 Nickname: nickname
             );
 
@@ -107,20 +126,25 @@ public class ContactsRepository(
 
     private void RebuildContacts()
     {
-        var merged = new Dictionary<string, Contact>(_presences.Count + _favorites.Count);
+        var merged = new Dictionary<string, Contact>(_presences.Count + _contactSettings.Count);
 
         foreach (var (id, contact) in _presences)
-            merged[id] = contact with { IsFavorite = _favorites.ContainsKey(id) };
-
-        foreach (var (id, name) in _favorites.Where(f => merged.ContainsKey(f.Key) is false))
         {
-            var nickname = nicknamesRepository.GetNickname(id);
+            _contactSettings.TryGetValue(id, out var setting);
+            merged[id] = contact with { IsFavorite = setting?.IsFavourite ?? false, Nickname = setting?.Nickname };
+        }
+
+        foreach (var (id, setting) in _contactSettings.Where(f => merged.ContainsKey(f.Key) is false))
+        {
+            if (!setting.IsFavourite && string.IsNullOrWhiteSpace(setting.Nickname))
+                continue;
+
             merged[id] = new Contact(
                 id,
-                name,
+                setting.Nickname ?? "Contact",
                 DateTimeOffset.MinValue,
-                true,
-                nickname
+                setting.IsFavourite,
+                setting.Nickname
             );
         }
 
@@ -132,12 +156,6 @@ public class ContactsRepository(
                 .ThenBy(v => v.Nickname)
                 .ThenBy(v => v.Name),
         ];
-    }
-
-    private async Task SaveFavoritesAsync(CancellationToken cancellationToken = default)
-    {
-        var list = _favorites.Select(x => new FavoriteContact(x.Key, x.Value)).ToList();
-        await localStore.SetAsync(FavoriteContactsStorageKey, list, cancellationToken);
     }
 
     public async ValueTask DisposeAsync()
