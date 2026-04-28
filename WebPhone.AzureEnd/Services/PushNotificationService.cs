@@ -45,6 +45,12 @@ public class PushNotificationService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to push to endpoint {Endpoint}", endpoint);
+                if (ex is WebPush.WebPushException wpe)
+                {
+                    var statusCode = (int)wpe.StatusCode;
+                    if (statusCode is 404 or 410)
+                        await _subscriptions.RemoveByEndpointAsync(endpoint, cancellationToken);
+                }
             }
         }
         return anySuccess;

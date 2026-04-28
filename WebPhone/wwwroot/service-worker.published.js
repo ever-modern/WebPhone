@@ -69,13 +69,69 @@ async function onFetch(event) {
         cachedResponse = await cache.match(request);
     }
 
-    return cachedResponse || fetch(event.request);
+    if (cachedResponse) {
+        return cachedResponse;
+    }
+
+    try {
+        return await fetch(event.request);
+    } catch {
+        // Never reject fetch event promise: return offline shell for navigations.
+        if (event.request.mode === 'navigate') {
+            const cache = await caches.open(cacheName);
+            const offlineShell = await cache.match('index.html');
+            if (offlineShell) return offlineShell;
+        }
+
+        return new Response('', { status: 503, statusText: 'Service Unavailable' });
+    }
 }
 
 async function onPush(event) {
-    const data = event.data?.text() || 'No payload';
+    const raw = event.data?.text() || '';
+    let title = 'WebPhone';
+    let body = 'You have a new notification.';
+    let data = { url: '/' };
 
-    await self.registration.showNotification('Push Message', {
-        body: data
-    });
+    if (raw) {
+        try {
+            const payload = JSON.parse(raw);
+            if (payload?.type === 'chat') {
+                title = `Message from ${payload.from || 'Unknown'}`;
+                body = payload.text || '';
+                data = { url: '/', ...payload };
+            } else {
+                title = payload?.title || 'WebPhone';
+                body = payload?.body || raw;
+                data = { url: '/', ...payload };
+            }
+        } catch {
+            body = raw;
+        }
+    }
+
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const hasFocusedClient = clients.some(c => c.focused);
+    if (!hasFocusedClient) {
+        await self.registration.showNotification(title, {
+            body,
+            data,
+            tag: data?.type === 'chat' ? `chat-${data?.from || 'unknown'}` : undefined
+        });
+    }
 }
+
+self.addEventListener('notificationclick', event => {
+    event.notification.close();
+    const targetUrl = event.notification?.data?.url || '/';
+
+    event.waitUntil((async () => {
+        const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+        const existing = clients.find(c => c.url.includes(self.location.origin));
+        if (existing) {
+            await existing.focus();
+            return;
+        }
+        await self.clients.openWindow(targetUrl);
+    })());
+});
