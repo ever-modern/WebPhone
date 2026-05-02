@@ -1,4 +1,5 @@
 using EverModern.Events;
+using Microsoft.Extensions.Logging;
 using WebPhone.Messages;
 using WebPhone.Services.Channels;
 

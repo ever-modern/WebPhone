@@ -1,34 +1,19 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+<Project Sdk="Microsoft.NET.Sdk.Razor">
 
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
-		<OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
-		<ServiceWorkerAssetsManifest>service-worker-assets.js</ServiceWorkerAssetsManifest>
 	</PropertyGroup>
 
+
 	<ItemGroup>
-		
-		<PackageReference Include="EverModern.WheelProtection.DataStructures" Version="0.0.12" />
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.4" />
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.4" PrivateAssets="all" />
+		<SupportedPlatform Include="browser" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\EverModern.Blazor.DirectCommunication\EverModern.Blazor.DirectCommunication.csproj" />
-		<ProjectReference Include="..\WebPhone.Contract\WebPhone.Contract.csproj" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.6" />
 	</ItemGroup>
-
-	<ItemGroup>
-		<ServiceWorker Include="wwwroot\service-worker.js" PublishedContent="wwwroot\service-worker.published.js" />
-	</ItemGroup>
-
-	<ItemGroup>
-		<Folder Include="netlify\" />
-		<Folder Include="Properties\PublishProfiles\" />
-	</ItemGroup>
-
 
 	<PropertyGroup>
 		<BuildDate>$([System.DateTime]::UtcNow.ToString("yyyy.MM.dd HH:mm:ss"))</BuildDate>
@@ -37,4 +22,14 @@
 	<ItemGroup>
 		<AssemblyMetadata Include="BuildDate" Value="$(BuildDate)" />
 	</ItemGroup>
+
+	<ItemGroup>
+	  <ProjectReference Include="..\EverModern.Blazor.DirectCommunication\EverModern.Blazor.DirectCommunication.csproj" />
+	  <ProjectReference Include="..\WebPhone.Contract\WebPhone.Contract.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.6" />
+	</ItemGroup>
+
 </Project>
