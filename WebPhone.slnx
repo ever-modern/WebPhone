@@ -1,7 +1,7 @@
 <Solution>
   <Folder Name="/Solution items/" />
   <Project Path="EverModern.Blazor.DirectCommunication/EverModern.Blazor.DirectCommunication.csproj" />
-  <Project Path="WebPhone.Android/WebPhone.Android.csproj" Id="02567dc8-72e4-4a2a-840c-b8f5d9b537e2" />
+  <Project Path="WebPhone.Mobile/WebPhone.Mobile.csproj" Id="02567dc8-72e4-4a2a-840c-b8f5d9b537e2" />
   <Project Path="WebPhone.AzureEnd/WebPhone.AzureEnd.csproj" Id="a51520e7-0866-42ba-9d91-6b66e2524e4a" />
   <Project Path="WebPhone.Contract/WebPhone.Contract.csproj" Id="031d1bef-7968-400e-bcc3-80a6ca845f5e">
     <Build Solution="Debug|*" Project="false" />
