@@ -1,10 +1,10 @@
 using System.Threading;
 using System.Threading.Tasks;
-using WebPhone.AzureEnd.Storage;
+using WebPhone.Backend.Storage;
 using Microsoft.Extensions.Logging;
 using WebPhone.Contract;
 
-namespace WebPhone.AzureEnd.Services;
+namespace WebPhone.Backend.Services;
 
 public class PushNotificationService
 {

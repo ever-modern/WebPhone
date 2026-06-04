@@ -1,8 +1,8 @@
 ﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
-using WebPhone.AzureEnd.Services;
-using WebPhone.AzureEnd.Storage;
+using WebPhone.Backend.Actions;
+using WebPhone.Backend.Storage;
 
 namespace WebPhone.Backend.Services;
 
@@ -27,6 +27,16 @@ public static class ServicesConfiguration
         services.AddScoped<ContactSettingsRepository>();
         services.AddScoped<PushSubscriptionsRepository>();
         services.AddScoped<PushNotificationService>();
+
+        services.AddScoped<ExchangeApiAction>();
+        services.AddScoped<NotifyApiAction>();
+        services.AddScoped<SubscriptionApiAction>();
+        services.AddScoped<GetProfileSettingsApiAction>();
+        services.AddScoped<UpsertProfileSettingsApiAction>();
+        services.AddScoped<GetContactSettingsApiAction>();
+        services.AddScoped<UpsertContactSettingsApiAction>();
+        services.AddScoped<SendChatApiAction>();
+        services.AddScoped<GetChatMessagesApiAction>();
 
         return services;
     }

@@ -1,4 +1,4 @@
-namespace WebPhone.AzureEnd;
+namespace WebPhone.Backend;
 
 public static partial class VapidKeys
 {

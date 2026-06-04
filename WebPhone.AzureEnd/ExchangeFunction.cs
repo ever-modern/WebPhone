@@ -3,16 +3,14 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
-using WebPhone.AzureEnd.Services;
-using WebPhone.AzureEnd.Storage;
+using WebPhone.Backend.Actions;
 using WebPhone.Contract;
 
 namespace WebPhone.AzureEnd;
 
 public sealed class ExchangeFunction(
     ILogger<ExchangeFunction> logger,
-    MessagesRepository repository,
-    PushNotificationService pushNotificationService
+    ExchangeApiAction action
 )
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -45,38 +43,12 @@ public sealed class ExchangeFunction(
             cancellationToken
         );
 
-        var now = DateTime.UtcNow;
+        if (request is null)
+        {
+            return FunctionCors.BuildResult(new BadRequestObjectResult("Missing request body"), "POST, OPTIONS");
+        }
 
-        await repository.WriteMessagesAsync([
-            .. request.Messages?.Select(m => new MessageWriteEntry(
-                m.Type,
-                m.Payload,
-                clientId,
-                m.TargetClientId,
-                now
-            )) ?? [],
-        ]);
-
-        var relevantMessages = await repository.ReadMessagesAsync(
-            new MessagesFilter(
-                ReceiverId: clientId,
-                SinceId: request.MessagesSinceId,
-                ExcludedIds: [clientId]
-            ),
-            cancellationToken
-        );
-
-        var response = new ExchangeResponse(
-            [
-                .. relevantMessages.Select(m => new MessageResponse(
-                    m.Id,
-                    m.PublisherId,
-                    m.Type,
-                    m.DateTime,
-                    m.Payload
-                )),
-            ]
-        );
+        var response = await action.ExecuteAsync(new ExchangeActionInput(clientId, request), cancellationToken);
 
         return FunctionCors.BuildResult(new ObjectResult(response), "POST, OPTIONS");
     }

@@ -2,12 +2,12 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using System.Text.Json;
-using WebPhone.AzureEnd.Services;
+using WebPhone.Backend.Actions;
 using WebPhone.Contract;
 
 namespace WebPhone.AzureEnd;
 
-public sealed class NotifyFunction(PushNotificationService pushNotificationService)
+public sealed class NotifyFunction(NotifyApiAction action)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -40,16 +40,8 @@ public sealed class NotifyFunction(PushNotificationService pushNotificationServi
             return new BadRequestObjectResult("Invalid notify payload");
         }
 
-        var targetClientId = string.IsNullOrWhiteSpace(notifyRequest?.TargetClientId)
-            ? senderClientId
-            : notifyRequest.TargetClientId;
+        var result = await action.ExecuteAsync(new NotifyActionInput(senderClientId, notifyRequest), cancellationToken);
 
-        var message = string.IsNullOrWhiteSpace(notifyRequest?.Message)
-            ? $"Notification from {senderClientId}."
-            : notifyRequest.Message;
-
-        var sent = await pushNotificationService.PushToClientAsync(targetClientId!, message, cancellationToken);
-
-        return FunctionCors.BuildResult(new OkObjectResult(new { success = sent, targetClientId }), "POST, OPTIONS");
+        return FunctionCors.BuildResult(new OkObjectResult(new { success = result.Success, targetClientId = result.TargetClientId }), "POST, OPTIONS");
     }
 }

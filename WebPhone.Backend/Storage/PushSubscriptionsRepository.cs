@@ -1,7 +1,7 @@
 using Dapper;
 using Npgsql;
 
-namespace WebPhone.AzureEnd.Storage;
+namespace WebPhone.Backend.Storage;
 
 public sealed record PushSubscriptionKeys(string? P256dh, string? Auth);
 

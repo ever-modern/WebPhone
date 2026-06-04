@@ -40,7 +40,7 @@ public static class ApplicationConfiguration
             var options = sp.GetRequiredService<PhoneOptions>();
             var baseUrl = options.ExternalChannelBaseUrl;
 #if DEBUG
-            baseUrl = "http://localhost:7272";
+            baseUrl = "http://localhost:5194";
 #endif
             var externalChannelBaseUrl = new BackendClient(baseUrl, profile);
             return externalChannelBaseUrl;

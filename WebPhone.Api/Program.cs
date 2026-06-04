@@ -1,41 +1,216 @@
+using Microsoft.AspNetCore.Http.HttpResults;
+using WebPhone.Backend.Actions;
+using WebPhone.Backend.Services;
+using WebPhone.Backend.Storage;
+using WebPhone.Contract;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.ConfigureWebPhoneBackendServices();
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
+});
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+app.UseCors();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+static string? RequireClientId(HttpRequest req) => req.Headers["X-Client-Id"].FirstOrDefault();
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast = Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+app.MapPost(
+    "/exchange",
+    async Task<Results<BadRequest<string>, Ok<ExchangeResponse>>> (
+        HttpRequest req,
+        ExchangeRequest request,
+        ExchangeApiAction action,
+        CancellationToken ct
+    ) =>
+    {
+        var clientId = RequireClientId(req);
+        if (string.IsNullOrWhiteSpace(clientId))
+            return TypedResults.BadRequest("Missing X-Client-Id header");
+
+        var response = await action.ExecuteAsync(new ExchangeActionInput(clientId, request), ct);
+        return TypedResults.Ok(response);
+    }
+);
+
+app.MapPost(
+    "/notify",
+    async Task<IResult> (
+        HttpRequest req,
+        NotifyRequest request,
+        NotifyApiAction action,
+        CancellationToken ct
+    ) =>
+    {
+        var senderClientId = RequireClientId(req);
+        if (string.IsNullOrWhiteSpace(senderClientId))
+            return TypedResults.BadRequest("Missing X-Client-Id header");
+
+        var result = await action.ExecuteAsync(new NotifyActionInput(senderClientId, request), ct);
+        return TypedResults.Ok(
+            new { success = result.Success, targetClientId = result.TargetClientId }
+        );
+    }
+);
+
+app.MapPost(
+    "/subscribe-for-push",
+    async Task<IResult> (
+        HttpRequest req,
+        PushSubscriptionDto subscription,
+        SubscriptionApiAction action,
+        CancellationToken ct
+    ) =>
+    {
+        var clientId = RequireClientId(req);
+        if (string.IsNullOrWhiteSpace(clientId))
+            return TypedResults.BadRequest("Missing X-Client-Id header");
+
+        if (string.IsNullOrWhiteSpace(subscription.Endpoint))
+            return TypedResults.BadRequest("Missing required subscription fields");
+
+        var result = await action.ExecuteAsync(
+            new SubscriptionActionInput(clientId, subscription),
+            ct
+        );
+        return TypedResults.Ok(new { success = result.Success });
+    }
+);
+
+app.MapGet(
+    "/profiles",
+    async Task<Results<BadRequest<string>, Ok<UserSettingsDto>>> (
+        HttpRequest req,
+        GetProfileSettingsApiAction action,
+        CancellationToken ct
+    ) =>
+    {
+        var ownerId = RequireClientId(req);
+        if (string.IsNullOrWhiteSpace(ownerId))
+            return TypedResults.BadRequest("Missing X-Client-Id header");
+
+        var result = await action.ExecuteAsync(new GetProfileSettingsInput(ownerId), ct);
+        return TypedResults.Ok(result);
+    }
+);
+
+app.MapPost(
+    "/profiles",
+    async Task<IResult> (
+        HttpRequest req,
+        UserSettingsDto body,
+        UpsertProfileSettingsApiAction action,
+        CancellationToken ct
+    ) =>
+    {
+        var ownerId = RequireClientId(req);
+        if (string.IsNullOrWhiteSpace(ownerId))
+            return TypedResults.BadRequest("Missing X-Client-Id header");
+
+        await action.ExecuteAsync(new UpsertProfileSettingsInput(ownerId, body), ct);
+        return TypedResults.Ok(new { success = true });
+    }
+);
+
+app.MapGet(
+    "/contacts",
+    async Task<IResult> (
+        HttpRequest req,
+        GetContactSettingsApiAction action,
+        CancellationToken ct
+    ) =>
+    {
+        var ownerId = RequireClientId(req);
+        if (string.IsNullOrWhiteSpace(ownerId))
+            return TypedResults.BadRequest("Missing X-Client-Id header");
+
+        var contactId = req.Query["contactId"].FirstOrDefault();
+        var result = await action.ExecuteAsync(new GetContactSettingsInput(ownerId, contactId), ct);
+        return TypedResults.Ok(result);
+    }
+);
+
+app.MapPost(
+    "/contacts",
+    async Task<IResult> (
+        HttpRequest req,
+        ContactSettingsDto body,
+        UpsertContactSettingsApiAction action,
+        CancellationToken ct
+    ) =>
+    {
+        var ownerId = RequireClientId(req);
+        if (string.IsNullOrWhiteSpace(ownerId))
+            return TypedResults.BadRequest("Missing X-Client-Id header");
+
+        if (string.IsNullOrWhiteSpace(body.ContactId))
+            return TypedResults.BadRequest("contactId is required");
+
+        await action.ExecuteAsync(new UpsertContactSettingsInput(ownerId, body), ct);
+        return TypedResults.Ok(new { success = true });
+    }
+);
+
+app.MapPost(
+    "/chat/send",
+    async Task<Results<BadRequest<string>, Ok<ChatMessageDto>>> (
+        HttpRequest req,
+        ChatSendRequest request,
+        SendChatApiAction action,
+        CancellationToken ct
+    ) =>
+    {
+        var clientId = RequireClientId(req);
+        if (string.IsNullOrWhiteSpace(clientId))
+            return TypedResults.BadRequest("Missing X-Client-Id header");
+
+        if (
+            string.IsNullOrWhiteSpace(request.Text)
+            || string.IsNullOrWhiteSpace(request.RecipientId)
+        )
+            return TypedResults.BadRequest("text and recipientId are required");
+
+        var result = await action.ExecuteAsync(new SendChatInput(clientId, request), ct);
+        return TypedResults.Ok(result);
+    }
+);
+
+app.MapGet(
+    "/chat/messages",
+    async Task<Results<BadRequest<string>, Ok<ChatMessageDto[]>>> (
+        HttpRequest req,
+        GetChatMessagesApiAction action,
+        CancellationToken ct
+    ) =>
+    {
+        var clientId = RequireClientId(req);
+        if (string.IsNullOrWhiteSpace(clientId))
+            return TypedResults.BadRequest("Missing X-Client-Id header");
+
+        var peerId = req.Query["peerId"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(peerId))
+            return TypedResults.BadRequest("peerId query param is required");
+
+        long? sinceId =
+            long.TryParse(req.Query["sinceId"].FirstOrDefault(), out var parsed) && parsed > 0
+                ? parsed
+                : null;
+
+        var result = await action.ExecuteAsync(
+            new GetChatMessagesInput(clientId, peerId, sinceId),
+            ct
+        );
+        return TypedResults.Ok(result);
+    }
+);
 
 app.Run();
-
-internal record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

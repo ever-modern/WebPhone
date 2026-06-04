@@ -2,22 +2,15 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
-using Microsoft.Extensions.Logging;
-using WebPhone.AzureEnd.Services;
-using WebPhone.AzureEnd.Storage;
+using WebPhone.Backend.Actions;
 using WebPhone.Contract;
 
 namespace WebPhone.AzureEnd;
 
 public sealed class ChatFunction(
-    ILogger<ChatFunction> logger,
-    MessagesRepository repository,
-    PushNotificationService pushNotificationService,
-    ProfileSettingsRepository userSettingsRepository,
-    ContactSettingsRepository contactSettingsRepository)
+    SendChatApiAction sendChatAction,
+    GetChatMessagesApiAction getChatMessagesAction)
 {
-    private const string ChatMessageType = "UserChat";
-
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true,
@@ -52,43 +45,9 @@ public sealed class ChatFunction(
         if (request is null || string.IsNullOrWhiteSpace(request.Text) || string.IsNullOrWhiteSpace(request.RecipientId))
             return FunctionCors.BuildResult(new BadRequestObjectResult("text and recipientId are required"), "POST, OPTIONS");
 
-        var payload = JsonSerializer.SerializeToElement(new { text = request.Text }, JsonOptions);
-        var sentAt = DateTime.UtcNow;
-        var messageId = CommonIdsGenerator.NewId();
-
-        // Write through the existing repository infrastructure.
-        await repository.WriteMessagesAsync(
-        [
-            new MessageWriteEntry(ChatMessageType, payload, clientId, request.RecipientId, sentAt, messageId)
-        ], cancellationToken: req.HttpContext.RequestAborted);
-
-        // We generated the message ID, so we can return a deterministic DTO immediately.
-        var dto = new ChatMessageDto(messageId, clientId, request.RecipientId, request.Text, sentAt);
-
-        // Push notification eligibility
-        // 1) recipient global settings must allow message notifications
-        // 2) if recipient does not allow everyone, sender must be explicitly allowed on contact settings
-        // 3) contact-level notify_messages must be true
-        var userSettings = await userSettingsRepository.GetAsync(request.RecipientId, req.HttpContext.RequestAborted);
-        var contactSettings = await contactSettingsRepository.GetAsync(request.RecipientId, clientId, req.HttpContext.RequestAborted);
-        var shouldNotify = userSettings.NotifyMessages
-            && (userSettings.NotifyFromEveryone || contactSettings.NotifyMessages);
-
-        if (shouldNotify)
-        {
-            var pushPayload = JsonSerializer.Serialize(new
-            {
-                type = "chat",
-                from = clientId,
-                text = request.Text,
-                sentAt = sentAt
-            });
-
-            _ = pushNotificationService.PushToClientAsync(request.RecipientId, pushPayload, req.HttpContext.RequestAborted);
-        }
-
-        logger.LogInformation("[CHAT] {From} → {To}: {Preview}, push={Push}",
-            clientId, request.RecipientId, request.Text[..Math.Min(request.Text.Length, 60)], shouldNotify);
+        var dto = await sendChatAction.ExecuteAsync(
+            new SendChatInput(clientId, request),
+            req.HttpContext.RequestAborted);
 
 
         return FunctionCors.BuildResult(new OkObjectResult(dto), "POST, OPTIONS");
@@ -117,22 +76,10 @@ public sealed class ChatFunction(
             ? parsed
             : null;
 
-        var messages = await repository.ReadChatHistoryAsync(
-            clientId, peerId,
-            sinceId: sinceId,
-            limit: 50,
-            cancellationToken: req.HttpContext.RequestAborted);
-
-        var dtos = messages.Select(ToDto).ToArray();
+        var dtos = await getChatMessagesAction.ExecuteAsync(
+            new GetChatMessagesInput(clientId, peerId, sinceId),
+            req.HttpContext.RequestAborted);
 
         return FunctionCors.BuildResult(new OkObjectResult(dtos), "GET, OPTIONS");
-    }
-
-    // ── Helpers ────────────────────────────────────────────────────────────
-
-    private static ChatMessageDto ToDto(StoredMessage m)
-    {
-        var text = m.Payload.TryGetProperty("text", out var t) ? t.GetString() ?? string.Empty : string.Empty;
-        return new ChatMessageDto(m.Id, m.PublisherId, m.ReceiverId ?? string.Empty, text, m.DateTime);
     }
 }

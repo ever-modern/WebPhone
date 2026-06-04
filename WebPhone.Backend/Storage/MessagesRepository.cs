@@ -3,7 +3,7 @@ using Dapper;
 using Npgsql;
 using WebPhone.Contract;
 
-namespace WebPhone.AzureEnd.Storage;
+namespace WebPhone.Backend.Storage;
 
 public sealed class MessagesRepository(NpgsqlConnection connection)
 {

@@ -2,14 +2,16 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
-using WebPhone.AzureEnd.Storage;
+using WebPhone.Backend.Actions;
 using WebPhone.Contract;
 
 namespace WebPhone.AzureEnd;
 
 public sealed class SettingsFunction(
-    ProfileSettingsRepository userSettingsRepository,
-    ContactSettingsRepository contactSettingsRepository)
+    GetProfileSettingsApiAction getProfileSettingsAction,
+    UpsertProfileSettingsApiAction upsertProfileSettingsAction,
+    GetContactSettingsApiAction getContactSettingsAction,
+    UpsertContactSettingsApiAction upsertContactSettingsAction)
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -29,7 +31,7 @@ public sealed class SettingsFunction(
 
         if (HttpMethods.IsGet(req.Method))
         {
-            var result = await userSettingsRepository.GetAsync(ownerId, req.HttpContext.RequestAborted);
+            var result = await getProfileSettingsAction.ExecuteAsync(new GetProfileSettingsInput(ownerId), req.HttpContext.RequestAborted);
             return FunctionCors.BuildResult(new OkObjectResult(result), "GET, POST, OPTIONS");
         }
 
@@ -49,7 +51,7 @@ public sealed class SettingsFunction(
         if (body is null)
             return FunctionCors.BuildResult(new BadRequestObjectResult("Missing request body"), "GET, POST, OPTIONS");
 
-        await userSettingsRepository.UpsertAsync(ownerId, body, req.HttpContext.RequestAborted);
+        await upsertProfileSettingsAction.ExecuteAsync(new UpsertProfileSettingsInput(ownerId, body), req.HttpContext.RequestAborted);
         return FunctionCors.BuildResult(new OkObjectResult(new { success = true }), "GET, POST, OPTIONS");
     }
 
@@ -67,13 +69,7 @@ public sealed class SettingsFunction(
         if (HttpMethods.IsGet(req.Method))
         {
             var contactId = req.Query["contactId"].FirstOrDefault();
-            if (string.IsNullOrWhiteSpace(contactId))
-            {
-                var all = await contactSettingsRepository.GetByOwnerAsync(ownerId, req.HttpContext.RequestAborted);
-                return FunctionCors.BuildResult(new OkObjectResult(all), "GET, POST, OPTIONS");
-            }
-
-            var result = await contactSettingsRepository.GetAsync(ownerId, contactId, req.HttpContext.RequestAborted);
+            var result = await getContactSettingsAction.ExecuteAsync(new GetContactSettingsInput(ownerId, contactId), req.HttpContext.RequestAborted);
             return FunctionCors.BuildResult(new OkObjectResult(result), "GET, POST, OPTIONS");
         }
 
@@ -93,9 +89,7 @@ public sealed class SettingsFunction(
         if (body is null || string.IsNullOrWhiteSpace(body.ContactId))
             return FunctionCors.BuildResult(new BadRequestObjectResult("contactId is required"), "GET, POST, OPTIONS");
 
-        // Owner is always authenticated via X-Client-Id; ignore spoofed owner in payload.
-        var normalized = body with { OwnerId = ownerId };
-        await contactSettingsRepository.UpsertAsync(normalized, req.HttpContext.RequestAborted);
+        await upsertContactSettingsAction.ExecuteAsync(new UpsertContactSettingsInput(ownerId, body), req.HttpContext.RequestAborted);
 
         return FunctionCors.BuildResult(new OkObjectResult(new { success = true }), "GET, POST, OPTIONS");
     }

@@ -12,13 +12,13 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
     };
 
     readonly HttpClient _httpClient = new();
-    readonly string _exchangeEndpoint = $"{baseUrl.TrimEnd('/')}/api/exchange";
-    readonly string _pushSubscriptionEndpoint = $"{baseUrl.TrimEnd('/')}/api/subscribe-for-push";
-    readonly string _notifyEndpoint = $"{baseUrl.TrimEnd('/')}/api/notify";
-    readonly string _chatSendEndpoint = $"{baseUrl.TrimEnd('/')}/api/chat/send";
-    readonly string _chatMessagesEndpoint = $"{baseUrl.TrimEnd('/')}/api/chat/messages";
-    readonly string _profileSettingsEndpoint = $"{baseUrl.TrimEnd('/')}/api/profiles";
-    readonly string _contactSettingsEndpoint = $"{baseUrl.TrimEnd('/')}/api/contacts";
+    readonly string _exchangeEndpoint = $"{baseUrl.TrimEnd('/')}/exchange";
+    readonly string _pushSubscriptionEndpoint = $"{baseUrl.TrimEnd('/')}/subscribe-for-push";
+    readonly string _notifyEndpoint = $"{baseUrl.TrimEnd('/')}/notify";
+    readonly string _chatSendEndpoint = $"{baseUrl.TrimEnd('/')}/chat/send";
+    readonly string _chatMessagesEndpoint = $"{baseUrl.TrimEnd('/')}/chat/messages";
+    readonly string _profileSettingsEndpoint = $"{baseUrl.TrimEnd('/')}/profiles";
+    readonly string _contactSettingsEndpoint = $"{baseUrl.TrimEnd('/')}/contacts";
 
     public async Task<ExchangeResponse> ExchangeAsync(
         MessageRequest[] outgoingMessages,

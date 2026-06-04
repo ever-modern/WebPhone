@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
-using WebPhone.AzureEnd.Storage;
-using WebPhone.Contract;
+using WebPhone.Backend.Actions;
+using WebPhone.Backend.Storage;
 
 namespace WebPhone.AzureEnd;
 
-public sealed class SubscriptionFunction(PushSubscriptionsRepository subscriptions)
+public sealed class SubscriptionFunction(SubscriptionApiAction action)
 {
     static readonly System.Text.Json.JsonSerializerOptions _jsonOptions = new(System.Text.Json.JsonSerializerDefaults.Web)
     {
@@ -48,8 +48,8 @@ public sealed class SubscriptionFunction(PushSubscriptionsRepository subscriptio
         {
             return new BadRequestObjectResult("Missing required subscription fields");
         }
-        await subscriptions.InsertOrUpdateAsync(clientId, subscription, cancellationToken);
-        return new OkObjectResult(new { success = true });
+        var result = await action.ExecuteAsync(new SubscriptionActionInput(clientId, subscription), cancellationToken);
+        return new OkObjectResult(new { success = result.Success });
 
     }
 }
