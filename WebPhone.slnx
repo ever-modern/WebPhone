@@ -1,11 +1,15 @@
 <Solution>
+  <Folder Name="/Backend/">
+    <Project Path="WebPhone.Api/WebPhone.Api.csproj" Id="29ede829-939d-4d2e-b469-362c7057063b" />
+    <Project Path="WebPhone.AzureEnd/WebPhone.AzureEnd.csproj" Id="a51520e7-0866-42ba-9d91-6b66e2524e4a" />
+    <Project Path="WebPhone.Backend/WebPhone.Backend.csproj" Id="f810f846-d863-4e66-88b7-b368a5bd469d" />
+  </Folder>
   <Folder Name="/Solution items/" />
   <Project Path="EverModern.Blazor.DirectCommunication/EverModern.Blazor.DirectCommunication.csproj" />
-  <Project Path="WebPhone.Mobile/WebPhone.Mobile.csproj" Id="02567dc8-72e4-4a2a-840c-b8f5d9b537e2" />
-  <Project Path="WebPhone.AzureEnd/WebPhone.AzureEnd.csproj" Id="a51520e7-0866-42ba-9d91-6b66e2524e4a" />
   <Project Path="WebPhone.Contract/WebPhone.Contract.csproj" Id="031d1bef-7968-400e-bcc3-80a6ca845f5e">
     <Build Solution="Debug|*" Project="false" />
   </Project>
+  <Project Path="WebPhone.Mobile/WebPhone.Mobile.csproj" Id="02567dc8-72e4-4a2a-840c-b8f5d9b537e2" />
   <Project Path="WebPhone.Web/WebPhone.Web.csproj" />
   <Project Path="WebPhone/WebPhone.csproj" Id="8cb35cef-88a1-4bb0-8c4a-341f06dd33a9" />
 </Solution>

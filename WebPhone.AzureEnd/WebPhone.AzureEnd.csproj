@@ -1,33 +1,26 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <AzureFunctionsVersion>v4</AzureFunctionsVersion>
-    <OutputType>Exe</OutputType>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<AzureFunctionsVersion>v4</AzureFunctionsVersion>
+		<OutputType>Exe</OutputType>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
-    <PackageReference Include="Dapper" Version="2.1.42" />
-	  <PackageReference Include="EverModern.WheelProtection.DataStructures" Version="0.0.12" />
-    <PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="3.0.0" />
-    <PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.51.0" />
-    <PackageReference Include="Microsoft.Azure.Functions.Worker.ApplicationInsights" Version="2.50.0" />
-    <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.0" />
-    <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
-    <PackageReference Include="Npgsql" Version="8.0.6" />
-    <PackageReference Include="WebPush" Version="1.0.12" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\WebPhone.Contract\WebPhone.Contract.csproj" />
-  </ItemGroup>
+	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+		<PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="3.0.0" />
+		<PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.51.0" />
+		<PackageReference Include="Microsoft.Azure.Functions.Worker.ApplicationInsights" Version="2.50.0" />
+		<PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.0" />
+		<PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
+	</ItemGroup>
 
-  <!-- Keep PostgreSQL helper scripts in repo, but never treat them as build inputs. -->
-  <ItemGroup>
-    <None Remove="Database\*.psql" />
-    <Content Include="Database\*.psql" CopyToOutputDirectory="Never" />
-  </ItemGroup>
+	<ItemGroup>
+	  <ProjectReference Include="..\WebPhone.Backend\WebPhone.Backend.csproj" />
+	</ItemGroup>
+
+	<!-- Keep PostgreSQL helper scripts in repo, but never treat them as build inputs. -->
 
 </Project>

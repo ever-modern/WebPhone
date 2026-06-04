@@ -332,7 +332,7 @@ public sealed class ContactsDispatcher(
             {
                 Connect = null,
                 SendMessage = text => SendUserMessage(contact.Id, text),
-                CancelCall = context.Manager.EndCall,
+                CancelCall = () => _ = context.Manager.EndCall(),
                 Disconnect = () => _ = context.Manager.DisconnectAsync(),
             }
         );

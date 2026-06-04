@@ -53,10 +53,6 @@
             {
                 <button class="webrtc-button" @onclick="Notify">Notify</button>
             }
-            @if (disconnect is not null)
-            {
-                <button class="webrtc-button" @onclick="Disconnect">Disconnect</button>
-            }
             @if (hasIncomingCall)
             {
                 @if (acceptCall is not null)
@@ -103,17 +99,17 @@
             Model.OnRemoteAudioElementReady?.Invoke(_remoteAudio);
     }
 
-    private void ToggleFavorite()   => Model.Actions.ToggleFavorite?.Invoke();
-    private void Notify()           => Model.Actions.Notify?.Invoke();
-    private void Connect()          => Model.Actions.Connect?.Invoke();
-    private void CancelConnect()    => Model.Actions.CancelConnect?.Invoke();
-    private void Disconnect()       => Model.Actions.Disconnect?.Invoke();
-    private void StartCall()        => Model.Actions.StartCall?.Invoke();
-    private void StartVideoCall()   => Model.Actions.StartVideoCall?.Invoke();
-    private void AcceptCall()       => Model.Actions.AcceptCall?.Invoke();
-    private void DeclineCall()      => Model.Actions.DeclineCall?.Invoke();
-    private void EndCall()          => Model.Actions.EndCall?.Invoke();
-    private void CancelCall()       => Model.Actions.CancelCall?.Invoke();
+    private void ToggleFavorite() => Model.Actions.ToggleFavorite?.Invoke();
+    private void Notify() => Model.Actions.Notify?.Invoke();
+    private void Connect() => Model.Actions.Connect?.Invoke();
+    private void CancelConnect() => Model.Actions.CancelConnect?.Invoke();
+    private void Disconnect() => Model.Actions.Disconnect?.Invoke();
+    private void StartCall() => Model.Actions.StartCall?.Invoke();
+    private void StartVideoCall() => Model.Actions.StartVideoCall?.Invoke();
+    private void AcceptCall() => Model.Actions.AcceptCall?.Invoke();
+    private void DeclineCall() => Model.Actions.DeclineCall?.Invoke();
+    private void EndCall() => Model.Actions.EndCall?.Invoke();
+    private void CancelCall() => Model.Actions.CancelCall?.Invoke();
 
     private void StartNicknameEdit()
     {
