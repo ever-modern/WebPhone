@@ -3,7 +3,7 @@ param(
     [switch]$Prod
 )
 
-$projectPath = "WebPhone.csproj"
+$projectPath = "WebPhone.Web.csproj"
 $publishDir = "bin/$Configuration/net10.0/publish/wwwroot"
 $functionsDir = "netlify/functions"
 $rootFunctions = "..\netlify\functions"
@@ -21,7 +21,7 @@ if (Test-Path $rootFunctions) {
     Copy-Item -Path "$rootFunctions/*" -Destination $functionsDir -Recurse -Force
 }
 
-$deployArgs = @("deploy", "--dir", $publishDir, "--functions", $functionsDir)
+$deployArgs = @("deploy", "--dir", $publishDir)
 if ($Prod) {
     $deployArgs += "--prod"
 }

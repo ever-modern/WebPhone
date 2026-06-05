@@ -39,9 +39,7 @@ public static class ApplicationConfiguration
             var profile = sp.GetRequiredService<IProfile>();
             var options = sp.GetRequiredService<PhoneOptions>();
             var baseUrl = options.ExternalChannelBaseUrl;
-#if DEBUG
-            baseUrl = "http://localhost:32768";
-#endif
+            baseUrl = "https://web-phone-api.enjoyer-station.myvnc.com";
             var externalChannelBaseUrl = new BackendClient(baseUrl, profile);
             return externalChannelBaseUrl;
         });

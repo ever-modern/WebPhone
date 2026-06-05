@@ -1,6 +1,6 @@
 [build]
   publish = "WebPhone/bin/Release/net10.0/publish/wwwroot"
-  command = "dotnet publish WebPhone.csproj -c Release"
+  command = "dotnet publish WebPhone.Web.csproj -c Release"
 
 [functions]
   directory = "netlify/functions"
