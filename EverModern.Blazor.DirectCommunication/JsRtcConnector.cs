@@ -29,7 +29,8 @@ public static class JsFunction
     public static JsInvokableAction<TIn> Create<TIn>(Action<TIn> func) => new(func);
 }
 
-public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServer> iceServers)
+public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServer> iceServers)
+    : IRtcConnector
 {
     public async Task<RtcConnection> InitiateConnectionAsync(
         Func<WebRtcOffer, Task<WebRtcAnswer>> getAnswer
@@ -66,7 +67,7 @@ public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServ
             stateChanged,
             channelMessageReceived,
             async () => await managerReference.InvokeAsync<string>("getState"),
-            async bytes => await managerReference.InvokeVoidAsync("writeToChannel", bytes),
+            async bytes => await managerReference.InvokeAsync<bool>("writeToChannel", bytes),
             async () => await managerReference.InvokeAsync<MediaState>("getMediaState", []),
             async (mediaState) =>
                 await managerReference.InvokeVoidAsync("setMediaState", mediaState),
@@ -115,7 +116,7 @@ public sealed class RtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServ
             stateChanged,
             channelMessageReceived,
             async () => await managerReference.InvokeAsync<string>("getState"),
-            async bytes => await managerReference.InvokeVoidAsync("writeToChannel", bytes),
+            async bytes => await managerReference.InvokeAsync<bool>("writeToChannel", bytes),
             async () => await managerReference.InvokeAsync<MediaState>("getMediaState", []),
             async (mediaState) =>
                 await managerReference.InvokeVoidAsync("setMediaState", mediaState),

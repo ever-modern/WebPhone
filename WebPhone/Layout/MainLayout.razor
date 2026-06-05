@@ -67,6 +67,7 @@
 
 @code {
     bool ready;
+    bool _initialized;
     bool _isMobile;
     bool _profileMenuOpen;
     string _registerName = "";
@@ -80,6 +81,16 @@
     protected override async Task OnInitializedAsync()
     {
         await base.OnInitializedAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (!firstRender || _initialized)
+            return;
+
+        _initialized = true;
 
         await profileStore.InitializeAsync();
         _ = azureMessagesChannel.StartAsync();
@@ -94,7 +105,6 @@
         _profileSub = Profile.UserChanged.Subscribe(_ => InvokeAsync(StateHasChanged));
         Nav.LocationChanged += OnLocationChanged;
 
-        // Detect viewport before first meaningful render so there is no layout flash.
         _isMobile = await JS.InvokeAsync<bool>("appInterop.isMobile");
         _mobileRef = DotNetObjectReference.Create(this);
         await JS.InvokeVoidAsync("appInterop.startMobileWatcher", _mobileRef);
@@ -103,6 +113,7 @@
         SyncCards();
 
         ready = true;
+        await InvokeAsync(StateHasChanged);
     }
 
     /// <summary>Called by the matchMedia watcher whenever the viewport crosses 767 px.</summary>

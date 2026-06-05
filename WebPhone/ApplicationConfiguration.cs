@@ -20,8 +20,11 @@ public static class ApplicationConfiguration
         services.AddScoped(sp =>
         {
             var options = sp.GetRequiredService<PhoneOptions>();
-            return new RtcConnector(sp.GetRequiredService<IJSRuntime>(), options.WebRtcIceServers);
+            return new JsRtcConnector(sp.GetRequiredService<IJSRuntime>(), options.WebRtcIceServers);
         });
+
+        services.AddScoped<IRtcConnector>(sp => sp.GetRequiredService<JsRtcConnector>());
+
         services.AddScoped<PeerConnector>();
         services.AddScoped<IncomingConnectionsHandler>();
         services.AddScoped<ContactsDispatcher>();

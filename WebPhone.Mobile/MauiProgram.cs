@@ -1,6 +1,10 @@
-﻿using Microsoft.Extensions.Configuration;
+﻿using EverModern.Blazor.DirectCommunication;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using WebPhone;
+using WebPhone.Android.Services;
+using WebPhone.Android.Services.Data;
+using WebPhone.Services.Data;
 
 namespace WebPhone.Android
 {
@@ -16,15 +20,17 @@ namespace WebPhone.Android
                     fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
                 });
 
-            builder.Services.AddMauiBlazorWebView();
+            IServiceCollection services = builder.Services;
+            services.AddMauiBlazorWebView();
 
             using var stream = FileSystem.OpenAppPackageFileAsync("appsettings.json").GetAwaiter().GetResult();
             builder.Configuration.AddJsonStream(stream);
 
-            builder.Services.ConfigureWebPhoneApplication(builder.Configuration);
-
+            services.ConfigureWebPhoneApplication(builder.Configuration);
+            services.AddSingleton<ILocalStore, MauiLocalStore>();
+            //services.AddScoped<IRtcConnector, NativeRtcConnector>();
 #if DEBUG
-            builder.Services.AddBlazorWebViewDeveloperTools();
+            services.AddBlazorWebViewDeveloperTools();
             builder.Logging.AddDebug();
 #endif
 

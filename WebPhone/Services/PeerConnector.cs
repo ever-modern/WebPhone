@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
+using EverModern.Threading.Queues;
 using Microsoft.Extensions.Logging;
 using WebPhone.Contract;
 using WebPhone.Messages;
@@ -11,7 +12,7 @@ namespace WebPhone.Services;
 
 public sealed class PeerConnector : BackgroundProcessor
 {
-    private readonly RtcConnector _webRtcConnector;
+    private readonly IRtcConnector _webRtcConnector;
     private readonly IMessagesChannel _messagesChannel;
     private readonly ILogger<PeerConnector> _logger;
     private readonly SemaphoreSlim _locker = new(1, 1);
@@ -34,7 +35,7 @@ public sealed class PeerConnector : BackgroundProcessor
             .ToDictionary(kvp => kvp.Item1, kvp => kvp.Item2!);
 
     public PeerConnector(
-        RtcConnector webRtcConnector,
+        IRtcConnector webRtcConnector,
         IMessagesChannel messagesChannel,
         ILogger<PeerConnector> logger
     )
@@ -121,58 +122,9 @@ public sealed class PeerConnector : BackgroundProcessor
     {
         try
         {
-            var agent = await _webRtcConnector.InitiateConnectionAsync(async offer =>
-            {
-                await _messagesChannel.Writer.WriteAsync(
-                    new OutgoingMessage<ConnectionRequestPayload>(
-                        MessageType.ConnectionAttempt,
-                        new(requestId, offer),
-                        peerId
-                    ),
-                    cancellationToken
-                );
-
-                using var channelReader = _messagesChannel.Subscribe(m =>
-                {
-                    if (m.SenderClientId != peerId)
-                        return false;
-
-                    if (m.Type is MessageType.ConnectionAccepted)
-                    {
-                        var acceptedPayload = m.SpecifyPayload<AnswerPayload>();
-                        return acceptedPayload?.Payload.RequestId == requestId;
-                    }
-
-                    if (m.Type is MessageType.ConnectionRejected)
-                    {
-                        var rejectedPayload = m.SpecifyPayload<ConnectionRejectedPayload>();
-                        return rejectedPayload?.Payload.RequestId == requestId
-                            || rejectedPayload is null;
-                    }
-
-                    return false;
-                });
-
-                var response = await channelReader.ReadAsync(cancellationToken);
-                if (response.Type is MessageType.ConnectionRejected)
-                    throw new InvalidOperationException(
-                        $"Connection request to {peerId} has been rejected."
-                    );
-
-                var payload = response.SpecifyPayload<AnswerPayload>()?.Payload;
-                if (
-                    payload?.Answer is null
-                    || string.IsNullOrWhiteSpace(payload.Answer.Type)
-                    || string.IsNullOrWhiteSpace(payload.Answer.Sdp)
-                )
-                {
-                    throw new InvalidOperationException(
-                        $"Connection response from {peerId} does not contain a valid answer."
-                    );
-                }
-
-                return payload.Answer;
-            });
+            var agent = await _webRtcConnector.InitiateConnectionAsync(
+                CreateGetAnswerDelegate(peerId, requestId, cancellationToken)
+            );
 
             _connectionEventSource.Invoke();
 
@@ -186,6 +138,68 @@ public sealed class PeerConnector : BackgroundProcessor
         }
     }
 
+    Func<WebRtcOffer, Task<WebRtcAnswer>> CreateGetAnswerDelegate(
+        string peerId,
+        string requestId,
+        CancellationToken cancellationToken
+    ) =>
+        async offer =>
+        {
+            await _messagesChannel.Writer.WriteAsync(
+                new OutgoingMessage<ConnectionRequestPayload>(
+                    MessageType.ConnectionAttempt,
+                    new(requestId, offer),
+                    peerId
+                ),
+                cancellationToken
+            );
+
+            using var channelReader = _messagesChannel.Subscribe(m =>
+            {
+                if (m.SenderClientId != peerId)
+                    return false;
+
+                if (m.Type is MessageType.ConnectionAccepted)
+                {
+                    var acceptedPayload = m.SpecifyPayload<AnswerPayload>();
+                    return acceptedPayload?.Payload.RequestId == requestId;
+                }
+
+                if (m.Type is MessageType.ConnectionRejected)
+                {
+                    var rejectedPayload = m.SpecifyPayload<ConnectionRejectedPayload>();
+                    return rejectedPayload?.Payload.RequestId == requestId
+                        || rejectedPayload is null;
+                }
+
+                return false;
+            });
+
+            var response = await channelReader
+                .ReadAllAsync(cancellationToken)
+                .FirstOrDefaultAsync(cancellationToken)
+                ?? throw new InvalidOperationException($"No response received for connection request {requestId} to peer {peerId}.");
+
+            if (response.Type is MessageType.ConnectionRejected)
+                throw new InvalidOperationException(
+                    $"Connection request to {peerId} has been rejected."
+                );
+
+            var payload = response.SpecifyPayload<AnswerPayload>()?.Payload;
+            if (
+                payload?.Answer is null
+                || string.IsNullOrWhiteSpace(payload.Answer.Type)
+                || string.IsNullOrWhiteSpace(payload.Answer.Sdp)
+            )
+            {
+                throw new InvalidOperationException(
+                    $"Connection response from {peerId} does not contain a valid answer."
+                );
+            }
+
+            return payload.Answer;
+        };
+
     private async Task HandleIncomingAttemptAsync(
         string peerId,
         ConnectionRequestPayload incoming,
@@ -195,67 +209,60 @@ public sealed class PeerConnector : BackgroundProcessor
         AccountedConnection? connectionToDispose = null;
         bool shouldAcceptIncoming;
 
-        await _locker.WaitAsync(cancellationToken);
-        try
+        using var __ = await _locker.LockScopeAsync(cancellationToken);
+        if (!_connections.TryGetValue(peerId, out var existing))
         {
-            if (!_connections.TryGetValue(peerId, out var existing))
-            {
-                shouldAcceptIncoming = true;
-            }
-            else if (!existing.IsOutgoing)
-            {
-                // Already handling/holding an incoming-selected pairing for this peer.
-                shouldAcceptIncoming = false;
-            }
-            else
-            {
-                var compare = string.CompareOrdinal(incoming.RequestId, existing.RequestId);
-                shouldAcceptIncoming = compare > 0;
-
-                if (shouldAcceptIncoming)
-                {
-                    existing.Cancellation.Cancel();
-                    _connections.TryRemove(peerId, out _);
-                    connectionToDispose = existing;
-                    _logger.LogInformation(
-                        "[PAIR] Collision for peer {PeerId}: incoming request {IncomingRequestId} won over local request {LocalRequestId}",
-                        peerId,
-                        incoming.RequestId,
-                        existing.RequestId
-                    );
-                }
-                else
-                {
-                    _logger.LogInformation(
-                        "[PAIR] Collision for peer {PeerId}: local request {LocalRequestId} won over incoming request {IncomingRequestId}",
-                        peerId,
-                        existing.RequestId,
-                        incoming.RequestId
-                    );
-                }
-            }
+            shouldAcceptIncoming = true;
+        }
+        else if (!existing.IsOutgoing)
+        {
+            // Already handling/holding an incoming-selected pairing for this peer.
+            shouldAcceptIncoming = false;
+        }
+        else
+        {
+            var compare = string.CompareOrdinal(incoming.RequestId, existing.RequestId);
+            shouldAcceptIncoming = compare > 0;
 
             if (shouldAcceptIncoming)
             {
-                var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                var incomingTask = AcceptIncomingConnectionAsync(peerId, incoming, linkedCts.Token);
-                _connections[peerId] = new AccountedConnection(
+                existing.Cancellation.Cancel();
+                _connections.TryRemove(peerId, out _);
+                connectionToDispose = existing;
+                _logger.LogInformation(
+                    "[PAIR] Collision for peer {PeerId}: incoming request {IncomingRequestId} won over local request {LocalRequestId}",
                     peerId,
                     incoming.RequestId,
-                    false,
-                    linkedCts,
-                    incomingTask
+                    existing.RequestId
                 );
-                _ = incomingTask.ContinueWith(
-                    t => _ = RemoveConnectionIfMatchesAsync(peerId, incoming.RequestId),
-                    TaskContinuationOptions.NotOnRanToCompletion
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "[PAIR] Collision for peer {PeerId}: local request {LocalRequestId} won over incoming request {IncomingRequestId}",
+                    peerId,
+                    existing.RequestId,
+                    incoming.RequestId
                 );
-                _connectionEventSource.Invoke();
             }
         }
-        finally
+
+        if (shouldAcceptIncoming)
         {
-            _locker.Release();
+            var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var incomingTask = AcceptIncomingConnectionAsync(peerId, incoming, linkedCts.Token);
+            _connections[peerId] = new AccountedConnection(
+                peerId,
+                incoming.RequestId,
+                false,
+                linkedCts,
+                incomingTask
+            );
+            _ = incomingTask.ContinueWith(
+                t => _ = RemoveConnectionIfMatchesAsync(peerId, incoming.RequestId),
+                TaskContinuationOptions.NotOnRanToCompletion
+            );
+            _connectionEventSource.Invoke();
         }
 
         if (connectionToDispose is not null)

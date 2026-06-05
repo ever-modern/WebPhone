@@ -57,7 +57,7 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
     };
     const writeBytes = (input) => {
         if (!dataChannel || dataChannel.readyState !== "open") {
-            throw new Error("RTC data channel is not open.");
+            return false;
         }
         let payload;
         if (typeof input === "string") {
@@ -70,6 +70,7 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
             payload = input instanceof Uint8Array ? input : new Uint8Array(input);
         }
         dataChannel.send(payload);
+        return true;
     };
     connection.onconnectionstatechange = () => {
         console.log("[RTC] peer connection state:", connection.connectionState);

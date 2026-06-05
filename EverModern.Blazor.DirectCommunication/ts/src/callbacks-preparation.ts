@@ -62,9 +62,9 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
         }
     }
 
-    const writeBytes = (input: Uint8Array | ArrayBuffer | string): void => {
+    const writeBytes = (input: Uint8Array | ArrayBuffer | string): boolean => {
         if (!dataChannel || dataChannel.readyState !== "open") {
-            throw new Error("RTC data channel is not open.");
+            return false;
         }
 
         let payload: Uint8Array;
@@ -72,13 +72,15 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
             const binary = atob(input);
             payload = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) payload[i] = binary.charCodeAt(i);
-        } else { 
+        } else {
             payload = input instanceof Uint8Array ? input : new Uint8Array(input);
         }
         dataChannel.send(payload as unknown as ArrayBufferView<ArrayBuffer>);
-    };  
 
-    connection.onconnectionstatechange = () => { 
+        return true;
+    };
+
+    connection.onconnectionstatechange = () => {
         console.log("[RTC] peer connection state:", connection.connectionState);
         onStateChanged?.(connection.connectionState);
         if (connection.connectionState === "connected") {
@@ -88,7 +90,7 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
             console.warn("[RTC] whenOpen rejecting, state:", connection.connectionState);
             failOpening();
         }
-    }; 
+    };
 
     return { unbind: () => { connection.ondatachannel = null, connection.onconnectionstatechange = null; }, handleDataChannel, writeToChannel: writeBytes, whenOpen };
 }

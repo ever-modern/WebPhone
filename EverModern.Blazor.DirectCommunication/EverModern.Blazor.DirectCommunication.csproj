@@ -12,8 +12,8 @@
 
 	<ItemGroup>
 		<PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.4" />
-		<PackageReference Include="EverModern.Events" Version="0.0.12" />
-		<PackageReference Include="EverModern.Threading" Version="0.0.12" />
+		<PackageReference Include="EverModern.Events" Version="0.0.26" />
+		<PackageReference Include="EverModern.Threading" Version="0.0.29" />
 	</ItemGroup>
 
 </Project>

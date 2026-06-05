@@ -11,7 +11,7 @@ public sealed class RtcConnection(
     INotifier<string> stateChanged,
     INotifier<byte[]> bytesReceived,
     Func<Task<string>> getState,
-    Action<byte[]> writeBytes,
+    Func<byte[],ValueTask<bool>> writeBytes,
     Func<Task<MediaState>> getMediaState,
     Func<MediaState, Task> setMediaState,
     Func<Microsoft.AspNetCore.Components.ElementReference, Task> setVideoTarget,
@@ -51,11 +51,11 @@ public sealed class RtcConnection(
         await setLocalVideoTarget(videoElement);
     }
 
-    public async Task WriteBytesAsync(byte[] bytes)
+    public async Task<bool> WriteBytesAsync(byte[] bytes)
     {
         ArgumentNullException.ThrowIfNull(bytes);
         ThrowIfDisposed();
-        writeBytes(bytes);
+        return await writeBytes(bytes);
     }
 
     public void Dispose()

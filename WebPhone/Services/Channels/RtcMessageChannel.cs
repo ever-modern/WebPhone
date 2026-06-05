@@ -1,9 +1,9 @@
-using EverModern.Blazor.DirectCommunication;
-using EverModern.Events;
-using EverModern.Threading.Channels;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using EverModern.Blazor.DirectCommunication;
+using EverModern.Events;
+using EverModern.Threading.Channels;
 
 namespace WebPhone.Services.Channels;
 
@@ -12,12 +12,15 @@ public enum RtcMessageType
     User,
     WantCall,
     RejectCall,
-    WantVideoCall
+    WantVideoCall,
 }
 
 public record struct RtcMessage(RtcMessageType Type, string? Payload = null);
 
-public class RtcConnectionMessageChannel : IBroadcastChannel<RtcMessage, RtcMessage>, IAsyncDisposable, IDisposable
+public class RtcConnectionMessageChannel
+    : IBroadcastChannel<RtcMessage, RtcMessage>,
+        IAsyncDisposable,
+        IDisposable
 {
     readonly RtcConnection _rtcConnection;
     private readonly List<Channel<RtcMessage>> _incoming = [];
@@ -75,9 +78,7 @@ public class RtcConnectionMessageChannel : IBroadcastChannel<RtcMessage, RtcMess
         {
             await _initializeTask;
         }
-        catch
-        {
-        }
+        catch { }
 
         _bytesSubscription?.Dispose();
 
@@ -96,9 +97,7 @@ public class RtcConnectionMessageChannel : IBroadcastChannel<RtcMessage, RtcMess
         {
             await _sendLoopTask;
         }
-        catch
-        {
-        }
+        catch { }
 
         _cts.Dispose();
     }
@@ -123,12 +122,12 @@ public class RtcConnectionMessageChannel : IBroadcastChannel<RtcMessage, RtcMess
         {
             await foreach (var msg in _outgoing.Reader.ReadAllAsync(cancellationToken))
             {
-                await _rtcConnection.WriteBytesAsync(ToWireMessage(msg));
+                var written = await _rtcConnection.WriteBytesAsync(ToWireMessage(msg));
+                if (written is false)
+                    return;
             }
         }
-        catch (OperationCanceledException)
-        {
-        }
+        catch (OperationCanceledException) { }
     }
 
     private void BroadcastIncoming(RtcMessage message)
@@ -145,8 +144,8 @@ public class RtcConnectionMessageChannel : IBroadcastChannel<RtcMessage, RtcMess
         }
     }
 
-    private static byte[] ToWireMessage(RtcMessage message)
-        => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
+    private static byte[] ToWireMessage(RtcMessage message) =>
+        Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
 
     private static bool TryParseWireMessage(byte[] rawMessage, out RtcMessage parsed)
     {
@@ -164,6 +163,5 @@ public class RtcConnectionMessageChannel : IBroadcastChannel<RtcMessage, RtcMess
         }
     }
 
-    public void Dispose()
-        => _ = DisposeAsync();
+    public void Dispose() => _ = DisposeAsync();
 }

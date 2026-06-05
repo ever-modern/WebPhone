@@ -24,7 +24,9 @@ class CallMaintainer(RtcConnection connection, TimeSpan criticalTime)
                 using var callDesireReader = channel.Subscribe(message =>
                     message.Type is RtcMessageType.WantCall or RtcMessageType.WantVideoCall
                 );
-                var msg = await callDesireReader.ReadAsync(cancellationToken);
+                var msg = await callDesireReader
+                    .ReadAllAsync(cancellationToken)
+                    .FirstOrDefaultAsync(cancellationToken);
                 tcs.TrySetResult(new(msg.Type is RtcMessageType.WantVideoCall));
             },
             cancellationToken
