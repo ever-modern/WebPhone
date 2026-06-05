@@ -24,6 +24,17 @@ app.UseCors();
 
 static string? RequireClientId(HttpRequest req) => req.Headers["X-Client-Id"].FirstOrDefault();
 
+app.MapGet(
+    "/health",
+    async Task<IResult> (HealthCheckApiAction action, CancellationToken ct) =>
+    {
+        var result = await action.ExecuteAsync(null, ct);
+        return result.Healthy
+            ? TypedResults.Ok(result)
+            : TypedResults.StatusCode(StatusCodes.Status503ServiceUnavailable);
+    }
+);
+
 app.MapPost(
     "/exchange",
     async Task<Results<BadRequest<string>, Ok<ExchangeResponse>>> (

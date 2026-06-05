@@ -37,6 +37,7 @@ public static class ServicesConfiguration
         services.AddScoped<UpsertContactSettingsApiAction>();
         services.AddScoped<SendChatApiAction>();
         services.AddScoped<GetChatMessagesApiAction>();
+        services.AddScoped<HealthCheckApiAction>();
 
         return services;
     }

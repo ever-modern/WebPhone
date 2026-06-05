@@ -5,7 +5,7 @@ using WebPhone.Messages;
 
 namespace WebPhone.Services.Channels;
 
-public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
+public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
 {
     private readonly List<Channel<IncomingMessage>> incomingChannels = [];
     private readonly Channel<OutgoingMessage> outgoingChannel =
@@ -17,7 +17,7 @@ public sealed class AzureMessagesChannel : IMessagesChannel, IAsyncDisposable
     private DateTime lastSentTimestamp = DateTime.UtcNow;
     readonly BackendClient _client;
 
-    public AzureMessagesChannel(BackendClient client, int pollIntervalMs = 1000)
+    public BackendMessagesChannel(BackendClient client, int pollIntervalMs = 1000)
     {
         _client = client;
         idleSendInterval = TimeSpan.FromMilliseconds(Math.Max(pollIntervalMs, 250));

@@ -82,7 +82,7 @@ public sealed class GetChatMessagesApiAction(MessagesRepository repository)
             limit: 50,
             cancellationToken: cancellationToken);
 
-        return messages.Select(ToDto).ToArray();
+        return [.. messages.Select(ToDto)];
     }
 
     private static ChatMessageDto ToDto(StoredMessage m)

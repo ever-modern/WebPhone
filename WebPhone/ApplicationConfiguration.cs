@@ -40,22 +40,23 @@ public static class ApplicationConfiguration
             var options = sp.GetRequiredService<PhoneOptions>();
             var baseUrl = options.ExternalChannelBaseUrl;
 #if DEBUG
-            baseUrl = "http://localhost:5194";
+            baseUrl = "http://localhost:32768";
 #endif
             var externalChannelBaseUrl = new BackendClient(baseUrl, profile);
             return externalChannelBaseUrl;
         });
-        services.AddSingleton<AzureMessagesChannel>(sp =>
+
+        services.AddSingleton<BackendMessagesChannel>(sp =>
         {
             var options = sp.GetRequiredService<PhoneOptions>();
-            return new AzureMessagesChannel(
+            return new BackendMessagesChannel(
                 sp.GetRequiredService<BackendClient>(),
                 options.PollIntervalMs
             );
         });
 
         services.AddSingleton<IMessagesChannel>(sp =>
-            sp.GetRequiredService<AzureMessagesChannel>()
+            sp.GetRequiredService<BackendMessagesChannel>()
         );
 
         services.AddSingleton<ChatMessagesChannel>();
