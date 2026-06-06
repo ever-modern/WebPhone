@@ -1,4 +1,4 @@
-﻿namespace WebPhone.Android
+﻿namespace WebPhone.Mobile
 {
     public partial class App : Application
     {
