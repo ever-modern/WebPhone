@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using WebPhone;
-using WebPhone.Android.Services;
 using WebPhone.Android.Services.Data;
 using WebPhone.Services.Data;
 
