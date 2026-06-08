@@ -47,6 +47,9 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
             .filter(t => t.direction !== "stopped")
             .forEach(t => { t.direction = "sendrecv"; });
         const answer = await peerConnection.createAnswer();
+        if (!answer) {
+            return null;
+        }
         console.log("ANSWER:", answer);
         await peerConnection.setLocalDescription(answer);
         await waitForIceGatheringComplete(peerConnection);

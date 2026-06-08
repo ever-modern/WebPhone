@@ -1,8 +1,7 @@
 using System.Text.Json;
-using Microsoft.Maui.Storage;
 using WebPhone.Services.Data;
 
-namespace WebPhone.Android.Services.Data;
+namespace WebPhone.Mobile.Services.Data;
 
 public class MauiLocalStore : ILocalStore
 {

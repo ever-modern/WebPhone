@@ -7,7 +7,7 @@ using WebPhone.Contract;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
-builder.Services.ConfigureWebPhoneBackendServices();
+builder.Services.ConfigureWebPhoneBackendServices(builder.Configuration);
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy => policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod());
@@ -22,7 +22,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 
-static string? RequireClientId(HttpRequest req) => req.Headers["X-Client-Id"].FirstOrDefault();
+app.UseExceptionMapper();
+
+static string RequireClientId(HttpRequest req) => req.Headers["X-Client-Id"].First();
 
 app.MapGet(
     "/health",
@@ -222,6 +224,15 @@ app.MapGet(
         );
         return TypedResults.Ok(result);
     }
+);
+
+app.MapPost(
+    "/rtc-connect",
+    (
+        RtcConnectAction rtcHandshakeAction,
+        RtcConnectionRequest request,
+        CancellationToken cancellationToken
+    ) => rtcHandshakeAction.ExecuteAsync(request, cancellationToken)
 );
 
 app.Run();

@@ -8,8 +8,7 @@
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
 
-	<ItemGroup>
-		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	<ItemGroup>		
 		<PackageReference Include="Microsoft.ApplicationInsights.WorkerService" Version="3.0.0" />
 		<PackageReference Include="Microsoft.Azure.Functions.Worker" Version="2.51.0" />
 		<PackageReference Include="Microsoft.Azure.Functions.Worker.ApplicationInsights" Version="2.50.0" />

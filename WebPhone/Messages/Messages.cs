@@ -25,7 +25,7 @@ public sealed record ChatMessage(string Sender, string Text, bool IsOwn);
 
 public sealed record ConnectionRejectedPayload(string RequestId);
 
-public record OutgoingMessage<T>(MessageType Type, T Payload, string? TargetClientId)
+public record OutgoingMessage<T>(WebPhone.Contract.MessageType Type, T Payload, string? TargetClientId)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -36,7 +36,7 @@ public record OutgoingMessage<T>(MessageType Type, T Payload, string? TargetClie
         => new(self.Type, JsonSerializer.SerializeToElement(self.Payload, SerializerOptions), self.TargetClientId);
 }
 
-public record OutgoingMessage(MessageType Type, JsonElement Payload, string? TargetClientId)
+public record OutgoingMessage(WebPhone.Contract.MessageType Type, JsonElement Payload, string? TargetClientId)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -54,9 +54,9 @@ public record OutgoingMessage(MessageType Type, JsonElement Payload, string? Tar
     }
 }
 
-public record IncomingMessage<T>(long Id, MessageType Type, T Payload, string SenderClientId, DateTime DateTime);
+public record IncomingMessage<T>(long Id, WebPhone.Contract.MessageType Type, T Payload, string SenderClientId, DateTime DateTime);
 
-public record IncomingMessage(long Id, MessageType Type, JsonElement Payload, string SenderClientId, DateTime DateTime)
+public record IncomingMessage(long Id, WebPhone.Contract.MessageType Type, JsonElement Payload, string SenderClientId, DateTime DateTime)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {

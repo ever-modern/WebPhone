@@ -25,8 +25,6 @@ RUN dotnet publish "./WebPhone.Api.csproj" -c $BUILD_CONFIGURATION -o /app/publi
 
 # This stage is used in production or when running from VS in regular mode (Default when not using the Debug configuration)
 FROM base AS final
-ARG WEB_PHONE_LOCAL_DB
-ENV WebPhoneDbConnectionString="Host=192.168.0.103;Port=5432;Database=web_phone;Username=postgres;Password=1"
 WORKDIR /app
 COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "WebPhone.Api.dll"]

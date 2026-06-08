@@ -5,7 +5,7 @@ namespace WebPhone.Backend.Actions;
 
 public sealed record ExchangeActionInput(string ClientId, ExchangeRequest Request);
 
-public sealed class ExchangeApiAction(MessagesRepository repository)
+public sealed class ExchangeApiAction(MessagesRepository repository, RequestSupplements requestSupplements)
     : ApiActionConcrete<ExchangeActionInput, ExchangeResponse>
 {
     public override string Route => "/exchange";
@@ -15,6 +15,8 @@ public sealed class ExchangeApiAction(MessagesRepository repository)
         CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
+
+        var clientId = requestSupplements.RequireClientId();
 
         await repository.WriteMessagesAsync(
         [
@@ -30,7 +32,7 @@ public sealed class ExchangeApiAction(MessagesRepository repository)
 
         var relevantMessages = await repository.ReadMessagesAsync(
             new MessagesFilter(
-                ReceiverId: input.ClientId,
+                ReceiverId: clientId,
                 SinceId: input.Request.MessagesSinceId,
                 ExcludedIds: [input.ClientId]
             ),

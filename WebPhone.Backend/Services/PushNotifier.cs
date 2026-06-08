@@ -6,12 +6,12 @@ using WebPhone.Contract;
 
 namespace WebPhone.Backend.Services;
 
-public class PushNotificationService
+public class PushNotifier
 {
     private readonly PushSubscriptionsRepository _subscriptions;
-    private readonly ILogger<PushNotificationService> _logger;
+    private readonly ILogger<PushNotifier> _logger;
 
-    public PushNotificationService(PushSubscriptionsRepository subscriptions, ILogger<PushNotificationService> logger)
+    public PushNotifier(PushSubscriptionsRepository subscriptions, ILogger<PushNotifier> logger)
     {
         _subscriptions = subscriptions;
         _logger = logger;

@@ -8,7 +8,7 @@ public sealed record NotifyActionInput(string SenderClientId, NotifyRequest? Req
 
 public sealed record NotifyActionOutput(bool Success, string TargetClientId);
 
-public sealed class NotifyApiAction(PushNotificationService pushNotificationService)
+public sealed class NotifyApiAction(PushNotifier pushNotificationService)
     : ApiActionConcrete<NotifyActionInput, NotifyActionOutput>
 {
     public override string Route => "/notify";

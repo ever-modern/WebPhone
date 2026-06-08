@@ -32,8 +32,9 @@ public static class JsFunction
 public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServer> iceServers)
     : IRtcConnector
 {
-    public async Task<RtcConnection> InitiateConnectionAsync(
-        Func<WebRtcOffer, Task<WebRtcAnswer>> getAnswer
+    public async Task<RtcConnection?> InitiateConnectionAsync(
+        Func<WebRtcOffer, Task<WebRtcAnswer?>> getAnswer,
+        CancellationToken cancellationToken
     )
     {
         ArgumentNullException.ThrowIfNull(getAnswer);
@@ -45,6 +46,7 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
 
         var managerReference = await jsRuntime.InvokeAsync<IJSObjectReference>(
             "rtcConnectionFactory.initiateConnectionAsync",
+            cancellationToken,
             [
                 iceServers,
                 getAnswerLink,
@@ -80,9 +82,10 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
         return result;
     }
 
-    public async Task<RtcConnection> AcceptConnectionAsync(
+    public async Task<RtcConnection?> AcceptConnectionAsync(
         WebRtcOffer offer,
-        Func<WebRtcAnswer, Task> sendAnswerBack
+        Func<WebRtcAnswer, Task> sendAnswerBack,
+        CancellationToken cancellationToken
     )
     {
         ArgumentNullException.ThrowIfNull(offer);
@@ -93,6 +96,7 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
 
         var managerReference = await jsRuntime.InvokeAsync<IJSObjectReference>(
             "rtcConnectionFactory.acceptConnectionAsync",
+            cancellationToken,
             [
                 iceServers,
                 offer,
@@ -108,7 +112,7 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
 
         var onDispose = () =>
         {
-            _ = managerReference.InvokeVoidAsync("close", []);
+            _ = managerReference.InvokeVoidAsync("close", []).AsTask();
         };
 
         var result = new RtcConnection(

@@ -9,6 +9,8 @@ builder.ConfigureFunctionsWebApplication();
 
 IServiceCollection services = builder.Services;
 
-ServicesConfiguration.ConfigureWebPhoneBackendServices(services);
+services.ConfigureWebPhoneBackendServices(builder.Configuration);
+
+services.AddHttpContextAccessor();
 
 builder.Build().Run();

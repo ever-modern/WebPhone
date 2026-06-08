@@ -1,7 +1,9 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using EverModern.Blazor.DirectCommunication;
 using WebPhone.Contract;
 using WebPhone.Services.Data;
+
 namespace WebPhone.Services;
 
 public class BackendClient(string baseUrl, IProfile profile) : IDisposable
@@ -19,6 +21,7 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
     readonly string _chatMessagesEndpoint = $"{baseUrl.TrimEnd('/')}/chat/messages";
     readonly string _profileSettingsEndpoint = $"{baseUrl.TrimEnd('/')}/profiles";
     readonly string _contactSettingsEndpoint = $"{baseUrl.TrimEnd('/')}/contacts";
+    readonly string _rtcConnectEndpoint = $"{baseUrl.TrimEnd('/')}/rtc-connect";
 
     public async Task<ExchangeResponse> ExchangeAsync(
         MessageRequest[] outgoingMessages,
@@ -91,20 +94,26 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
     public async Task<ChatMessageDto> SendChatMessageAsync(
         string recipientId,
         string text,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         string clientId = profile.User.Id;
         using var request = new HttpRequestMessage(HttpMethod.Post, _chatSendEndpoint)
         {
-            Content = JsonContent.Create(new ChatSendRequest(text, recipientId), options: JsonOptions),
+            Content = JsonContent.Create(
+                new ChatSendRequest(text, recipientId),
+                options: JsonOptions
+            ),
         };
         request.Headers.Add("X-Client-Id", clientId);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadFromJsonAsync<ChatMessageDto>(JsonOptions, cancellationToken)
-            ?? throw new InvalidOperationException("Empty response from chat/send.");
+        return await response.Content.ReadFromJsonAsync<ChatMessageDto>(
+                JsonOptions,
+                cancellationToken
+            ) ?? throw new InvalidOperationException("Empty response from chat/send.");
     }
 
     /// <summary>
@@ -115,21 +124,27 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
     public async Task<ChatMessageDto[]> GetChatMessagesAsync(
         string peerId,
         long sinceId = 0,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         string clientId = profile.User.Id;
-        var url = $"{_chatMessagesEndpoint}?peerId={Uri.EscapeDataString(peerId)}&sinceId={sinceId}";
+        var url =
+            $"{_chatMessagesEndpoint}?peerId={Uri.EscapeDataString(peerId)}&sinceId={sinceId}";
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("X-Client-Id", clientId);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadFromJsonAsync<ChatMessageDto[]>(JsonOptions, cancellationToken)
-            ?? [];
+        return await response.Content.ReadFromJsonAsync<ChatMessageDto[]>(
+                JsonOptions,
+                cancellationToken
+            ) ?? [];
     }
 
-    public async Task<UserSettingsDto> GetUserSettingsAsync(CancellationToken cancellationToken = default)
+    public async Task<UserSettingsDto> GetUserSettingsAsync(
+        CancellationToken cancellationToken = default
+    )
     {
         string clientId = profile.User.Id;
         using var request = new HttpRequestMessage(HttpMethod.Get, _profileSettingsEndpoint);
@@ -138,16 +153,21 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadFromJsonAsync<UserSettingsDto>(JsonOptions, cancellationToken)
-            ?? new UserSettingsDto("", true, true, false);
+        return await response.Content.ReadFromJsonAsync<UserSettingsDto>(
+                JsonOptions,
+                cancellationToken
+            ) ?? new UserSettingsDto("", true, true, false);
     }
 
-    public async Task UpsertUserSettingsAsync(UserSettingsDto dto, CancellationToken cancellationToken = default)
+    public async Task UpsertUserSettingsAsync(
+        UserSettingsDto dto,
+        CancellationToken cancellationToken = default
+    )
     {
         string clientId = profile.User.Id;
         using var request = new HttpRequestMessage(HttpMethod.Post, _profileSettingsEndpoint)
         {
-            Content = JsonContent.Create(dto, options: JsonOptions)
+            Content = JsonContent.Create(dto, options: JsonOptions),
         };
         request.Headers.Add("X-Client-Id", clientId);
 
@@ -155,7 +175,9 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
         response.EnsureSuccessStatusCode();
     }
 
-    public async Task<ContactSettingsDto[]> GetAllContactSettingsAsync(CancellationToken cancellationToken = default)
+    public async Task<ContactSettingsDto[]> GetAllContactSettingsAsync(
+        CancellationToken cancellationToken = default
+    )
     {
         string clientId = profile.User.Id;
         using var request = new HttpRequestMessage(HttpMethod.Get, _contactSettingsEndpoint);
@@ -164,11 +186,16 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadFromJsonAsync<ContactSettingsDto[]>(JsonOptions, cancellationToken)
-            ?? [];
+        return await response.Content.ReadFromJsonAsync<ContactSettingsDto[]>(
+                JsonOptions,
+                cancellationToken
+            ) ?? [];
     }
 
-    public async Task<ContactSettingsDto> GetContactSettingsAsync(string contactId, CancellationToken cancellationToken = default)
+    public async Task<ContactSettingsDto> GetContactSettingsAsync(
+        string contactId,
+        CancellationToken cancellationToken = default
+    )
     {
         string clientId = profile.User.Id;
         var url = $"{_contactSettingsEndpoint}?contactId={Uri.EscapeDataString(contactId)}";
@@ -178,21 +205,70 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadFromJsonAsync<ContactSettingsDto>(JsonOptions, cancellationToken)
-            ?? new ContactSettingsDto(clientId, contactId, false, true, true, null);
+        return await response.Content.ReadFromJsonAsync<ContactSettingsDto>(
+                JsonOptions,
+                cancellationToken
+            ) ?? new ContactSettingsDto(clientId, contactId, false, true, true, null);
     }
 
-    public async Task UpsertContactSettingsAsync(ContactSettingsDto dto, CancellationToken cancellationToken = default)
+    public async Task UpsertContactSettingsAsync(
+        ContactSettingsDto dto,
+        CancellationToken cancellationToken = default
+    )
     {
         string clientId = profile.User.Id;
         using var request = new HttpRequestMessage(HttpMethod.Post, _contactSettingsEndpoint)
         {
-            Content = JsonContent.Create(dto with { OwnerId = clientId }, options: JsonOptions)
+            Content = JsonContent.Create(dto with { OwnerId = clientId }, options: JsonOptions),
         };
         request.Headers.Add("X-Client-Id", clientId);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
+    }
+
+    public Task<RtcMatchParameter> ConnectRtcAsync(
+        string targetId,
+        WebRtcOffer offer,
+        CancellationToken cancellationToken
+    ) => ConnectRtcCommonAsync(targetId, offer, cancellationToken);
+
+    public Task<RtcMatchParameter> ConnectRtcAsync(
+        string targetId,
+        WebRtcAnswer answer,
+        CancellationToken cancellationToken
+    ) => ConnectRtcCommonAsync(targetId, answer, cancellationToken);
+
+    async Task<RtcMatchParameter> ConnectRtcCommonAsync(
+        string targetId,
+        WebRtcSessionDescription offerOrAnswer,
+        CancellationToken cancellationToken
+    )
+    {
+        var (type, sdp) = offerOrAnswer;
+        RtcConnectionRequest payload = offerOrAnswer switch
+        {
+            WebRtcOffer => new(targetId, new(type, sdp), null),
+            WebRtcAnswer => new(targetId, null, new(type, sdp)),
+            _ => throw new InvalidOperationException(),
+        };
+
+        string clientId = profile.User.Id;
+        using var request = new HttpRequestMessage(HttpMethod.Post, _rtcConnectEndpoint)
+        {
+            Content = JsonContent.Create(payload, options: JsonOptions),
+        };
+        request.Headers.Add("X-Client-Id", clientId);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<RtcMatchParameter>(
+            JsonOptions,
+            cancellationToken
+        );
+
+        return result!;
     }
 
     public void Dispose() => _httpClient.Dispose();

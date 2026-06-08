@@ -13,7 +13,7 @@ public sealed record GetChatMessagesInput(string ClientId, string PeerId, long? 
 public sealed class SendChatApiAction(
     ILogger<SendChatApiAction> logger,
     MessagesRepository repository,
-    PushNotificationService pushNotificationService,
+    PushNotifier pushNotificationService,
     ProfileSettingsRepository userSettingsRepository,
     ContactSettingsRepository contactSettingsRepository)
     : ApiActionConcrete<SendChatInput, ChatMessageDto>

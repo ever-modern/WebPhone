@@ -1,10 +1,17 @@
-﻿namespace WebPhone.Mobile
+﻿using WebPhone.Services.Background;
+
+namespace WebPhone.Mobile
 {
     public partial class App : Application
     {
-        public App()
+        private readonly AppStarter _appStarter;
+
+        public App(AppStarter appStarter)
         {
+            _appStarter = appStarter;
             InitializeComponent();
+
+            _ = Task.Run(() => _appStarter.EnsureStartedAsync());
         }
 
         protected override Window CreateWindow(IActivationState? activationState)

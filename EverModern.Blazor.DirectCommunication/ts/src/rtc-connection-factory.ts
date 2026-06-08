@@ -28,10 +28,10 @@ async function createRtcConnection(
     callbacks: RtcConnectionCallbacks
 ) {
     if (!iceServers?.length) throw new Error("At least one ICE server must be provided.");
-     
+
     const isInitator = typeof exchangeInfo === "function";
 
-    const peerConnection = new RTCPeerConnection({ iceServers }); 
+    const peerConnection = new RTCPeerConnection({ iceServers });
 
     peerConnection.oniceconnectionstatechange = () => console.log("[RTC] ICE connection state:", peerConnection.iceConnectionState);
     peerConnection.onsignalingstatechange = () => console.log("[RTC] signaling state:", peerConnection.signalingState);
@@ -41,15 +41,15 @@ async function createRtcConnection(
     const { getMediaState, setMediaState, setVideoTarget, setLocalVideoTarget } = bindMediaManager(peerConnection, isInitator);
     const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
 
-    if (isInitator) { 
+    if (isInitator) {
         const dataChannel = peerConnection.createDataChannel("data");
         handleDataChannel(dataChannel);
     }
-     
+
     const connectionManager = {
         close: () => {
             unbind();
-            peerConnection.close(); 
+            peerConnection.close();
         }, getState: () => peerConnection.connectionState,
         writeToChannel,
         getMediaState,
@@ -83,6 +83,8 @@ async function createRtcConnection(
             .forEach(t => { t.direction = "sendrecv"; });
 
         const answer = await peerConnection.createAnswer();
+
+        if (!answer) { return null; }
 
         console.log("ANSWER:", answer);
         await peerConnection.setLocalDescription(answer);

@@ -17,20 +17,25 @@ public static class ApplicationConfiguration
         IConfiguration configuration
     )
     {
-        services.AddScoped(sp =>
+        services.AddSingleton(sp =>
         {
             var options = sp.GetRequiredService<PhoneOptions>();
-            return new JsRtcConnector(sp.GetRequiredService<IJSRuntime>(), options.WebRtcIceServers);
+            return new JsRtcConnector(
+                sp.GetRequiredService<IJSRuntime>(),
+                options.WebRtcIceServers
+            );
         });
 
-        services.AddScoped<IRtcConnector>(sp => sp.GetRequiredService<JsRtcConnector>());
+        services.AddSingleton<IRtcConnector>(sp => sp.GetRequiredService<JsRtcConnector>());
 
-        services.AddScoped<PeerConnector>();
-        services.AddScoped<IncomingConnectionsHandler>();
-        services.AddScoped<ContactsDispatcher>();
-        services.AddScoped<VideoCallState>();
-        services.AddScoped<ContactsRepository>();
-        services.AddScoped<PresenceAnnouncer>();
+        services.AddSingleton<VideoCallState>();
+
+        services.AddSingleton<PeerConnector>();
+        services.AddSingleton<IncomingConnectionsHandler>();
+        services.AddSingleton<ContactsDispatcher>();
+        services.AddSingleton<ContactsRepository>();
+        services.AddSingleton<PresenceAnnouncer>();
+        services.AddSingleton<AppStarter>();
         services.AddScoped<IWebRtcConfigurator, AzureWebRtcChannelsRegistrator>();
         services.AddScoped<IWebRtcRegistrator, AzureWebRtcChannelsRegistrator>();
         services.AddSingleton<PhoneOptions>(sp =>

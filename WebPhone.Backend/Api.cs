@@ -9,4 +9,3 @@ public abstract class ApiActionConcrete<TIn, TOut> : ApiAction
 {
     public abstract Task<TOut> ExecuteAsync(TIn input, CancellationToken cancellationToken = default);
 }
-
