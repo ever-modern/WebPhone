@@ -34,7 +34,9 @@ public static class ServicesConfiguration
         services.AddScoped<ContactSettingsRepository>();
         services.AddScoped<PushSubscriptionsRepository>();
         services.AddScoped<PushNotifier>();
-        services.AddSingleton<RtcMatchMaker>();
+
+        services.AddSingleton<WebRtcParametersStorage>();
+        services.AddScoped<RtcMatchMaker>();
 
         services.AddScoped<ExchangeApiAction>();
         services.AddScoped<NotifyApiAction>();

@@ -19,7 +19,7 @@ public record ContactActions(
     Action? ToggleFavorite = null,
     Action<string?>? SetNickname = null,
     Action? Notify = null,
-    Action? Connect = null,
+    Func<Task<bool>>? Connect = null,
     Action? CancelConnect = null,
     Action? Disconnect = null,
     Action? StartCall = null,

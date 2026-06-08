@@ -227,31 +227,12 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
         response.EnsureSuccessStatusCode();
     }
 
-    public Task<RtcMatchParameter> ConnectRtcAsync(
-        string targetId,
-        WebRtcOffer offer,
-        CancellationToken cancellationToken
-    ) => ConnectRtcCommonAsync(targetId, offer, cancellationToken);
-
-    public Task<RtcMatchParameter> ConnectRtcAsync(
-        string targetId,
-        WebRtcAnswer answer,
-        CancellationToken cancellationToken
-    ) => ConnectRtcCommonAsync(targetId, answer, cancellationToken);
-
-    async Task<RtcMatchParameter> ConnectRtcCommonAsync(
-        string targetId,
-        WebRtcSessionDescription offerOrAnswer,
+    public async Task<RtcMatchParameter> ConnectRtcAsync(
+        RtcConnectionRequest connectionRequest,
         CancellationToken cancellationToken
     )
     {
-        var (type, sdp) = offerOrAnswer;
-        RtcConnectionRequest payload = offerOrAnswer switch
-        {
-            WebRtcOffer => new(targetId, new(type, sdp), null),
-            WebRtcAnswer => new(targetId, null, new(type, sdp)),
-            _ => throw new InvalidOperationException(),
-        };
+        RtcConnectionRequest payload = connectionRequest;
 
         string clientId = profile.User.Id;
         using var request = new HttpRequestMessage(HttpMethod.Post, _rtcConnectEndpoint)

@@ -4,20 +4,29 @@ using EverModern.Events;
 using EverModern.Threading.Queues;
 using Microsoft.Extensions.Logging;
 using WebPhone.Contract;
-using WebPhone.Messages;
-using WebPhone.Services.Channels;
 
 namespace WebPhone.Services;
 
-public sealed class PeerConnector : BackgroundProcessor
+public sealed class PeerConnector(
+    IRtcConnector webRtcConnector,
+    ILogger<PeerConnector> logger,
+    BackendClient backendClient
+) : IDisposable
 {
-    private readonly IRtcConnector _webRtcConnector;
-    private readonly IMessagesChannel _messagesChannel;
-    private readonly ILogger<PeerConnector> _logger;
-    private readonly SemaphoreSlim _locker = new(1, 1);
-    private readonly ConcurrentDictionary<string, AccountedConnection> _connections = new();
-    private readonly EventSource _connectionEventSource = new();
-    readonly BackendClient _backendClient;
+    readonly SemaphoreSlim _locker = new(1, 1);
+    readonly ConcurrentDictionary<string, AccountedConnection> _connections = new();
+    readonly EventSource _connectionEventSource = new();
+
+    static RtcConnectionRequest CreateRequest(
+        string peerId,
+        WebRtcOffer offer,
+        WebRtcAnswer? answer = null
+    ) =>
+        new(
+            peerId,
+            new(offer.Sdp, offer.Type),
+            answer is null ? null : new(answer.Sdp, answer.Type)
+        );
 
     public INotifier StateChanged => _connectionEventSource;
 
@@ -34,19 +43,6 @@ public sealed class PeerConnector : BackgroundProcessor
             .Where(kvp => kvp.Item2 is not null)
             .ToDictionary(kvp => kvp.Key, kvp => kvp.Item2!);
 
-    public PeerConnector(
-        IRtcConnector webRtcConnector,
-        IMessagesChannel messagesChannel,
-        ILogger<PeerConnector> logger,
-        BackendClient backendClient
-    )
-    {
-        _webRtcConnector = webRtcConnector;
-        _messagesChannel = messagesChannel;
-        _logger = logger;
-        _backendClient = backendClient;
-    }
-
     public async Task<RtcConnection> GetPeerConnectionAsync(
         string peerId,
         CancellationToken cancellationToken = default
@@ -57,7 +53,7 @@ public sealed class PeerConnector : BackgroundProcessor
         using (var _ = await _locker.LockScopeAsync(cancellationToken))
             if (_connections.TryGetValue(peerId, out connection!))
             {
-                _logger.LogDebug(
+                logger.LogDebug(
                     "[PAIR] Returning existing connection slot for peer {PeerId}",
                     peerId
                 );
@@ -69,7 +65,7 @@ public sealed class PeerConnector : BackgroundProcessor
                 connection = new AccountedConnection(peerId, true, linkedCts, task);
                 _connections[peerId] = connection;
                 _connectionEventSource.Invoke();
-                _logger.LogInformation(
+                logger.LogInformation(
                     "[PAIR] Created outgoing connection slot for peer {PeerId}",
                     peerId
                 );
@@ -103,15 +99,9 @@ public sealed class PeerConnector : BackgroundProcessor
 
     public async Task HandleIncomingConnectionRequestAsync(
         string peerId,
-        ConnectionRequestPayload request,
+        WebRtcOffer offer,
         CancellationToken cancellationToken = default
-    )
-    {
-        await AcceptIncomingConnectionAsync(peerId, request, cancellationToken);
-    }
-
-    public async Task HandlePeerConnectionClosedAsync(string peerId) =>
-        await RemoveConnectionIfMatchesAsync(peerId);
+    ) => await AcceptIncomingConnectionAsync(peerId, offer, cancellationToken);
 
     async Task<RtcConnection?> CreateOutgoingConnectionAsync(
         string peerId,
@@ -121,12 +111,11 @@ public sealed class PeerConnector : BackgroundProcessor
         try
         {
             WebRtcOffer? counterOffer = null;
-            var connection = await _webRtcConnector.InitiateConnectionAsync(
+            var connection = await webRtcConnector.InitiateConnectionAsync(
                 async offer =>
                 {
-                    var (responseOffer, answer) = await _backendClient.ConnectRtcAsync(
-                        peerId,
-                        offer,
+                    var (responseOffer, answer) = await backendClient.ConnectRtcAsync(
+                        CreateRequest(peerId, offer, null),
                         cancellationToken
                     );
 
@@ -147,10 +136,13 @@ public sealed class PeerConnector : BackgroundProcessor
 
             if (connection is null && counterOffer is not null)
             {
-                connection = await _webRtcConnector.AcceptConnectionAsync(
+                connection = await webRtcConnector.AcceptConnectionAsync(
                     counterOffer,
                     async answer =>
-                        await _backendClient.ConnectRtcAsync(peerId, answer, cancellationToken),
+                        await backendClient.ConnectRtcAsync(
+                            CreateRequest(peerId, counterOffer, answer),
+                            cancellationToken
+                        ),
                     cancellationToken
                 );
             }
@@ -172,14 +164,17 @@ public sealed class PeerConnector : BackgroundProcessor
 
     async Task<RtcConnection?> AcceptIncomingConnectionAsync(
         string peerId,
-        ConnectionRequestPayload incoming,
+        WebRtcOffer offer,
         CancellationToken cancellationToken
     )
     {
-        var connection = await _webRtcConnector.AcceptConnectionAsync(
-            incoming.Offer,
+        var connection = await webRtcConnector.AcceptConnectionAsync(
+            offer,
             async (answer) =>
-                await _backendClient.ConnectRtcAsync(peerId, answer, cancellationToken),
+                await backendClient.ConnectRtcAsync(
+                    CreateRequest(peerId, offer, answer),
+                    cancellationToken
+                ),
             cancellationToken
         );
 
@@ -234,7 +229,7 @@ public sealed class PeerConnector : BackgroundProcessor
         }
     }
 
-    protected override void AfterDispose()
+    public void Dispose()
     {
         foreach (var (_, connection) in _connections)
         {
@@ -244,8 +239,6 @@ public sealed class PeerConnector : BackgroundProcessor
 
         _connections.Clear();
     }
-
-    static string NewId() => CommonIdsGenerator.NewId().ToString();
 
     record AccountedConnection(
         string PeerId,

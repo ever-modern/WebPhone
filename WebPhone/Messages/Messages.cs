@@ -27,7 +27,7 @@ public sealed record ConnectionRejectedPayload(string RequestId);
 
 public record OutgoingMessage<T>(WebPhone.Contract.MessageType Type, T Payload, string? TargetClientId)
 {
-    private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
+    static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true
     };

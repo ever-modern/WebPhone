@@ -1,16 +1,22 @@
 ﻿using System.Collections.Concurrent;
+using System.Text.Json;
 using WebPhone.Backend.Storage;
 using WebPhone.Contract;
 
 namespace WebPhone.Backend.Services;
 
-public class RtcMatchMaker(MessagesRepository messagesRepository)
-{
-    static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
-    readonly ConcurrentDictionary<
+public class WebRtcParametersStorage
+    : ConcurrentDictionary<
         string,
         (WebRtcSessionParameter, TaskCompletionSource<RtcMatchParameter>)
-    > _currentOffers = [];
+    > { }
+
+public class RtcMatchMaker(
+    MessagesRepository messagesRepository,
+    WebRtcParametersStorage currentOffers
+)
+{
+    static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
 
     public Task<RtcMatchParameter> MatchAsync(
         string initiatorId,
@@ -20,69 +26,79 @@ public class RtcMatchMaker(MessagesRepository messagesRepository)
     )
     {
         var (offer, answer) = parameters;
-        if (offer is not null && answer is not null || offer is null && answer is null)
+
+        if (offer is null && answer is null)
         {
-            throw new InvalidOperationException(
-                "Match-making parameter must contain either offer or answer."
-            );
+            throw new UserFaultException($"Both offer and answer cannot be null.");
         }
 
         var couple =
             initiatorId.GetHashCode() > targetId.GetHashCode()
                 ? initiatorId + targetId
                 : targetId + initiatorId;
-        var (currentOffer, waitingForAnswer) = _currentOffers.GetValueOrDefault(couple);
 
-        if (offer is not null)
+        var (currentOffer, waitingForAnswer) = currentOffers.GetValueOrDefault(couple);
+
+        if (answer is not null)
         {
-            if (currentOffer is not null)
+            if (offer is null)
             {
-                return Task.FromResult(new RtcMatchParameter(currentOffer, null));
+                throw new UserFaultException($"Answer provided without the offer it's meant for.");
             }
 
-            var tcs = new TaskCompletionSource<RtcMatchParameter>();
+            if (currentOffer != offer)
+            {
+                throw new UserFaultException("Offer mismatch.");
+            }
 
-            _currentOffers[couple] = (offer, tcs);
+            currentOffer =
+                currentOffer ?? throw new UserFaultException("No offer found for the answer.");
 
-            _ = Task.Run(
-                async () =>
-                {
-                    await messagesRepository.WriteMessageAsync(
-                        nameof(MessageType.ConnectionAttempt),
-                        default,
-                        initiatorId,
-                        targetId,
-                        cancellationToken
-                    );
-                    await Task.Delay(OfferTimeout);
+            currentOffers.TryRemove(couple, out _);
 
-                    using var __ = cancellationToken.Register(() =>
-                    {
-                        _currentOffers.TryRemove(couple, out _);
-                        tcs.TrySetCanceled();
-                    });
+            waitingForAnswer.TrySetResult(new RtcMatchParameter(currentOffer, parameters.Answer));
 
-                    if (
-                        _currentOffers.TryRemove(couple, out var offerAndTcs)
-                        && offerAndTcs.Item2 == tcs
-                    )
-                    {
-                        tcs.TrySetResult(new(null, null));
-                    }
-                },
-                cancellationToken
-            );
-
-            return tcs.Task;
+            return Task.FromResult(new RtcMatchParameter(offer, answer));
         }
 
-        currentOffer =
-            currentOffer ?? throw new UserFaultException("No offer found for the answer.");
+        if (currentOffer is not null)
+        {
+            return Task.FromResult(new RtcMatchParameter(currentOffer, null));
+        }
 
-        _currentOffers.TryRemove(couple, out _);
+        var tcs = new TaskCompletionSource<RtcMatchParameter>();
 
-        waitingForAnswer.TrySetResult(new RtcMatchParameter(currentOffer, parameters.Answer));
+        currentOffers[couple] = (offer!, tcs);
 
-        return Task.FromResult(new RtcMatchParameter(offer, answer));
+        _ = Task.Run(
+            async () =>
+            {
+                await messagesRepository.WriteMessageAsync(
+                    nameof(MessageType.ConnectionAttempt),
+                    JsonSerializer.SerializeToElement(offer),
+                    initiatorId,
+                    targetId,
+                    cancellationToken
+                );
+                await Task.Delay(OfferTimeout);
+
+                using var __ = cancellationToken.Register(() =>
+                {
+                    currentOffers.TryRemove(couple, out _);
+                    tcs.TrySetCanceled();
+                });
+
+                if (
+                    currentOffers.TryRemove(couple, out var offerAndTcs)
+                    && offerAndTcs.Item2 == tcs
+                )
+                {
+                    tcs.TrySetResult(new(null, null));
+                }
+            },
+            cancellationToken
+        );
+
+        return tcs.Task;
     }
 }

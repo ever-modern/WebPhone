@@ -1,5 +1,5 @@
-using EverModern.Events;
 using EverModern.Blazor.DirectCommunication;
+using EverModern.Events;
 using WebPhone.Components;
 using WebPhone.Messages;
 using WebPhone.Services.Channels;
@@ -49,7 +49,8 @@ public sealed class ContactsDispatcher(
         public Task Task { get; } = task;
     }
 
-    sealed class ContactContext(ContactManager manager, Subscription stateSubscription) : IDisposable
+    sealed class ContactContext(ContactManager manager, Subscription stateSubscription)
+        : IDisposable
     {
         public ContactManager Manager { get; } = manager;
         public List<ChatMessage> Chat { get; } = [];
@@ -101,7 +102,9 @@ public sealed class ContactsDispatcher(
 
     void EnsureContactContexts()
     {
-        var contactIds = contactsRepository.Contacts.Select(c => c.Id).ToHashSet(StringComparer.Ordinal);
+        var contactIds = contactsRepository
+            .Contacts.Select(c => c.Id)
+            .ToHashSet(StringComparer.Ordinal);
 
         foreach (var contact in contactsRepository.Contacts)
         {
@@ -146,33 +149,32 @@ public sealed class ContactsDispatcher(
     void StartIncomingChatReader(string contactId, ContactContext context, RtcConnection connection)
     {
         var cts = new CancellationTokenSource();
-        var task = Task.Run(async () =>
-        {
-            try
+        var task = Task.Run(
+            async () =>
             {
-                await using var channel = new RtcConnectionMessageChannel(connection);
-                using var reader = channel.Subscribe(msg => msg.Type is RtcMessageType.User);
-
-                await foreach (var message in reader.ReadAllAsync(cts.Token))
+                try
                 {
-                    if (string.IsNullOrWhiteSpace(message.Payload))
-                        continue;
+                    await using var channel = new RtcConnectionMessageChannel(connection);
+                    using var reader = channel.Subscribe(msg => msg.Type is RtcMessageType.User);
 
-                    lock (context.ChatLock)
+                    await foreach (var message in reader.ReadAllAsync(cts.Token))
                     {
-                        context.Chat.Add(new ChatMessage(contactId, message.Payload!, false));
-                    }
+                        if (string.IsNullOrWhiteSpace(message.Payload))
+                            continue;
 
-                    StateHasChanged();
+                        lock (context.ChatLock)
+                        {
+                            context.Chat.Add(new ChatMessage(contactId, message.Payload!, false));
+                        }
+
+                        StateHasChanged();
+                    }
                 }
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch
-            {
-            }
-        }, cts.Token);
+                catch (OperationCanceledException) { }
+                catch { }
+            },
+            cts.Token
+        );
 
         _incomingChatReaders[contactId] = new IncomingChatReader(cts, task);
     }
@@ -215,7 +217,11 @@ public sealed class ContactsDispatcher(
                     InteractionType.Connecting => BuildConnectingState(contact, context, chat),
                     InteractionType.Connected => BuildConnectedState(contact, context, chat),
                     InteractionType.Calling => BuildCallingState(contact, context, chat),
-                    InteractionType.ReceivingCall => BuildReceivingCallState(contact, context, chat),
+                    InteractionType.ReceivingCall => BuildReceivingCallState(
+                        contact,
+                        context,
+                        chat
+                    ),
                     InteractionType.Speaking => BuildSpeakingState(contact, context, chat),
                     _ => BuildDisconnectedState(contact, chat),
                 };
@@ -232,17 +238,28 @@ public sealed class ContactsDispatcher(
             InteractionState: new(Chat: chat),
             CreateDefaultActions(contact) with
             {
-                Connect = () =>
+                Connect = async () =>
                 {
                     if (_contexts.TryGetValue(contact.Id, out var context))
-                        _ = context.Manager.ConnectAsync();
+                    {
+                        var connected = await context
+                            .Manager.ConnectAsync()
+                            .ContinueWith(t => t.IsCompletedSuccessfully);
+                        return connected;
+                    }
+
+                    return false;
                 },
                 Disconnect = null,
             }
         );
     }
 
-    ContactState BuildConnectedState(Contact contact, ContactContext context, List<ChatMessage> chat)
+    ContactState BuildConnectedState(
+        Contact contact,
+        ContactContext context,
+        List<ChatMessage> chat
+    )
     {
         return new ContactState(
             contact,
@@ -283,7 +300,8 @@ public sealed class ContactsDispatcher(
                 SendMessage = text => SendUserMessage(contact.Id, text),
                 EndCall = () =>
                 {
-                    if (videoCallState.ContactId == contact.Id) videoCallState.Close();
+                    if (videoCallState.ContactId == contact.Id)
+                        videoCallState.Close();
                     context.Manager.EndCall();
                 },
                 Disconnect = () => _ = context.Manager.DisconnectAsync(),
@@ -338,7 +356,11 @@ public sealed class ContactsDispatcher(
         );
     }
 
-    ContactState BuildConnectingState(Contact contact, ContactContext context, List<ChatMessage> chat)
+    ContactState BuildConnectingState(
+        Contact contact,
+        ContactContext context,
+        List<ChatMessage> chat
+    )
     {
         return new ContactState(
             contact,

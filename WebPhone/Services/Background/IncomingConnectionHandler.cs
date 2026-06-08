@@ -1,7 +1,7 @@
+using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
 using Microsoft.Extensions.Logging;
 using WebPhone.Contract;
-using WebPhone.Messages;
 using WebPhone.Services.Channels;
 
 namespace WebPhone.Services.Background;
@@ -14,8 +14,8 @@ public sealed class IncomingConnectionsHandler(
     ILogger<IncomingConnectionsHandler> logger
 ) : IAsyncDisposable
 {
-    private CancellationTokenSource? _cts;
-    private Task? _readerTask;
+    CancellationTokenSource? _cts;
+    Task? _readerTask;
 
     readonly EventSource<ConnectionEstablishedArgs> _connectionEstablished = new();
     public INotifier<ConnectionEstablishedArgs> ConnectionEstablished => _connectionEstablished;
@@ -29,47 +29,19 @@ public sealed class IncomingConnectionsHandler(
         _readerTask = ReadAsync(_cts.Token);
     }
 
-    private async Task ReadAsync(CancellationToken ct)
+    async Task ReadAsync(CancellationToken ct)
     {
-        using var reader = messagesChannel.Subscribe(m =>
-            m.Type is MessageType.ConnectionAttempt or MessageType.ConnectionClosed
-        );
+        using var reader = messagesChannel.Subscribe(m => m.Type is MessageType.ConnectionAttempt);
 
         await foreach (var message in reader.ReadAllAsync(ct))
         {
-            if (message.Type is MessageType.ConnectionClosed)
-            {
-                await peerConnector.HandlePeerConnectionClosedAsync(message.SenderClientId);
-                continue;
-            }
-
-            var request = message.SpecifyPayload<ConnectionRequestPayload>();
-            if (request?.Payload is null)
-            {
-                logger.LogWarning("[INCOMING] ConnectionAttempt has null payload from {Peer}", message.SenderClientId);
-                continue;
-            }
-
-            try
-            {
-                await peerConnector.HandleIncomingConnectionRequestAsync(
+            var payload = message.SpecifyPayload<WebRtcOffer>();
+            if (payload is not null)
+                _ = peerConnector.HandleIncomingConnectionRequestAsync(
                     message.SenderClientId,
-                    request.Payload,
+                    payload.Payload,
                     ct
                 );
-
-                _connectionEstablished.Invoke(
-                    new ConnectionEstablishedArgs(message.SenderClientId, request.Payload.RequestId)
-                );
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "[INCOMING] Failed handling connection attempt from {Peer}", message.SenderClientId);
-            }
         }
     }
 
