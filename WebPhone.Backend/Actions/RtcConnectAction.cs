@@ -1,9 +1,14 @@
 using WebPhone.Backend.Services;
 using WebPhone.Contract;
+using Microsoft.Extensions.Logging;
 
 namespace WebPhone.Backend.Actions;
 
-public class RtcConnectAction(RtcMatchMaker rtcMatchMaker, RequestSupplements requestSupplements)
+public class RtcConnectAction(
+    RtcMatchMaker rtcMatchMaker,
+    RequestSupplements requestSupplements,
+    ILogger<RtcConnectAction> logger
+)
     : ApiActionConcrete<RtcConnectionRequest, RtcMatchParameter>
 {
     public override string Route => "rtc-connect";
@@ -14,12 +19,21 @@ public class RtcConnectAction(RtcMatchMaker rtcMatchMaker, RequestSupplements re
     )
     {
         var clientId = requestSupplements.RequireClientId();
+        logger.LogInformation(
+            "[RTC] rtc-connect request {ClientId} -> {TargetId}. OfferPresent={OfferPresent}, AnswerPresent={AnswerPresent}",
+            clientId,
+            input.TargetId,
+            input.Offer is not null,
+            input.Answer is not null
+        );
+
         var result = rtcMatchMaker.MatchAsync(
             clientId,
             input.TargetId,
             new(input.Offer, input.Answer),
             cancellationToken
         );
+
         return result;
     }
 }

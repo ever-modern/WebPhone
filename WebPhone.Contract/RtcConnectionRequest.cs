@@ -2,6 +2,6 @@ namespace WebPhone.Contract;
 
 public record RtcConnectionRequest(
     string TargetId,
-    WebRtcSessionParameter? Offer,
-    WebRtcSessionParameter? Answer
+    WebRtcOffer? Offer,
+    WebRtcAnswer? Answer
 ) : RtcMatchParameter(Offer, Answer);

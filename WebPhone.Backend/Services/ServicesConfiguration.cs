@@ -1,5 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -35,7 +34,7 @@ public static class ServicesConfiguration
         services.AddScoped<PushSubscriptionsRepository>();
         services.AddScoped<PushNotifier>();
 
-        services.AddSingleton<WebRtcParametersStorage>();
+        services.AddSingleton(new WebRtcParametersStorage());
         services.AddScoped<RtcMatchMaker>();
 
         services.AddScoped<ExchangeApiAction>();

@@ -22,7 +22,7 @@ public class RtcConnectionMessageChannel
         IAsyncDisposable,
         IDisposable
 {
-    readonly RtcConnection _rtcConnection;
+    readonly IRtcConnection _rtcConnection;
     private readonly List<Channel<RtcMessage>> _incoming = [];
     private readonly Channel<RtcMessage> _outgoing = Channel.CreateUnbounded<RtcMessage>();
     private readonly CancellationTokenSource _cts = new();
@@ -31,7 +31,7 @@ public class RtcConnectionMessageChannel
     private Subscription? _bytesSubscription;
     private bool _isDisposed;
 
-    public RtcConnectionMessageChannel(RtcConnection rtcConnection)
+    public RtcConnectionMessageChannel(IRtcConnection rtcConnection)
     {
         _rtcConnection = rtcConnection;
         _initializeTask = InitializeAsync(_cts.Token);

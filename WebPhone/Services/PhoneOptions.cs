@@ -1,4 +1,5 @@
 using EverModern.Blazor.DirectCommunication;
+using WebPhone.Contract;
 
 namespace WebPhone.Services;
 

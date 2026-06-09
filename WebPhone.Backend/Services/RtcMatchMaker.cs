@@ -1,22 +1,25 @@
 ﻿using System.Collections.Concurrent;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using WebPhone.Backend.Storage;
 using WebPhone.Contract;
 
 namespace WebPhone.Backend.Services;
 
 public class WebRtcParametersStorage
-    : ConcurrentDictionary<
-        string,
-        (WebRtcSessionParameter, TaskCompletionSource<RtcMatchParameter>)
-    > { }
+    : ConcurrentDictionary<string, (WebRtcOffer, TaskCompletionSource<RtcMatchParameter>)> { }
 
 public class RtcMatchMaker(
     MessagesRepository messagesRepository,
-    WebRtcParametersStorage currentOffers
+    WebRtcParametersStorage currentOffers,
+    ILogger<RtcMatchMaker> logger
 )
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
+
+    static string ComposeCoupleId(string id1, string id2) =>
+        (string.CompareOrdinal(id1, id2) > 0 ? id1 + id2 : id2 + id1)
+        + $"{id1.Length}-{id2.Length}";
 
     public Task<RtcMatchParameter> MatchAsync(
         string initiatorId,
@@ -32,10 +35,15 @@ public class RtcMatchMaker(
             throw new UserFaultException($"Both offer and answer cannot be null.");
         }
 
-        var couple =
-            initiatorId.GetHashCode() > targetId.GetHashCode()
-                ? initiatorId + targetId
-                : targetId + initiatorId;
+        logger.LogInformation(
+            "[RTC] Match request {InitiatorId}->{TargetId}. OfferPresent={OfferPresent}, AnswerPresent={AnswerPresent}",
+            initiatorId,
+            targetId,
+            offer is not null,
+            answer is not null
+        );
+
+        var couple = ComposeCoupleId(initiatorId, targetId);
 
         var (currentOffer, waitingForAnswer) = currentOffers.GetValueOrDefault(couple);
 
@@ -57,30 +65,42 @@ public class RtcMatchMaker(
             currentOffers.TryRemove(couple, out _);
 
             waitingForAnswer.TrySetResult(new RtcMatchParameter(currentOffer, parameters.Answer));
+            logger.LogInformation(
+                "[RTC] Answer matched for pair {Couple}. Completing waiting initiator task.",
+                couple
+            );
 
             return Task.FromResult(new RtcMatchParameter(offer, answer));
         }
 
         if (currentOffer is not null)
         {
+            logger.LogInformation(
+                "[RTC] Existing offer found for pair {Couple}. Returning current offer to requester.",
+                couple
+            );
             return Task.FromResult(new RtcMatchParameter(currentOffer, null));
         }
 
         var tcs = new TaskCompletionSource<RtcMatchParameter>();
 
         currentOffers[couple] = (offer!, tcs);
+        logger.LogInformation(
+            "[RTC] Stored offer for pair {Couple}; waiting for answer up to {TimeoutSeconds}s.",
+            couple,
+            OfferTimeout.TotalSeconds
+        );
 
         _ = Task.Run(
             async () =>
             {
                 await messagesRepository.WriteMessageAsync(
-                    nameof(MessageType.ConnectionAttempt),
+                    MessageTypeJsonConverter.ToWireValue(MessageType.ConnectionAttempt),
                     JsonSerializer.SerializeToElement(offer),
                     initiatorId,
                     targetId,
                     cancellationToken
                 );
-                await Task.Delay(OfferTimeout);
 
                 using var __ = cancellationToken.Register(() =>
                 {
@@ -88,11 +108,18 @@ public class RtcMatchMaker(
                     tcs.TrySetCanceled();
                 });
 
+                await Task.Delay(OfferTimeout);
+
                 if (
                     currentOffers.TryRemove(couple, out var offerAndTcs)
                     && offerAndTcs.Item2 == tcs
                 )
                 {
+                    logger.LogWarning(
+                        "[RTC] Offer timed out for pair {Couple} after {TimeoutSeconds}s.",
+                        couple,
+                        OfferTimeout.TotalSeconds
+                    );
                     tcs.TrySetResult(new(null, null));
                 }
             },

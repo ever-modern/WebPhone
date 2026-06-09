@@ -15,12 +15,12 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
     private Task? sendLoopTask;
     private long _lastMessageId = CommonIdsGenerator.NewId();
     private DateTime lastSentTimestamp = DateTime.UtcNow;
-    readonly BackendClient _client;
+    readonly IBackendClient _client;
 
-    public BackendMessagesChannel(BackendClient client, int pollIntervalMs = 1000)
+    public BackendMessagesChannel(IBackendClient client, int pollIntervalMs = 1000)
     {
         _client = client;
-        idleSendInterval = TimeSpan.FromMilliseconds(Math.Max(pollIntervalMs, 250));
+        idleSendInterval = TimeSpan.FromMilliseconds(Math.Max(pollIntervalMs, 50));
         lastSentTimestamp = DateTime.UtcNow - idleSendInterval;
     }
 
@@ -43,7 +43,11 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
         return result;
     }
 
-    public Task StartAsync() => sendLoopTask = RunSendLoopAsync(cts.Token);
+    public BackendMessagesChannel Start()
+    {
+        sendLoopTask = RunSendLoopAsync(cts.Token);
+        return this;
+    }
 
     private async Task RunSendLoopAsync(CancellationToken cancellationToken)
     {
@@ -143,7 +147,6 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _client.Dispose();
         cts.Cancel();
         outgoingChannel.Writer.TryComplete();
         incomingChannels.ForEach(ch => ch.Writer.TryComplete());

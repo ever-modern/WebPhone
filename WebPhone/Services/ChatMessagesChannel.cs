@@ -14,7 +14,7 @@ namespace WebPhone.Services;
 ///   await foreach (var msg in reader.ReadAllAsync(ct)) …  // receive new messages
 /// </code>
 /// </summary>
-public sealed class ChatMessagesChannel(BackendClient client) : IAsyncDisposable
+public sealed class ChatMessagesChannel(IBackendClient client) : IAsyncDisposable
 {
     // Per-peer state ──────────────────────────────────────────────────────────
     private sealed class PeerState

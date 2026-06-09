@@ -1,3 +1,3 @@
 namespace WebPhone.Contract;
 
-public record RtcMatchParameter(WebRtcSessionParameter? Offer, WebRtcSessionParameter? Answer);
+public record RtcMatchParameter(WebRtcOffer? Offer, WebRtcAnswer? Answer);

@@ -17,9 +17,6 @@ public sealed class IncomingConnectionsHandler(
     CancellationTokenSource? _cts;
     Task? _readerTask;
 
-    readonly EventSource<ConnectionEstablishedArgs> _connectionEstablished = new();
-    public INotifier<ConnectionEstablishedArgs> ConnectionEstablished => _connectionEstablished;
-
     public void Start()
     {
         if (_cts is not null)
@@ -35,13 +32,25 @@ public sealed class IncomingConnectionsHandler(
 
         await foreach (var message in reader.ReadAllAsync(ct))
         {
-            var payload = message.SpecifyPayload<WebRtcOffer>();
-            if (payload is not null)
-                _ = peerConnector.HandleIncomingConnectionRequestAsync(
-                    message.SenderClientId,
-                    payload.Payload,
-                    ct
-                );
+            if (peerConnector.IsConnectedTo(message.SenderClientId))
+                continue;
+
+            var concreteMessage = message.SpecifyPayload<WebRtcOffer>();
+            if (concreteMessage is null)
+                continue;
+
+            logger.LogInformation(
+                "Received incoming connection attempt from {SenderClientId}. OfferType={OfferType}, HasSdp={HasSdp}",
+                message.SenderClientId,
+                concreteMessage.Payload.Type,
+                !string.IsNullOrWhiteSpace(concreteMessage.Payload.Sdp)
+            );
+
+            _ = peerConnector.HandleIncomingConnectionRequestAsync(
+                message.SenderClientId,
+                concreteMessage.Payload,
+                ct
+            );
         }
     }
 

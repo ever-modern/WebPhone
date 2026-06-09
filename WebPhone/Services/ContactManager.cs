@@ -250,7 +250,7 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
         await chat.Writer.WriteAsync(new RtcMessage(messageType, text), cancellationToken);
     }
 
-    void ListenIncomingCall(RtcConnection connection)
+    void ListenIncomingCall(IRtcConnection connection)
     {
         var sessionToken = _sessionCts?.Token;
         if (sessionToken is null)
@@ -278,7 +278,7 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
             );
     }
 
-    void StartSpeaking(RtcConnection connection, CallMaintainer callMaintainer)
+    void StartSpeaking(IRtcConnection connection, CallMaintainer callMaintainer)
     {
         var sessionToken = _sessionCts?.Token ?? CancellationToken.None;
         var stopCallCts = CancellationTokenSource.CreateLinkedTokenSource(sessionToken);
@@ -321,7 +321,7 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
         _stateChanged.Invoke();
     }
 
-    void StartSession(RtcConnection connection)
+    void StartSession(IRtcConnection connection)
     {
         StopSession();
         _sessionCts = new CancellationTokenSource();
@@ -388,23 +388,23 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
         );
     }
 
-    RtcConnection? GetConnection() => peerConnector.CurrentConnections.GetValueOrDefault(contactId);
+    IRtcConnection? GetConnection() => peerConnector.CurrentConnections.GetValueOrDefault(contactId);
 
-    static async Task EnableMediaAsync(RtcConnection connection)
+    static async Task EnableMediaAsync(IRtcConnection connection)
     {
         await connection.SetMediaStateAsync(
             new MediaState(new(true, true), new MediaPartState(false, false))
         );
     }
 
-    static async Task EnableVideoMediaAsync(RtcConnection connection)
+    static async Task EnableVideoMediaAsync(IRtcConnection connection)
     {
         await connection.SetMediaStateAsync(
             new MediaState(new(true, true), new MediaPartState(true, true))
         );
     }
 
-    static async Task DisableMediaAsync(RtcConnection connection)
+    static async Task DisableMediaAsync(IRtcConnection connection)
     {
         await connection.SetMediaStateAsync(
             new MediaState(new(false, false), new MediaPartState(false, false))

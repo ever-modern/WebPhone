@@ -1,12 +1,15 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using WebPhone.Contract;
 using WebPhone.Services.Data;
 
 namespace WebPhone.Services;
 
-public class BackendClient(string baseUrl, IProfile profile) : IDisposable
+
+public class BackendClient(string baseUrl, IProfile profile, ILogger<BackendClient>? logger = null) : IDisposable, IBackendClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -14,6 +17,7 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
     };
 
     readonly HttpClient _httpClient = new();
+    readonly ILogger<BackendClient> _logger = logger ?? NullLogger<BackendClient>.Instance;
     readonly string _exchangeEndpoint = $"{baseUrl.TrimEnd('/')}/exchange";
     readonly string _pushSubscriptionEndpoint = $"{baseUrl.TrimEnd('/')}/subscribe-for-push";
     readonly string _notifyEndpoint = $"{baseUrl.TrimEnd('/')}/notify";
@@ -233,6 +237,12 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
     )
     {
         RtcConnectionRequest payload = connectionRequest;
+        _logger.LogInformation(
+            "[RTC] Sending rtc-connect to {TargetId}. OfferPresent={OfferPresent}, AnswerPresent={AnswerPresent}",
+            payload.TargetId,
+            payload.Offer is not null,
+            payload.Answer is not null
+        );
 
         string clientId = profile.User.Id;
         using var request = new HttpRequestMessage(HttpMethod.Post, _rtcConnectEndpoint)
@@ -247,6 +257,13 @@ public class BackendClient(string baseUrl, IProfile profile) : IDisposable
         var result = await response.Content.ReadFromJsonAsync<RtcMatchParameter>(
             JsonOptions,
             cancellationToken
+        );
+
+        _logger.LogInformation(
+            "[RTC] rtc-connect response from {TargetId}. OfferPresent={OfferPresent}, AnswerPresent={AnswerPresent}",
+            payload.TargetId,
+            result?.Offer is not null,
+            result?.Answer is not null
         );
 
         return result!;

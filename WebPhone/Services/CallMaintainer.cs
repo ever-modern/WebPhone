@@ -6,7 +6,7 @@ namespace WebPhone.Services;
 
 record struct CallOptions(bool IsVideoCall);
 
-class CallMaintainer(RtcConnection connection, TimeSpan criticalTime)
+class CallMaintainer(IRtcConnection connection, TimeSpan criticalTime)
 {
     // Returns true when the received ping is a video-call ping.
     public Task<CallOptions> WhenReceivedCallPingAsync(

@@ -1,13 +1,15 @@
-﻿namespace EverModern.Blazor.DirectCommunication;
+﻿using WebPhone.Contract;
+
+namespace EverModern.Blazor.DirectCommunication;
 
 public interface IRtcConnector
 {
-    Task<RtcConnection?> AcceptConnectionAsync(
+    Task<IRtcConnection?> AcceptConnectionAsync(
         WebRtcOffer offer,
         Func<WebRtcAnswer, Task> sendAnswerBack,
         CancellationToken cancellationToken
     );
-    Task<RtcConnection?> InitiateConnectionAsync(
+    Task<IRtcConnection?> InitiateConnectionAsync(
         Func<WebRtcOffer, Task<WebRtcAnswer?>> getAnswer,
         CancellationToken cancellationToken
     );

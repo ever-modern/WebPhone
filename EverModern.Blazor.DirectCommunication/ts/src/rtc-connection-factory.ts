@@ -30,13 +30,16 @@ async function createRtcConnection(
     if (!iceServers?.length) throw new Error("At least one ICE server must be provided.");
 
     const isInitator = typeof exchangeInfo === "function";
+    const role = isInitator ? "initiator" : "acceptor";
+    console.log(`[RTC] starting connection as ${role}. iceServers=${iceServers.length}`);
 
     const peerConnection = new RTCPeerConnection({ iceServers });
 
-    peerConnection.oniceconnectionstatechange = () => console.log("[RTC] ICE connection state:", peerConnection.iceConnectionState);
-    peerConnection.onsignalingstatechange = () => console.log("[RTC] signaling state:", peerConnection.signalingState);
-    peerConnection.onicegatheringstatechange = () => console.log("[RTC] ICE gathering state:", peerConnection.iceGatheringState);
-    peerConnection.onicecandidate = (e) => console.log("[RTC] ICE candidate:", e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)");
+    peerConnection.onconnectionstatechange = () => console.log(`[RTC][${role}] connection state:`, peerConnection.connectionState);
+    peerConnection.oniceconnectionstatechange = () => console.log(`[RTC][${role}] ICE connection state:`, peerConnection.iceConnectionState);
+    peerConnection.onsignalingstatechange = () => console.log(`[RTC][${role}] signaling state:`, peerConnection.signalingState);
+    peerConnection.onicegatheringstatechange = () => console.log(`[RTC][${role}] ICE gathering state:`, peerConnection.iceGatheringState);
+    peerConnection.onicecandidate = (e) => console.log(`[RTC][${role}] ICE candidate:`, e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)");
 
     const { getMediaState, setMediaState, setVideoTarget, setLocalVideoTarget } = bindMediaManager(peerConnection, isInitator);
     const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
@@ -60,18 +63,26 @@ async function createRtcConnection(
 
     if (isInitator) {
         const offer = await peerConnection.createOffer();
-        console.log("OFFER:", offer);
+        console.log(`[RTC][${role}] local offer created. type=${offer.type}, hasSdp=${Boolean(offer.sdp)}`);
         await peerConnection.setLocalDescription(offer);
 
         await waitForIceGatheringComplete(peerConnection);
 
         const answer = await exchangeInfo(peerConnection.localDescription!);
-        console.log("ANSWER:", answer);
+        console.log(`[RTC][${role}] remote answer received. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
+
+        if (!answer?.type || !answer?.sdp) {
+            console.log(`[RTC][${role}] no direct answer returned; likely switching to counter-offer flow.`);
+            unbind();
+            peerConnection.close();
+            return null;
+        }
+
         await peerConnection.setRemoteDescription(answer);
     }
     else {
         const { offer, sendAnswerBack } = exchangeInfo;
-        console.log("OFFER:", offer);
+        console.log(`[RTC][${role}] remote offer received. type=${offer?.type}, hasSdp=${Boolean(offer?.sdp)}`);
 
         await peerConnection.setRemoteDescription(offer);
 
@@ -86,17 +97,20 @@ async function createRtcConnection(
 
         if (!answer) { return null; }
 
-        console.log("ANSWER:", answer);
+        console.log(`[RTC][${role}] local answer created. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
         await peerConnection.setLocalDescription(answer);
 
         await waitForIceGatheringComplete(peerConnection);
 
         await sendAnswerBack(peerConnection.localDescription!);
+        console.log(`[RTC][${role}] local answer sent back.`);
     }
 
     try {
         await whenOpen;
+        console.log(`[RTC][${role}] data channel open.`);
     } catch (e) {
+        console.error(`[RTC][${role}] failed before channel open.`, e);
         unbind();
         peerConnection.close();
         throw e;
@@ -105,7 +119,7 @@ async function createRtcConnection(
     return connectionManager;
 }
 
-function initiateConnectionAsync(
+async function initiateConnectionAsync(
     iceServers: IceServerParameters[],
     getAnswerAsync: DotNetObjectReference,
     onStateChangedAsync: DotNetObjectReference,
@@ -115,15 +129,12 @@ function initiateConnectionAsync(
     const onStateChanged = (state: RTCPeerConnectionState) => onStateChangedAsync.invokeMethodAsync("invoke", state) as Promise<void>;
     const onDataChannelMessage = (message: string) => onDataChannelMessageAsync.invokeMethodAsync("invoke", message) as Promise<void>;
 
-    const p = createRtcConnection(getAnswer, iceServers, { onStateChanged, onDataChannelMessage });
-    // Attaching .catch() here marks p as "handled" in the browser rejection tracker.
-    // Returning p directly (not await p) means there is exactly one Promise object.
-    // C# still receives the rejection when it IS waiting; no Uncaught (in promise) when it isn’t.
-    p.catch((e: unknown) => console.warn("[RTC] initiateConnectionAsync: connection failed (C# may have already cancelled):", e));
-    return p;
+    const connectionManager = await createRtcConnection(getAnswer, iceServers, { onStateChanged, onDataChannelMessage });
+
+    return connectionManager;
 }
 
-function acceptConnectionAsync(
+async function acceptConnectionAsync(
     iceServers: IceServerParameters[],
     offer: RTCSessionDescriptionInit,
     sendAnswerBackAsync: DotNetObjectReference,
@@ -133,9 +144,9 @@ function acceptConnectionAsync(
     const onStateChanged = (state: RTCPeerConnectionState) => onStateChangedAsync.invokeMethodAsync("invoke", state) as Promise<void>;
     const onDataChannelMessage = (message: string) => onDataChannelMessageAsync.invokeMethodAsync("invoke", message) as Promise<void>;
     const sendAnswerBack = (answer: RTCSessionDescriptionInit) => sendAnswerBackAsync.invokeMethodAsync("invoke", answer) as Promise<void>;
-    const p = createRtcConnection({ offer, sendAnswerBack }, iceServers, { onStateChanged, onDataChannelMessage });
-    p.catch((e: unknown) => console.warn("[RTC] acceptConnectionAsync: connection failed (C# may have already cancelled):", e));
-    return p;
+    const connectionManager = await createRtcConnection({ offer, sendAnswerBack }, iceServers, { onStateChanged, onDataChannelMessage });
+    
+    return connectionManager;
 }
 
 export const rtcConnectionFactory = { initiateConnectionAsync, acceptConnectionAsync }; 

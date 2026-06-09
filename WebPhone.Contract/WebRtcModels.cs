@@ -1,16 +1,18 @@
 using System.Text.Json.Serialization;
 
-namespace EverModern.Blazor.DirectCommunication;
+namespace WebPhone.Contract;
 
-public abstract record WebRtcSessionDescription(
-    [property: JsonPropertyName("type")] string? Type,
-    [property: JsonPropertyName("sdp")] string? Sdp);
+public abstract record WebRtcSessionDescription(string? Type, string? Sdp);
 
-public record WebRtcOffer([property: JsonPropertyName("type")] string? Type, [property: JsonPropertyName("sdp")] string? Sdp)
-    : WebRtcSessionDescription(Type, Sdp);
+public record WebRtcOffer(
+    string? Type,
+    string? Sdp
+) : WebRtcSessionDescription(Type, Sdp);
 
-public record WebRtcAnswer([property: JsonPropertyName("type")] string? Type, [property: JsonPropertyName("sdp")] string? Sdp)
-    : WebRtcSessionDescription(Type, Sdp);
+public record WebRtcAnswer(
+    string? Type,
+    string? Sdp
+) : WebRtcSessionDescription(Type, Sdp);
 
 public sealed record WebRtcIceCandidate
 {

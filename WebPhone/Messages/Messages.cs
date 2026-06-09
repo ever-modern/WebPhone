@@ -1,5 +1,5 @@
-﻿using EverModern.Blazor.DirectCommunication;
-using System.Text.Json;
+﻿using System.Text.Json;
+using WebPhone.Contract;
 
 namespace WebPhone.Messages;
 
@@ -12,8 +12,6 @@ public sealed record UserPresence(string UserId, string Name, DateTimeOffset Las
 public sealed record PresencePayload(string Name);
 
 public sealed record HungupPayload(string CallId);
-
-public sealed record ConnectionRequestPayload(string RequestId, WebRtcOffer Offer);
 
 public sealed record AnswerPayload(string RequestId, WebRtcAnswer Answer);
 

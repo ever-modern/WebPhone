@@ -28,7 +28,7 @@ public enum InteractionType
 public sealed class ContactsDispatcher(
     PeerConnector peerConnector,
     ContactsRepository contactsRepository,
-    BackendClient backendClient,
+    IBackendClient backendClient,
     VideoCallState videoCallState
 ) : IDisposable
 {
@@ -55,7 +55,7 @@ public sealed class ContactsDispatcher(
         public ContactManager Manager { get; } = manager;
         public List<ChatMessage> Chat { get; } = [];
         public object ChatLock { get; } = new();
-        public RtcConnection? ChatConnection { get; set; }
+        public IRtcConnection? ChatConnection { get; set; }
 
         readonly Subscription _stateSubscription = stateSubscription;
 
@@ -146,7 +146,7 @@ public sealed class ContactsDispatcher(
         }
     }
 
-    void StartIncomingChatReader(string contactId, ContactContext context, RtcConnection connection)
+    void StartIncomingChatReader(string contactId, ContactContext context, IRtcConnection connection)
     {
         var cts = new CancellationTokenSource();
         var task = Task.Run(

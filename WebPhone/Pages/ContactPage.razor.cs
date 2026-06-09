@@ -1,10 +1,14 @@
 using Microsoft.AspNetCore.Components;
 using WebPhone.Components;
+using WebPhone.Services.Background;
 
 namespace WebPhone.Pages;
 
 public partial class ContactPage
 {
+    [Inject]
+    public AppStarter AppStarter { get; set; } = default!;
+
     [Parameter]
     public string ContactId { get; set; } = "";
 
@@ -15,6 +19,11 @@ public partial class ContactPage
     protected override void OnInitialized()
     {
         BoundToLifetime(Dispatcher.StateChanged.Subscribe(SyncAndRender));
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await AppStarter.EnsureStartedAsync();
     }
 
     protected override void OnParametersSet()
@@ -36,17 +45,14 @@ public partial class ContactPage
     // Connect() is null when already connected/connecting — no double-connect risk.
     async Task RunAutoConnectAsync(CancellationToken ct)
     {
-        const int maxFailedAttempts = 1;
-        int failedAttempts = 0;
-        while (!ct.IsCancellationRequested && failedAttempts < maxFailedAttempts)
+        while (!ct.IsCancellationRequested)
         {
-            var success = await TryConnect("poll");
-            if (success is false)
+            if (_card?.InteractionState.IsConnected is not true)
             {
-                failedAttempts++;
+                _ = await TryConnect("poll");
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(3));
+            await Task.Delay(TimeSpan.FromSeconds(3), ct);
         }
     }
 

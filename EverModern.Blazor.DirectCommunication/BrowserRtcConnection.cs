@@ -6,17 +6,17 @@ public record MediaPartState(bool InputEnabled, bool OutputEnabled);
 
 public record MediaState(MediaPartState Audio, MediaPartState Video);
 
-public sealed class RtcConnection(
+public sealed class BrowserRtcConnection(
     Action dispose,
     INotifier<string> stateChanged,
     INotifier<byte[]> bytesReceived,
     Func<Task<string>> getState,
-    Func<byte[],ValueTask<bool>> writeBytes,
+    Func<byte[], ValueTask<bool>> writeBytes,
     Func<Task<MediaState>> getMediaState,
     Func<MediaState, Task> setMediaState,
     Func<Microsoft.AspNetCore.Components.ElementReference, Task> setVideoTarget,
     Func<Microsoft.AspNetCore.Components.ElementReference, Task> setLocalVideoTarget
-) : IDisposable
+) : IRtcConnection, IDisposable
 {
     private bool _disposed;
 

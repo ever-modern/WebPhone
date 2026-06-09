@@ -28,7 +28,7 @@ public sealed class AppStarter(
             return;
 
         await profileStore.InitializeAsync(cancellationToken);
-        _ = backendMessagesChannel.StartAsync();
+        _ = backendMessagesChannel.Start();
         await contactsRepository.InitializeAsync(cancellationToken);
         contactsRepository.StartTracking();
         incomingConnectionsHandler.Start();

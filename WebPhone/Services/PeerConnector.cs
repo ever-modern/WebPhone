@@ -7,35 +7,40 @@ using WebPhone.Contract;
 
 namespace WebPhone.Services;
 
+class EntityLocker<TId>
+    where TId : notnull
+{
+    readonly ConcurrentDictionary<TId, SemaphoreSlim> _locks = new();
+
+    public async Task<AsyncScopeLocker> LockAsync(
+        TId id,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var locker = _locks.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+        var scopeLocker = await locker.LockScopeAsync(cancellationToken);
+        return scopeLocker;
+    }
+}
+
 public sealed class PeerConnector(
     IRtcConnector webRtcConnector,
     ILogger<PeerConnector> logger,
-    BackendClient backendClient
+    IBackendClient backendClient
 ) : IDisposable
 {
-    readonly SemaphoreSlim _locker = new(1, 1);
     readonly ConcurrentDictionary<string, AccountedConnection> _connections = new();
     readonly EventSource _connectionEventSource = new();
-
-    static RtcConnectionRequest CreateRequest(
-        string peerId,
-        WebRtcOffer offer,
-        WebRtcAnswer? answer = null
-    ) =>
-        new(
-            peerId,
-            new(offer.Sdp, offer.Type),
-            answer is null ? null : new(answer.Sdp, answer.Type)
-        );
+    readonly EntityLocker<string> _entityLocker = new();
 
     public INotifier StateChanged => _connectionEventSource;
 
-    public IReadOnlyDictionary<string, RtcConnection> CurrentConnections =>
+    public IReadOnlyDictionary<string, IRtcConnection> CurrentConnections =>
         _connections
             .Select(kvp =>
                 (
                     kvp.Key,
-                    kvp.Value.ConnectionTask.IsCompletedSuccessfully
+                    kvp.Value.ConnectionTask.IsCompletedSuccessfully && kvp.Value.ConnectionTask.Result is not null
                         ? kvp.Value.ConnectionTask.Result
                         : null!
                 )
@@ -43,14 +48,14 @@ public sealed class PeerConnector(
             .Where(kvp => kvp.Item2 is not null)
             .ToDictionary(kvp => kvp.Key, kvp => kvp.Item2!);
 
-    public async Task<RtcConnection> GetPeerConnectionAsync(
+    public async Task<IRtcConnection> GetPeerConnectionAsync(
         string peerId,
         CancellationToken cancellationToken = default
     )
     {
         AccountedConnection connection;
 
-        using (var _ = await _locker.LockScopeAsync(cancellationToken))
+        using (var _ = await _entityLocker.LockAsync(peerId, cancellationToken))
             if (_connections.TryGetValue(peerId, out connection!))
             {
                 logger.LogDebug(
@@ -74,6 +79,8 @@ public sealed class PeerConnector(
         try
         {
             var result = await connection.ConnectionTask.WaitAsync(cancellationToken);
+
+
             return result
                 ?? throw new InvalidOperationException($"Could not connect with peer {peerId}.");
         }
@@ -97,13 +104,15 @@ public sealed class PeerConnector(
         _connectionEventSource.Invoke();
     }
 
-    public async Task HandleIncomingConnectionRequestAsync(
+    public async Task<IRtcConnection?> HandleIncomingConnectionRequestAsync(
         string peerId,
         WebRtcOffer offer,
         CancellationToken cancellationToken = default
     ) => await AcceptIncomingConnectionAsync(peerId, offer, cancellationToken);
 
-    async Task<RtcConnection?> CreateOutgoingConnectionAsync(
+    public bool IsConnectedTo(string peerId) => _connections.ContainsKey(peerId);
+
+    async Task<IRtcConnection?> CreateOutgoingConnectionAsync(
         string peerId,
         CancellationToken cancellationToken
     )
@@ -112,26 +121,76 @@ public sealed class PeerConnector(
         {
             WebRtcOffer? counterOffer = null;
             var connection = await webRtcConnector.InitiateConnectionAsync(
-                async offer =>
+                getAnswer: async offer =>
                 {
+                    logger.LogInformation(
+                        "[RTC] Initiating offer exchange with peer {PeerId}. OfferType={OfferType}, HasSdp={HasSdp}",
+                        peerId,
+                        offer.Type,
+                        !string.IsNullOrWhiteSpace(offer.Sdp)
+                    );
+
                     var (responseOffer, answer) = await backendClient.ConnectRtcAsync(
-                        CreateRequest(peerId, offer, null),
+                        new(peerId, offer, null),
                         cancellationToken
                     );
 
+                    logger.LogInformation(
+                        "[RTC] Offer exchange response from peer {PeerId}. ReturnedOffer={ReturnedOffer}, ReturnedAnswer={ReturnedAnswer}",
+                        peerId,
+                        responseOffer is not null,
+                        answer is not null
+                    );
+
+                    if (answer is not null)
+                    {
+                        if (
+                            string.IsNullOrWhiteSpace(answer.Type)
+                            || string.IsNullOrWhiteSpace(answer.Sdp)
+                        )
+                        {
+                            logger.LogWarning(
+                                "[RTC] Invalid answer payload from peer {PeerId}. Type/Sdp required.",
+                                peerId
+                            );
+                            return null;
+                        }
+
+                        logger.LogInformation(
+                            "[RTC] Received answer from peer {PeerId}. AnswerType={AnswerType}, HasSdp={HasSdp}",
+                            peerId,
+                            answer.Type,
+                            !string.IsNullOrWhiteSpace(answer.Sdp)
+                        );
+
+                        return answer;
+                    }
+
                     if (responseOffer is not null)
                     {
-                        counterOffer = new(responseOffer.Sdp, responseOffer.Type);
+                        counterOffer = responseOffer;
+                        logger.LogInformation(
+                            "[RTC] Peer {PeerId} already has active offer. Switching to accept counter-offer path.",
+                            peerId
+                        );
                         return null;
                     }
                     else if (answer is null)
                     {
+                        logger.LogWarning(
+                            "[RTC] No answer from peer {PeerId};",
+                            peerId
+                        );
                         return null;
                     }
 
-                    return new(answer.Sdp, answer.Sdp);
+                    logger.LogWarning(
+                        "[RTC] Unexpected rtc-connect response from peer {PeerId}: both offer and answer are missing.",
+                        peerId
+                    );
+                    return null;
                 },
-                cancellationToken
+                cancellationToken: cancellationToken
             );
 
             if (connection is null && counterOffer is not null)
@@ -139,10 +198,19 @@ public sealed class PeerConnector(
                 connection = await webRtcConnector.AcceptConnectionAsync(
                     counterOffer,
                     async answer =>
+                    {
+                        logger.LogInformation(
+                            "[RTC] Sending answer for counter-offer to peer {PeerId}. AnswerType={AnswerType}, HasSdp={HasSdp}",
+                            peerId,
+                            answer.Type,
+                            !string.IsNullOrWhiteSpace(answer.Sdp)
+                        );
+
                         await backendClient.ConnectRtcAsync(
-                            CreateRequest(peerId, counterOffer, answer),
+                            new(peerId, counterOffer, answer),
                             cancellationToken
-                        ),
+                        );
+                    },
                     cancellationToken
                 );
             }
@@ -162,19 +230,41 @@ public sealed class PeerConnector(
         }
     }
 
-    async Task<RtcConnection?> AcceptIncomingConnectionAsync(
+    async Task<IRtcConnection?> AcceptIncomingConnectionAsync(
         string peerId,
         WebRtcOffer offer,
         CancellationToken cancellationToken
     )
     {
+        using var _ = await _entityLocker.LockAsync(peerId, cancellationToken);
+        if (_connections.TryGetValue(peerId, out var existing))
+        {
+            return await existing.ConnectionTask;
+        }
+
+        logger.LogInformation(
+            "[RTC] Accepting incoming connection request from peer {PeerId}. OfferType={OfferType}, HasSdp={HasSdp}",
+            peerId,
+            offer.Type,
+            !string.IsNullOrWhiteSpace(offer.Sdp)
+        );
+
         var connection = await webRtcConnector.AcceptConnectionAsync(
             offer,
             async (answer) =>
+            {
+                logger.LogInformation(
+                    "[RTC] Sending answer to peer {PeerId}. AnswerType={AnswerType}, HasSdp={HasSdp}",
+                    peerId,
+                    answer.Type,
+                    !string.IsNullOrWhiteSpace(answer.Sdp)
+                );
+
                 await backendClient.ConnectRtcAsync(
-                    CreateRequest(peerId, offer, answer),
+                    new(peerId, offer, answer),
                     cancellationToken
-                ),
+                );
+            },
             cancellationToken
         );
 
@@ -190,18 +280,12 @@ public sealed class PeerConnector(
     {
         AccountedConnection? removed = null;
 
-        using (var _ = await _locker.LockScopeAsync())
-            try
-            {
-                if (_connections.TryGetValue(peerId, out var existing))
-                {
-                    _connections.TryRemove(peerId, out removed);
-                }
-            }
-            finally
-            {
-                _locker.Release();
-            }
+        using var _ = await _entityLocker.LockAsync(peerId, default);
+
+        if (_connections.TryGetValue(peerId, out var existing))
+        {
+            _connections.TryRemove(peerId, out removed);
+        }
 
         if (removed is null)
             return;
@@ -244,6 +328,6 @@ public sealed class PeerConnector(
         string PeerId,
         bool IsOutgoing,
         CancellationTokenSource Cancellation,
-        Task<RtcConnection?> ConnectionTask
+        Task<IRtcConnection?> ConnectionTask
     );
 }

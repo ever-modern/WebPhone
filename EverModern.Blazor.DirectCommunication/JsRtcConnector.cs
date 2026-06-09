@@ -1,4 +1,5 @@
 using Microsoft.JSInterop;
+using WebPhone.Contract;
 
 namespace EverModern.Blazor.DirectCommunication;
 
@@ -29,10 +30,15 @@ public static class JsFunction
     public static JsInvokableAction<TIn> Create<TIn>(Action<TIn> func) => new(func);
 }
 
+public record struct ConnectionInitiationResult(
+    BrowserRtcConnection? Connection,
+    WebRtcOffer? CounterOffer
+);
+
 public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServer> iceServers)
     : IRtcConnector
 {
-    public async Task<RtcConnection?> InitiateConnectionAsync(
+    public async Task<IRtcConnection?> InitiateConnectionAsync(
         Func<WebRtcOffer, Task<WebRtcAnswer?>> getAnswer,
         CancellationToken cancellationToken
     )
@@ -64,7 +70,7 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
             _ = managerReference.InvokeVoidAsync("close", []);
         };
 
-        var result = new RtcConnection(
+        var result = new BrowserRtcConnection(
             onDispose,
             stateChanged,
             channelMessageReceived,
@@ -82,7 +88,7 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
         return result;
     }
 
-    public async Task<RtcConnection?> AcceptConnectionAsync(
+    public async Task<IRtcConnection?> AcceptConnectionAsync(
         WebRtcOffer offer,
         Func<WebRtcAnswer, Task> sendAnswerBack,
         CancellationToken cancellationToken
@@ -115,7 +121,7 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
             _ = managerReference.InvokeVoidAsync("close", []).AsTask();
         };
 
-        var result = new RtcConnection(
+        var result = new BrowserRtcConnection(
             onDispose,
             stateChanged,
             channelMessageReceived,

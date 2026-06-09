@@ -8,7 +8,7 @@ namespace WebPhone.Services.Data;
 
 public class ContactsRepository(
     IMessagesChannel messagesChannel,
-    BackendClient backendClient,
+        IBackendClient backendClient,
     IProfile profile
 ) : IAsyncDisposable
 {

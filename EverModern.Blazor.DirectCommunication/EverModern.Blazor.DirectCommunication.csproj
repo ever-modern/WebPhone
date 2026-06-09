@@ -16,4 +16,8 @@
 		<PackageReference Include="EverModern.Threading" Version="0.0.29" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <ProjectReference Include="..\WebPhone.Contract\WebPhone.Contract.csproj" />
+	</ItemGroup>
+
 </Project>

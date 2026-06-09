@@ -42,7 +42,7 @@ public static class ApplicationConfiguration
             sp.GetRequiredService<IOptions<PhoneOptions>>().Value
         );
 
-        services.AddSingleton<BackendClient>(sp =>
+        services.AddSingleton<IBackendClient>(sp =>
         {
             var profile = sp.GetRequiredService<IProfile>();
             var options = sp.GetRequiredService<PhoneOptions>();
@@ -57,7 +57,7 @@ public static class ApplicationConfiguration
         {
             var options = sp.GetRequiredService<PhoneOptions>();
             return new BackendMessagesChannel(
-                sp.GetRequiredService<BackendClient>(),
+                sp.GetRequiredService<IBackendClient>(),
                 options.PollIntervalMs
             );
         });
