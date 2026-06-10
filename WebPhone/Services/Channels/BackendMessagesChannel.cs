@@ -1,6 +1,6 @@
 using System.Threading.Channels;
 using EverModern.Threading.Channels;
-using WebPhone.Contract;
+using WebPhone.Domain;
 using WebPhone.Messages;
 
 namespace WebPhone.Services.Channels;

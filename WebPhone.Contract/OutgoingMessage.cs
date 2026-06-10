@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace WebPhone.Contract;
+namespace WebPhone.Domain;
 
 
 [JsonConverter(typeof(MessageTypeJsonConverter))]

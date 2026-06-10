@@ -1,7 +1,7 @@
 ﻿using ObjCRuntime;
 using UIKit;
 
-namespace WebPhone.Android
+namespace WebPhone.Mobile.Platforms.iOS
 {
     public class Program
     {

@@ -1,5 +1,5 @@
 using System.Threading.Channels;
-using WebPhone.Contract;
+using WebPhone.Domain;
 using WebPhone.Services.Data;
 
 namespace WebPhone.Services;

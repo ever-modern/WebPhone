@@ -11,7 +11,6 @@
 		
 		<PackageReference Include="ForEvolve.ExceptionMapper" Version="4.0.6" />		
 		<PackageReference Include="Dapper" Version="2.1.42" />
-		<PackageReference Include="EverModern.WheelProtection.DataStructures" Version="0.0.29" />
 		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
 		<PackageReference Include="Npgsql" Version="8.0.6" />
 		<PackageReference Include="WebPush" Version="1.0.12" />
@@ -25,7 +24,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\WebPhone.Contract\WebPhone.Contract.csproj" />
+		<ProjectReference Include="..\WebPhone.Contract\WebPhone.Domain.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>

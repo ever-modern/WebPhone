@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using EverModern.Events;
-using WebPhone.Contract;
+using WebPhone.Domain;
 using WebPhone.Messages;
 using WebPhone.Services.Channels;
 

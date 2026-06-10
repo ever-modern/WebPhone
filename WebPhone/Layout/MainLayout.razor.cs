@@ -2,6 +2,7 @@ using EverModern.Events;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.JSInterop;
 using WebPhone.Components;
+using WebPhone.Domain;
 using WebPhone.Services;
 
 namespace WebPhone.Layout;
@@ -112,7 +113,7 @@ public partial class MainLayout
 
         profileStore.SetUser(profileStore.User with { Name = name });
         await BackendClient.UpsertUserSettingsAsync(
-            new WebPhone.Contract.UserSettingsDto(name, true, true, false)
+            new UserSettingsDto(name, true, true, false)
         );
         _registerName = name;
         await InvokeAsync(StateHasChanged);

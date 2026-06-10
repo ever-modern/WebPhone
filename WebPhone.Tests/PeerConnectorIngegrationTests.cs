@@ -1,4 +1,4 @@
-﻿using WebPhone.Contract;
+﻿using WebPhone.Domain;
 using WebPhone.Messages;
 using WebPhone.Services;
 using WebPhone.Services.Channels;
@@ -17,16 +17,18 @@ public class PeerConnectorIngegrationTests
             client
         );
 
-        var channel = new BackendMessagesChannel(client, 50).Start();
+        var channel = new BackendMessagesChannel(client, 50);
 
         _ = Task.Run(async () =>
         {
             using var reader = channel.Subscribe(m => m.Type is MessageType.ConnectionAttempt);
+            channel.Start();
             await foreach (var message in reader.ReadAllAsync())
             {
                 var specificMessage = message.SpecifyPayload<WebRtcOffer>()!;
-                var __ = result.HandleIncomingConnectionRequestAsync(
+                await result.ConnectToPeerAsync(
                     specificMessage.SenderClientId,
+                    default,
                     specificMessage.Payload
                 );
             }
@@ -55,8 +57,13 @@ public class PeerConnectorIngegrationTests
         var ct = timeoutCts.Token;
 
         var ((firstConnector, firstUserId), (secondConnector, secondUserId)) = CreateTwoPeers();
-        var connectionFirst = await firstConnector.GetPeerConnectionAsync(secondUserId, ct);
-        var connectionSecond = await secondConnector.GetPeerConnectionAsync(firstUserId, ct);
+        var firstConnectionTask = firstConnector.ConnectToPeerAsync(secondUserId, ct);
+        var secondConnectionTask = secondConnector.ConnectToPeerAsync(firstUserId, ct);
+
+        await Task.WhenAll(firstConnectionTask, secondConnectionTask);
+
+        var connectionFirst = await firstConnectionTask;
+        var connectionSecond = await secondConnectionTask;
 
         Assert.NotNull(connectionFirst);
         Assert.NotNull(connectionSecond);

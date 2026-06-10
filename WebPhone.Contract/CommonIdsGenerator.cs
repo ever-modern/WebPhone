@@ -1,6 +1,6 @@
 ﻿using EverModern.WheelProtection.DataWorks;
 
-namespace WebPhone.Contract;
+namespace WebPhone.Domain;
 
 public static class CommonIdsGenerator
 {

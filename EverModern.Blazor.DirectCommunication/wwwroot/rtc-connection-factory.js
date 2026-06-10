@@ -62,7 +62,13 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         console.log(`[RTC][${role}] local answer created. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
         await peerConnection.setLocalDescription(answer);
         await waitForIceGatheringComplete(peerConnection);
-        await sendAnswerBack(peerConnection.localDescription);
+        const answerAccepted = await sendAnswerBack(peerConnection.localDescription);
+        if (!answerAccepted) {
+            console.log(`[RTC][${role}] local answer has not been accepted by the remote peer.`);
+            unbind();
+            peerConnection.close();
+            return null;
+        }
         console.log(`[RTC][${role}] local answer sent back.`);
     }
     try {

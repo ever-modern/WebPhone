@@ -3,7 +3,7 @@ using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using WebPhone.Contract;
+using WebPhone.Domain;
 using WebPhone.Services.Data;
 
 namespace WebPhone.Services;

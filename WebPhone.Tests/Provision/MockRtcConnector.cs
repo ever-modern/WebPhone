@@ -1,5 +1,5 @@
 ﻿using EverModern.Blazor.DirectCommunication;
-using WebPhone.Contract;
+using WebPhone.Domain;
 
 namespace WebPhone.Tests.Provision;
 
@@ -18,12 +18,16 @@ class MockRtcConnector : IRtcConnector
 
     public async Task<IRtcConnection?> AcceptConnectionAsync(
         WebRtcOffer offer,
-        Func<WebRtcAnswer, Task> sendAnswerBack,
+        Func<WebRtcAnswer, Task<bool>> sendAnswerBack,
         CancellationToken cancellationToken
     )
     {
         var answer = GenerateAnswer(offer);
-        await sendAnswerBack(answer);
+        if (!await sendAnswerBack(answer))
+        {
+            return new MockRtcConnection(null, null);
+        }
+
         return new MockRtcConnection(offer, answer);
     }
 

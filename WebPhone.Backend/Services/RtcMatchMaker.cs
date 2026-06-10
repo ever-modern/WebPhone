@@ -2,12 +2,28 @@
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WebPhone.Backend.Storage;
-using WebPhone.Contract;
+using WebPhone.Domain;
+using PeersPair = (string, string);
 
 namespace WebPhone.Backend.Services;
 
 public class WebRtcParametersStorage
-    : ConcurrentDictionary<string, (WebRtcOffer, TaskCompletionSource<RtcMatchParameter>)> { }
+    : ConcurrentDictionary<PeersPair, (WebRtcOffer, TaskCompletionSource<RtcMatchParameter>)>
+{
+    static PeersPair NormalizePair(PeersPair pair)
+    {
+        var (id1, id2) = pair;
+        return string.CompareOrdinal(id1, id2) > 0 ? (id1, id2) : (id2, id1);
+    }
+
+    public WebRtcParametersStorage()
+        : base(
+            EqualityComparer<PeersPair>.Create(
+                (pair1, pair2) => NormalizePair(pair1) == NormalizePair(pair2),
+                pair => NormalizePair(pair).GetHashCode()
+            )
+        ) { }
+}
 
 public class RtcMatchMaker(
     MessagesRepository messagesRepository,
@@ -16,10 +32,6 @@ public class RtcMatchMaker(
 )
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
-
-    static string ComposeCoupleId(string id1, string id2) =>
-        (string.CompareOrdinal(id1, id2) > 0 ? id1 + id2 : id2 + id1)
-        + $"{id1.Length}-{id2.Length}";
 
     public Task<RtcMatchParameter> MatchAsync(
         string initiatorId,
@@ -43,7 +55,7 @@ public class RtcMatchMaker(
             answer is not null
         );
 
-        var couple = ComposeCoupleId(initiatorId, targetId);
+        var couple = (initiatorId, targetId);
 
         var (currentOffer, waitingForAnswer) = currentOffers.GetValueOrDefault(couple);
 
@@ -56,7 +68,7 @@ public class RtcMatchMaker(
 
             if (currentOffer != offer)
             {
-                throw new UserFaultException("Offer mismatch.");
+                return Task.FromResult(new RtcMatchParameter(currentOffer, null));
             }
 
             currentOffer =

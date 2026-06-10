@@ -2,7 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using WebPhone.Backend.Actions;
 using WebPhone.Backend.Services;
 using WebPhone.Backend.Storage;
-using WebPhone.Contract;
+using WebPhone.Domain;
 
 var builder = WebApplication.CreateBuilder(args);
 

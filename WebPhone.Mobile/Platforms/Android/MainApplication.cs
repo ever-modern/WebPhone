@@ -2,7 +2,7 @@
 using Android.Runtime;
 using WebPhone.Mobile;
 
-namespace WebPhone.Android
+namespace WebPhone.Mobile.Platforms.Android
 {
     [Application]
     public class MainApplication : MauiApplication

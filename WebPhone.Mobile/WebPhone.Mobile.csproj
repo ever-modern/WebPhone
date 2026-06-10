@@ -82,7 +82,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\WebPhone\WebPhone.csproj" />
-        <ProjectReference Include="..\WebPhone.Contract\WebPhone.Contract.csproj" />
+        <ProjectReference Include="..\WebPhone.Contract\WebPhone.Domain.csproj" />
     </ItemGroup>
 
 </Project>

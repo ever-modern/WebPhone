@@ -1,4 +1,4 @@
-﻿namespace WebPhone.Contract;
+﻿namespace WebPhone.Domain;
 
 public static partial class VapidKeys
 {

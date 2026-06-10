@@ -15,7 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WebPhone.Backend\WebPhone.Backend.csproj" />
-    <ProjectReference Include="..\WebPhone.Contract\WebPhone.Contract.csproj" />
+    <ProjectReference Include="..\WebPhone.Contract\WebPhone.Domain.csproj" />
   </ItemGroup>
 
 </Project>

@@ -9,7 +9,7 @@
 {
     <div class="video-call-screen">
         <video class="video-call-remote" autoplay playsinline muted @ref="_remoteVideo"></video>
-        <video class="video-call-local"  autoplay playsinline muted @ref="_localVideo"></video>
+        <video class="video-call-local" autoplay playsinline muted @ref="_localVideo"></video>
         <div class="video-call-overlay">
             <button class="video-call-hangup webrtc-button webrtc-button--danger"
                     @onclick="HangUpAsync">
@@ -46,20 +46,18 @@
     async Task<bool> ConnectTargetAsync()
     {
         var contactId = VideoCallState.ContactId;
-        var connections = PeerConnector.CurrentConnections;
+        if (contactId is null)
+            return false;
+        var connections = PeerConnector.CurrentConnectionProcesses;
         Console.WriteLine($"[VIDEO] ConnectTargetAsync: contactId={contactId} connections.Count={connections.Count} keys=[{string.Join(",", connections.Keys)}]");
-
-        if (contactId is not null && connections.TryGetValue(contactId, out var conn))
-        {
-            Console.WriteLine("[VIDEO] ConnectTargetAsync: found connection → calling SetVideoTargetAsync");
-            await conn.SetVideoTargetAsync(_remoteVideo);
-            await conn.SetLocalVideoTargetAsync(_localVideo);
-            Console.WriteLine("[VIDEO] ConnectTargetAsync: SetVideoTargetAsync completed");
-            return true;
-        }
-
-        Console.WriteLine($"[VIDEO] ConnectTargetAsync: connection NOT found for contactId={contactId}");
-        return false;
+        var conn = await PeerConnector.ConnectToPeerAsync(contactId);
+        if (conn is null)
+            return false;
+        Console.WriteLine("[VIDEO] ConnectTargetAsync: found connection → calling SetVideoTargetAsync");
+        await conn.SetVideoTargetAsync(_remoteVideo);
+        await conn.SetLocalVideoTargetAsync(_localVideo);
+        Console.WriteLine("[VIDEO] ConnectTargetAsync: SetVideoTargetAsync completed");
+        return true;
     }
 
     async void OnStateChanged()

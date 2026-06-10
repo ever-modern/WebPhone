@@ -2,7 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WebPhone.Backend.Services;
 using WebPhone.Backend.Storage;
-using WebPhone.Contract;
+using WebPhone.Domain;
 
 namespace WebPhone.Backend.Actions;
 

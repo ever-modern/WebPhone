@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using WebPhone.Backend.Actions;
-using WebPhone.Contract;
+using WebPhone.Domain;
 
 namespace WebPhone.AzureEnd;
 

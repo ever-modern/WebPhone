@@ -1,6 +1,6 @@
 using Dapper;
 using Npgsql;
-using WebPhone.Contract;
+using WebPhone.Domain;
 
 namespace WebPhone.Backend.Storage;
 

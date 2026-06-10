@@ -1,4 +1,4 @@
-namespace WebPhone.Contract;
+namespace WebPhone.Domain;
 
 /// <summary>A single chat message returned by the backend.</summary>
 public record ChatMessageDto(

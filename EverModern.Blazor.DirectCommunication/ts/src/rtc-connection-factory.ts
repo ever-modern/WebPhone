@@ -15,7 +15,7 @@ type DotNetObjectReference = {
 
 type OfferAnswerExchange = {
     offer: RTCSessionDescriptionInit;
-    sendAnswerBack: (answer: RTCSessionDescriptionInit) => Promise<void>;
+    sendAnswerBack: (answer: RTCSessionDescriptionInit) => Promise<boolean>;
 }
 
 type ConnectionDescriptionExchangeInfo = ((offer: RTCSessionDescriptionInit) => Promise<RTCSessionDescriptionInit>) | OfferAnswerExchange;
@@ -102,7 +102,15 @@ async function createRtcConnection(
 
         await waitForIceGatheringComplete(peerConnection);
 
-        await sendAnswerBack(peerConnection.localDescription!);
+        const answerAccepted = await sendAnswerBack(peerConnection.localDescription!);
+
+        if (!answerAccepted) {
+            console.log(`[RTC][${role}] local answer has not been accepted by the remote peer.`);
+            unbind();
+            peerConnection.close();
+            return null;
+        }
+
         console.log(`[RTC][${role}] local answer sent back.`);
     }
 
@@ -143,7 +151,7 @@ async function acceptConnectionAsync(
 ) {
     const onStateChanged = (state: RTCPeerConnectionState) => onStateChangedAsync.invokeMethodAsync("invoke", state) as Promise<void>;
     const onDataChannelMessage = (message: string) => onDataChannelMessageAsync.invokeMethodAsync("invoke", message) as Promise<void>;
-    const sendAnswerBack = (answer: RTCSessionDescriptionInit) => sendAnswerBackAsync.invokeMethodAsync("invoke", answer) as Promise<void>;
+    const sendAnswerBack = (answer: RTCSessionDescriptionInit) => sendAnswerBackAsync.invokeMethodAsync("invoke", answer) as Promise<boolean>;
     const connectionManager = await createRtcConnection({ offer, sendAnswerBack }, iceServers, { onStateChanged, onDataChannelMessage });
     
     return connectionManager;

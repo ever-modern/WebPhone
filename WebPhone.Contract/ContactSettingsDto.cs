@@ -1,4 +1,4 @@
-namespace WebPhone.Contract;
+namespace WebPhone.Domain;
 
 public sealed record ContactSettingsDto(
     string OwnerId,

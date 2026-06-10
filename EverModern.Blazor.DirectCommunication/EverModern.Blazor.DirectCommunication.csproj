@@ -11,13 +11,11 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.4" />
-		<PackageReference Include="EverModern.Events" Version="0.0.26" />
-		<PackageReference Include="EverModern.Threading" Version="0.0.29" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.4" />		
 	</ItemGroup>
 
 	<ItemGroup>
-	  <ProjectReference Include="..\WebPhone.Contract\WebPhone.Contract.csproj" />
+	  <ProjectReference Include="..\WebPhone.Contract\WebPhone.Domain.csproj" />
 	</ItemGroup>
 
 </Project>

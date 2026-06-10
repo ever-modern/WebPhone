@@ -1,7 +1,7 @@
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
 using Microsoft.Extensions.Logging;
-using WebPhone.Contract;
+using WebPhone.Domain;
 using WebPhone.Services.Channels;
 
 namespace WebPhone.Services.Background;
@@ -32,9 +32,6 @@ public sealed class IncomingConnectionsHandler(
 
         await foreach (var message in reader.ReadAllAsync(ct))
         {
-            if (peerConnector.IsConnectedTo(message.SenderClientId))
-                continue;
-
             var concreteMessage = message.SpecifyPayload<WebRtcOffer>();
             if (concreteMessage is null)
                 continue;
@@ -46,10 +43,10 @@ public sealed class IncomingConnectionsHandler(
                 !string.IsNullOrWhiteSpace(concreteMessage.Payload.Sdp)
             );
 
-            _ = peerConnector.HandleIncomingConnectionRequestAsync(
+            _ = peerConnector.ConnectToPeerAsync(
                 message.SenderClientId,
-                concreteMessage.Payload,
-                ct
+                ct,
+                concreteMessage.Payload
             );
         }
     }

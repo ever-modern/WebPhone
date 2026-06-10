@@ -1,4 +1,4 @@
-﻿using WebPhone.Contract;
+﻿using WebPhone.Domain;
 
 namespace WebPhone.Services;
 

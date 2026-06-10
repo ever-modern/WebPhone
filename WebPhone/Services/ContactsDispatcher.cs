@@ -130,23 +130,29 @@ public sealed class ContactsDispatcher(
     {
         foreach (var (contactId, context) in _contexts)
         {
-            if (peerConnector.CurrentConnections.TryGetValue(contactId, out var connection))
+            var connection = peerConnector.FindReadyConnection(contactId);
+            if (connection is null)
             {
-                if (ReferenceEquals(context.ChatConnection, connection))
-                    continue;
-
+                context.ChatConnection = null;
                 StopIncomingChatReader(contactId);
-                context.ChatConnection = connection;
-                StartIncomingChatReader(contactId, context, connection);
                 continue;
             }
 
-            context.ChatConnection = null;
+            if (ReferenceEquals(context.ChatConnection, connection))
+                continue;
+
             StopIncomingChatReader(contactId);
+            context.ChatConnection = connection;
+            StartIncomingChatReader(contactId, context, connection);
+            continue;
         }
     }
 
-    void StartIncomingChatReader(string contactId, ContactContext context, IRtcConnection connection)
+    void StartIncomingChatReader(
+        string contactId,
+        ContactContext context,
+        IRtcConnection connection
+    )
     {
         var cts = new CancellationTokenSource();
         var task = Task.Run(
@@ -206,7 +212,7 @@ public sealed class ContactsDispatcher(
                 var effectiveState = context.Manager.State;
                 if (
                     effectiveState is InteractionType.None
-                    && peerConnector.CurrentConnections.ContainsKey(contact.Id)
+                    && peerConnector.FindReadyConnection(contact.Id) is not null
                 )
                 {
                     effectiveState = InteractionType.Connected;

@@ -1,6 +1,6 @@
 using System.Text.Json;
 using WebPhone.Backend.Services;
-using WebPhone.Contract;
+using WebPhone.Domain;
 
 namespace WebPhone.Backend.Actions;
 

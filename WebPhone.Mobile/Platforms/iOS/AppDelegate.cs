@@ -1,7 +1,7 @@
 ﻿using Foundation;
 using WebPhone.Mobile;
 
-namespace WebPhone.Android
+namespace WebPhone.Mobile.Platforms.iOS
 {
     [Register("AppDelegate")]
     public class AppDelegate : MauiUIApplicationDelegate

@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using System.Text.Json;
 using WebPhone.Backend.Actions;
-using WebPhone.Contract;
+using WebPhone.Domain;
 
 namespace WebPhone.AzureEnd;
 

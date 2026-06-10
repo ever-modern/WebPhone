@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace WebPhone.Contract;
+namespace WebPhone.Domain;
 
 public abstract record WebRtcSessionDescription(string? Type, string? Sdp);
 

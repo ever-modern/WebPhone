@@ -101,7 +101,7 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
         SetState(InteractionType.Connecting, connectingCts.Cancel);
 
         var connection = await peerConnector
-            .GetPeerConnectionAsync(contactId, connectingCts.Token)
+            .ConnectToPeerAsync(contactId, connectingCts.Token)
             .ContinueWith(t => t.IsCompletedSuccessfully ? t.Result : null);
 
         if (connection is null)
@@ -388,7 +388,7 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
         );
     }
 
-    IRtcConnection? GetConnection() => peerConnector.CurrentConnections.GetValueOrDefault(contactId);
+    IRtcConnection? GetConnection() => peerConnector.FindReadyConnection(contactId);
 
     static async Task EnableMediaAsync(IRtcConnection connection)
     {

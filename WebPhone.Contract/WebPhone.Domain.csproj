@@ -8,6 +8,8 @@
 
 	<ItemGroup>
 		<PackageReference Include="EverModern.WheelProtection.DataWorks" Version="0.0.12" />
+		<PackageReference Include="EverModern.Events" Version="0.0.26" />
+		<PackageReference Include="EverModern.Threading" Version="0.0.31" />
 	</ItemGroup>
 	
 </Project>

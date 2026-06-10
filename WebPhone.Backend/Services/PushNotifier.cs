@@ -1,8 +1,5 @@
-using System.Threading;
-using System.Threading.Tasks;
 using WebPhone.Backend.Storage;
 using Microsoft.Extensions.Logging;
-using WebPhone.Contract;
 
 namespace WebPhone.Backend.Services;
 

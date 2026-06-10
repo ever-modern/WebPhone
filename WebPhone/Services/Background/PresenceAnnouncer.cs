@@ -1,5 +1,5 @@
 using System.Text.Json;
-using WebPhone.Contract;
+using WebPhone.Domain;
 using WebPhone.Messages;
 using WebPhone.Services.Channels;
 using WebPhone.Services.Data;

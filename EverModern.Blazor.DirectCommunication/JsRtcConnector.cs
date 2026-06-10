@@ -1,5 +1,5 @@
 using Microsoft.JSInterop;
-using WebPhone.Contract;
+using WebPhone.Domain;
 
 namespace EverModern.Blazor.DirectCommunication;
 
@@ -90,7 +90,7 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
 
     public async Task<IRtcConnection?> AcceptConnectionAsync(
         WebRtcOffer offer,
-        Func<WebRtcAnswer, Task> sendAnswerBack,
+        Func<WebRtcAnswer, Task<bool>> sendAnswerBack,
         CancellationToken cancellationToken
     )
     {
