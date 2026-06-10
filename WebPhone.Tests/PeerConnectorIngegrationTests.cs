@@ -1,6 +1,8 @@
 ﻿using EverModern.Blazor.DirectCommunication;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Logging;
 using WebPhone.Domain;
-using WebPhone.Messages;
 using WebPhone.Services;
 using WebPhone.Services.Channels;
 using WebPhone.Tests.Provision;
@@ -11,11 +13,37 @@ using PeerPair = (
 
 namespace WebPhone.Tests;
 
-public class PeerConnectorIngegrationTests
+public class TestWebApplicationFactory : WebApplicationFactory<WebPhone.Api.Program>
 {
-    static PeerConnector CreatePeerConnector(string userId)
+    public List<string> Logs { get; } = new();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        var client = new BackendConnectionClient("http://localhost:5194", userId);
+        builder.ConfigureLogging(logging =>
+        {
+            logging.ClearProviders();
+            logging.AddProvider(new TestLoggerProvider(Logs));
+        });
+    }
+}
+
+public class PeerConnectorIngegrationTests : IClassFixture<TestWebApplicationFactory>
+{
+    private readonly TestWebApplicationFactory _webApplicationFactory;
+    readonly string _baseUrl;
+    readonly List<string> _serverStd;
+
+    public PeerConnectorIngegrationTests(TestWebApplicationFactory webApplicationFactory)
+    {
+        _webApplicationFactory = webApplicationFactory;
+        var client = _webApplicationFactory.CreateClient();
+        _baseUrl = client.BaseAddress.ToString();
+        _serverStd = webApplicationFactory.Logs;
+    }
+
+    PeerConnector CreatePeerConnector(string userId)
+    {
+        var client = new BackendConnectionClient(_baseUrl, userId);
         var result = new PeerConnector(
             new MockRtcConnector(),
             new MockLogger<PeerConnector>(),
@@ -44,9 +72,9 @@ public class PeerConnectorIngegrationTests
         return result;
     }
 
-    static PeerPair CreateTwoPeers() => GeneratePeers().Chunk(2).Select(FromArray).First();
+    PeerPair CreateTwoPeers() => GeneratePeers().Chunk(2).Select(FromArray).First();
 
-    static IEnumerable<(PeerConnector Connector, string PeerId)> GeneratePeers()
+    IEnumerable<(PeerConnector Connector, string PeerId)> GeneratePeers()
     {
         for (int i = 0; i < int.MaxValue / 2; i++)
         {
@@ -55,8 +83,7 @@ public class PeerConnectorIngegrationTests
         }
     }
 
-    static PeerPair FromArray((PeerConnector Connector, string PeerId)[] array) =>
-        (array[0], array[1]);
+    PeerPair FromArray((PeerConnector Connector, string PeerId)[] array) => (array[0], array[1]);
 
     [Fact]
     public async Task FirstConnects_SecondOnlyAccepts()
