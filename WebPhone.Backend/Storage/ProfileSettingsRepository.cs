@@ -1,15 +1,15 @@
 using Dapper;
 using Npgsql;
+using WebPhone.Backend.Services;
 using WebPhone.Domain;
 
 namespace WebPhone.Backend.Storage;
 
-public sealed class ProfileSettingsRepository(NpgsqlConnection connection)
+public sealed class ProfileSettingsRepository(DbConnectionResolver connectionResovler)
 {
     public async Task<UserSettingsDto> GetAsync(string userId, CancellationToken cancellationToken = default)
     {
-        if (connection.State != System.Data.ConnectionState.Open)
-            await connection.OpenAsync(cancellationToken);
+        await using var connection = await connectionResovler.GetAsync(cancellationToken);
 
         var sql = """
             SELECT name, notify_calls, notify_messages, notify_from_everyone
@@ -35,6 +35,8 @@ public sealed class ProfileSettingsRepository(NpgsqlConnection connection)
 
     public async Task UpsertAsync(string userId, UserSettingsDto settings, CancellationToken cancellationToken = default)
     {
+        await using var connection = await connectionResovler.GetAsync(cancellationToken);
+
         var sql = """
             INSERT INTO profiles (user_id, name, notify_calls, notify_messages, notify_from_everyone, updated_at)
             VALUES (@UserId, @Name, @NotifyCalls, @NotifyMessages, @NotifyFromEveryone, NOW())

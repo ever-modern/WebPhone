@@ -1,4 +1,5 @@
-﻿using WebPhone.Domain;
+﻿using EverModern.Blazor.DirectCommunication;
+using WebPhone.Domain;
 using WebPhone.Messages;
 using WebPhone.Services;
 using WebPhone.Services.Channels;
@@ -89,5 +90,33 @@ public class PeerConnectorIngegrationTests
 
         Assert.NotNull(connectionFirst);
         Assert.NotNull(connectionSecond);
+    }
+
+    [Fact]
+    public async Task Connect_All_To_All()
+    {
+        var peers = GeneratePeers().Take(2);
+
+        var tasks = new List<Task<IRtcConnection?>>();
+
+        foreach (var (connector, peerId) in peers)
+        {
+            foreach (var (otherConnector, otherPeerId) in peers)
+            {
+                if (peerId != otherPeerId)
+                {
+                    CancellationTokenSource cts = new(TimeSpan.FromSeconds(5));
+                    Task<IRtcConnection?> task = connector.ConnectToPeerAsync(
+                        otherPeerId,
+                        cts.Token
+                    );
+                    tasks.Add(task);
+                }
+            }
+        }
+
+        await Task.WhenAll(tasks);
+
+        Assert.All(tasks, t => Assert.NotNull(t.Result));
     }
 }

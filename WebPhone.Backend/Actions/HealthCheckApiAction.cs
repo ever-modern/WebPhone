@@ -1,22 +1,23 @@
 using Npgsql;
+using WebPhone.Backend.Services;
 
 namespace WebPhone.Backend.Actions;
 
 public sealed record HealthCheckResult(bool Healthy, string Status);
 
-public sealed class HealthCheckApiAction(NpgsqlConnection connection)
+public sealed class HealthCheckApiAction(DbConnectionResolver connectionResolver)
     : ApiActionConcrete<object?, HealthCheckResult>
 {
     public override string Route => "/health";
 
     public override async Task<HealthCheckResult> ExecuteAsync(
         object? input,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
         try
         {
-            if (connection.State != System.Data.ConnectionState.Open)
-                await connection.OpenAsync(cancellationToken);
+            await using var connection = await connectionResolver.GetAsync(cancellationToken);
 
             await using var command = connection.CreateCommand();
             command.CommandText = "SELECT 1";

@@ -1,85 +1,24 @@
 using System.Text.Json;
-using Dapper;
 using Npgsql;
-using WebPhone.Domain;
+using WebPhone.Backend.Services;
 
 namespace WebPhone.Backend.Storage;
 
-public sealed class MessagesRepository(NpgsqlConnection connection)
+public sealed class MessagesReader(DbConnectionResolver connectionResovler)
 {
-    private const int DefaultWriteBatchSize = 100;
     private const int MaxReadResults = 100;
 
-    public async Task<DateTime> WriteMessageAsync(
-        string messageType,
-        JsonElement payload,
-        string publisherId = "",
-        string? receiverId = null,
-        CancellationToken cancellationToken = default)
+    public async Task<StoredMessage[]> ReadMessagesAsync(
+        long? sinceId = null,
+        CancellationToken cancellationToken = default
+    ) => await ReadMessagesAsync(new MessagesFilter(SinceId: sinceId), cancellationToken);
+
+    public async Task<StoredMessage[]> ReadMessagesAsync(
+        MessagesFilter filter,
+        CancellationToken cancellationToken = default
+    )
     {
-        var result = await WriteMessagesAsync([new MessageWriteEntry(messageType, payload, publisherId, receiverId)], cancellationToken: cancellationToken);
-        return result;
-    }
-
-    public async Task<DateTime> WriteMessagesAsync(
-        IReadOnlyList<MessageWriteEntry> messages,
-        int batchSize = DefaultWriteBatchSize,
-        CancellationToken cancellationToken = default)
-    {
-        if (connection.State != System.Data.ConnectionState.Open)
-            await connection.OpenAsync(cancellationToken);
-
-        if (messages.Count == 0)
-        {
-            return DateTime.UtcNow;
-        }
-
-        var normalizedBatchSize = Math.Max(1, batchSize);
-
-        for (var start = 0; start < messages.Count; start += normalizedBatchSize)
-        {
-            var count = Math.Min(normalizedBatchSize, messages.Count - start);
-            var parameters = new DynamicParameters();
-            var values = new List<string>(count);
-
-            for (var index = 0; index < count; index++)
-            {
-                var message = messages[start + index];
-                var parameterSuffix = index.ToString();
-                var idParameter = $"Id{parameterSuffix}";
-                var dateTimeParameter = $"DateTime{parameterSuffix}";
-                var typeParameter = $"Type{parameterSuffix}";
-                var payloadParameter = $"Payload{parameterSuffix}";
-                var publisherIdParameter = $"PublisherId{parameterSuffix}";
-                var receiverIdParameter = $"ReceiverId{parameterSuffix}";
-
-                values.Add($"(@{idParameter}, @{dateTimeParameter}, @{typeParameter}, @{payloadParameter}::jsonb, @{publisherIdParameter}, @{receiverIdParameter})");
-                parameters.Add(idParameter, message.Id ?? CommonIdsGenerator.NewId());
-                parameters.Add(dateTimeParameter, DateTime.SpecifyKind(message.DateTime ?? DateTime.UtcNow, DateTimeKind.Unspecified));
-                parameters.Add(typeParameter, message.Type as object ?? DBNull.Value);
-                parameters.Add(payloadParameter, message.Payload is null ? "{}" : JsonSerializer.Serialize(message.Payload));
-                parameters.Add(publisherIdParameter, message.PublisherId ?? string.Empty);
-                parameters.Add(receiverIdParameter, message.ReceiverId);
-            }
-
-            var sql = $"""
-                INSERT INTO messages (id, date_time, type, payload, publisher_id, receiver_id)
-                VALUES {string.Join(", ", values)};
-                """;
-
-            await connection.ExecuteAsync(new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
-        }
-
-        return DateTime.UtcNow;
-    }
-
-    public async Task<StoredMessage[]> ReadMessagesAsync(long? sinceId = null, CancellationToken cancellationToken = default)
-        => await ReadMessagesAsync(new MessagesFilter(SinceId: sinceId), cancellationToken);
-
-    public async Task<StoredMessage[]> ReadMessagesAsync(MessagesFilter filter, CancellationToken cancellationToken = default)
-    {
-        if (connection.State != System.Data.ConnectionState.Open)
-            await connection.OpenAsync(cancellationToken);
+        await using var connection = await connectionResovler.GetAsync(cancellationToken);
 
         var sql = """
             SELECT id, date_time, type, payload, publisher_id, receiver_id
@@ -98,8 +37,11 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
             """;
 
         await using var command = new NpgsqlCommand(sql, connection);
-        command.Parameters
-            .Add("SinceId", filter.SinceId.HasValue ? (object?)filter.SinceId.Value : null)
+        command
+            .Parameters.Add(
+                "SinceId",
+                filter.SinceId.HasValue ? (object?)filter.SinceId.Value : null
+            )
             .Add("Type", filter.Type)
             .Add("PublisherId", filter.PublisherId)
             .Add("ExcludedIds", filter.ExcludedIds is null ? null : filter.ExcludedIds.ToArray())
@@ -118,13 +60,16 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
             var publisherId = reader.GetString(4);
             var receiverId = reader.IsDBNull(5) ? null : reader.GetString(5);
 
-            result.Add(new StoredMessage(
-                id,
-                dateTime,
-                type,
-                JsonSerializer.Deserialize<JsonElement>(payloadJson),
-                publisherId,
-                receiverId));
+            result.Add(
+                new StoredMessage(
+                    id,
+                    dateTime,
+                    type,
+                    JsonSerializer.Deserialize<JsonElement>(payloadJson),
+                    publisherId,
+                    receiverId
+                )
+            );
         }
 
         return [.. result];
@@ -142,10 +87,10 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
         string peerId,
         long? sinceId = null,
         int limit = 50,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        if (connection.State != System.Data.ConnectionState.Open)
-            await connection.OpenAsync(cancellationToken);
+        await using var connection = await connectionResovler.GetAsync(cancellationToken);
 
         string sql;
         if (sinceId is null)
@@ -195,13 +140,16 @@ public sealed class MessagesRepository(NpgsqlConnection connection)
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
-            result.Add(new StoredMessage(
-                reader.GetInt64(0),
-                DateTime.SpecifyKind(reader.GetDateTime(1), DateTimeKind.Utc),
-                reader.GetString(2),
-                JsonSerializer.Deserialize<JsonElement>(reader.GetString(3)),
-                reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetString(5)));
+            result.Add(
+                new StoredMessage(
+                    reader.GetInt64(0),
+                    DateTime.SpecifyKind(reader.GetDateTime(1), DateTimeKind.Utc),
+                    reader.GetString(2),
+                    JsonSerializer.Deserialize<JsonElement>(reader.GetString(3)),
+                    reader.GetString(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5)
+                )
+            );
         }
 
         return [.. result];
@@ -213,7 +161,8 @@ public record MessagesFilter(
     string? ReceiverId = null,
     string? PublisherId = null,
     long? SinceId = null,
-    IReadOnlyList<string>? ExcludedIds = null);
+    IReadOnlyList<string>? ExcludedIds = null
+);
 
 public record MessageWriteEntry(
     string Type,
@@ -221,7 +170,14 @@ public record MessageWriteEntry(
     string PublisherId,
     string? ReceiverId = null,
     DateTime? DateTime = null,
-    long? Id = null);
+    long? Id = null
+);
 
 public sealed record StoredMessage(
-    long Id, DateTime DateTime, string Type, JsonElement Payload, string PublisherId, string? ReceiverId);
+    long Id,
+    DateTime DateTime,
+    string Type,
+    JsonElement Payload,
+    string PublisherId,
+    string? ReceiverId
+);

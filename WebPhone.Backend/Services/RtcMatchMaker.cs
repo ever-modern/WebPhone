@@ -1,23 +1,19 @@
-﻿using System.Reflection.Metadata;
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WebPhone.Backend.Storage;
 using WebPhone.Domain;
-using WebPhone.Services;
 
 namespace WebPhone.Backend.Services;
 
-
-
 public class RtcMatchMaker(
-    MessagesRepository messagesRepository,
+    MessagesWriter messagesWriter,
     WebRtcParametersStorage currentOffers,
     ILogger<RtcMatchMaker> logger,
     PairMatchLocker locker
 )
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
-    
+
     public async Task<RtcMatchParameter> MatchAsync(
         string initiatorId,
         string targetId,
@@ -82,7 +78,7 @@ public class RtcMatchMaker(
 
             try
             {
-                await messagesRepository.WriteMessageAsync(
+                await messagesWriter.EnqueueAsync(
                     MessageTypeJsonConverter.ToWireValue(MessageType.ConnectionAttempt),
                     JsonSerializer.SerializeToElement(offer),
                     initiatorId,

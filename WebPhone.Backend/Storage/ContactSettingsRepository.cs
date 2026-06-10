@@ -1,19 +1,18 @@
 using Dapper;
-using Npgsql;
+using WebPhone.Backend.Services;
 using WebPhone.Domain;
 
 namespace WebPhone.Backend.Storage;
 
-public sealed class ContactSettingsRepository(NpgsqlConnection connection)
+public sealed class ContactSettingsRepository(DbConnectionResolver connectionResovler)
 {
     public async Task<ContactSettingsDto> GetAsync(
         string ownerId,
         string contactId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default
+    )
     {
-        if (connection.State != System.Data.ConnectionState.Open)
-            await connection.OpenAsync(cancellationToken);
-
+        await using var connection = await connectionResovler.GetAsync(cancellationToken);
         var sql = """
             SELECT
                 owner_id        AS "OwnerId",
@@ -27,16 +26,22 @@ public sealed class ContactSettingsRepository(NpgsqlConnection connection)
             """;
 
         var row = await connection.QuerySingleOrDefaultAsync<ContactSettingsDto>(
-            new CommandDefinition(sql, new { OwnerId = ownerId, ContactId = contactId }, cancellationToken: cancellationToken));
+            new CommandDefinition(
+                sql,
+                new { OwnerId = ownerId, ContactId = contactId },
+                cancellationToken: cancellationToken
+            )
+        );
 
         return row ?? new ContactSettingsDto(ownerId, contactId, false, true, true, null);
     }
 
-    public async Task<ContactSettingsDto[]> GetByOwnerAsync(string ownerId, CancellationToken cancellationToken = default)
+    public async Task<ContactSettingsDto[]> GetByOwnerAsync(
+        string ownerId,
+        CancellationToken cancellationToken = default
+    )
     {
-        if (connection.State != System.Data.ConnectionState.Open)
-            await connection.OpenAsync(cancellationToken);
-
+        await using var connection = await connectionResovler.GetAsync(cancellationToken);
         var sql = """
             SELECT
                 owner_id        AS "OwnerId",
@@ -50,16 +55,22 @@ public sealed class ContactSettingsRepository(NpgsqlConnection connection)
             """;
 
         var rows = await connection.QueryAsync<ContactSettingsDto>(
-            new CommandDefinition(sql, new { OwnerId = ownerId }, cancellationToken: cancellationToken));
+            new CommandDefinition(
+                sql,
+                new { OwnerId = ownerId },
+                cancellationToken: cancellationToken
+            )
+        );
 
         return [.. rows];
     }
 
-    public async Task UpsertAsync(ContactSettingsDto settings, CancellationToken cancellationToken = default)
+    public async Task UpsertAsync(
+        ContactSettingsDto settings,
+        CancellationToken cancellationToken = default
+    )
     {
-        if (connection.State != System.Data.ConnectionState.Open)
-            await connection.OpenAsync(cancellationToken);
-
+        await using var connection = await connectionResovler.GetAsync(cancellationToken);
         var sql = """
             INSERT INTO contacts (owner_id, contact_id, is_favourite, notify_calls, notify_messages, nickname, updated_at)
             VALUES (@OwnerId, @ContactId, @IsFavourite, @NotifyCalls, @NotifyMessages, @Nickname, NOW())
@@ -72,14 +83,20 @@ public sealed class ContactSettingsRepository(NpgsqlConnection connection)
                 updated_at = NOW();
             """;
 
-        await connection.ExecuteAsync(new CommandDefinition(sql, new
-        {
-            settings.OwnerId,
-            settings.ContactId,
-            settings.IsFavourite,
-            settings.NotifyCalls,
-            settings.NotifyMessages,
-            settings.Nickname
-        }, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(
+            new CommandDefinition(
+                sql,
+                new
+                {
+                    settings.OwnerId,
+                    settings.ContactId,
+                    settings.IsFavourite,
+                    settings.NotifyCalls,
+                    settings.NotifyMessages,
+                    settings.Nickname,
+                },
+                cancellationToken: cancellationToken
+            )
+        );
     }
 }

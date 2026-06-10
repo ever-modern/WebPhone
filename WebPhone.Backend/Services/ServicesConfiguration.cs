@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Npgsql;
 using WebPhone.Backend.Actions;
 using WebPhone.Backend.Storage;
 
@@ -14,21 +13,18 @@ public static class ServicesConfiguration
         IConfiguration configuration
     )
     {
-        services.AddScoped(sp =>
+        services.AddSingleton(sp =>
         {
-            var connectionString =
+            var dbConnectionString =
                 configuration.GetRequiredSection("WebPhoneDbConnectionString").Value
                 ?? throw new InvalidOperationException(
                     "Postgres connection string is not configured."
                 );
 
-            // Do not open a DB connection in DI construction path.
-            // Opening here can block function-start coordination and cause HTTP trigger timeout
-            // before the invocation actually begins.
-            return new NpgsqlConnection(connectionString);
+            return new DbConnectionResolver(dbConnectionString);
         });
 
-        services.AddScoped<MessagesRepository>();
+        services.AddScoped<MessagesReader>();
         services.AddScoped<ProfileSettingsRepository>();
         services.AddScoped<ContactSettingsRepository>();
         services.AddScoped<PushSubscriptionsRepository>();
@@ -36,6 +32,9 @@ public static class ServicesConfiguration
 
         services.AddSingleton(new WebRtcParametersStorage());
         services.AddSingleton(new PairMatchLocker());
+        services.AddSingleton(sp =>
+            new MessagesWriter(sp.GetRequiredService<DbConnectionResolver>()).Start()
+        );
 
         services.AddScoped<RtcMatchMaker>();
 
