@@ -4,12 +4,12 @@ using EverModern.Threading.Queues;
 
 namespace WebPhone.Services;
 
-class EntityLocker<TId>
+class EntityLocker<TId>(IEqualityComparer<TId> equalityComparer)
     where TId : notnull
 {
-    readonly ConcurrentDictionary<TId, SemaphoreSlim> _locks = new();
+    readonly ConcurrentDictionary<TId, SemaphoreSlim> _locks = new(equalityComparer);
 
-    public async Task<AsyncScopeLocker> LockAsync(
+    public async Task<LockedScope> LockAsync(
         TId id,
         CancellationToken cancellationToken = default
     )

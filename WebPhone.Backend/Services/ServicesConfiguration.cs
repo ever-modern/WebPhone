@@ -35,6 +35,8 @@ public static class ServicesConfiguration
         services.AddScoped<PushNotifier>();
 
         services.AddSingleton(new WebRtcParametersStorage());
+        services.AddSingleton(new PairMatchLocker());
+
         services.AddScoped<RtcMatchMaker>();
 
         services.AddScoped<ExchangeApiAction>();

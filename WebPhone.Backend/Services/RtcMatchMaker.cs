@@ -1,39 +1,24 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Reflection.Metadata;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using WebPhone.Backend.Storage;
 using WebPhone.Domain;
-using PeersPair = (string, string);
+using WebPhone.Services;
 
 namespace WebPhone.Backend.Services;
 
-public class WebRtcParametersStorage
-    : ConcurrentDictionary<PeersPair, (WebRtcOffer, TaskCompletionSource<RtcMatchParameter>)>
-{
-    static PeersPair NormalizePair(PeersPair pair)
-    {
-        var (id1, id2) = pair;
-        return string.CompareOrdinal(id1, id2) > 0 ? (id1, id2) : (id2, id1);
-    }
 
-    public WebRtcParametersStorage()
-        : base(
-            EqualityComparer<PeersPair>.Create(
-                (pair1, pair2) => NormalizePair(pair1) == NormalizePair(pair2),
-                pair => NormalizePair(pair).GetHashCode()
-            )
-        ) { }
-}
 
 public class RtcMatchMaker(
     MessagesRepository messagesRepository,
     WebRtcParametersStorage currentOffers,
-    ILogger<RtcMatchMaker> logger
+    ILogger<RtcMatchMaker> logger,
+    PairMatchLocker locker
 )
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
-
-    public Task<RtcMatchParameter> MatchAsync(
+    
+    public async Task<RtcMatchParameter> MatchAsync(
         string initiatorId,
         string targetId,
         RtcMatchParameter parameters,
@@ -43,68 +28,59 @@ public class RtcMatchMaker(
         var (offer, answer) = parameters;
 
         if (offer is null && answer is null)
-        {
-            throw new UserFaultException($"Both offer and answer cannot be null.");
-        }
+            throw new UserFaultException("Both offer and answer cannot be null.");
 
-        logger.LogInformation(
-            "[RTC] Match request {InitiatorId}->{TargetId}. OfferPresent={OfferPresent}, AnswerPresent={AnswerPresent}",
-            initiatorId,
-            targetId,
-            offer is not null,
-            answer is not null
+        var pair = new PeersPair(initiatorId, targetId);
+
+        var tcs = new TaskCompletionSource<RtcMatchParameter>(
+            TaskCreationOptions.RunContinuationsAsynchronously
         );
 
-        var couple = (initiatorId, targetId);
+        bool sendOffer = false;
 
-        var (currentOffer, waitingForAnswer) = currentOffers.GetValueOrDefault(couple);
-
-        if (answer is not null)
+        using (await locker.LockPairAsync(pair, cancellationToken))
         {
-            if (offer is null)
+            var (currentOffer, waitingForAnswer) = currentOffers.GetValueOrDefault(pair);
+
+            if (answer is not null)
             {
-                throw new UserFaultException($"Answer provided without the offer it's meant for.");
+                if (offer is null)
+                    throw new UserFaultException("Answer provided without corresponding offer.");
+
+                if (currentOffer is null)
+                    return new(null, null);
+
+                if (!Equals(currentOffer, offer))
+                    return new(currentOffer, null);
+
+                currentOffers.TryRemove(pair, out _);
+
+                waitingForAnswer.TrySetResult(new(currentOffer, answer));
+
+                logger.LogInformation("[RTC] Answer matched for pair {Pair}", pair);
+
+                return new(currentOffer, answer);
             }
 
-            if (currentOffer != offer)
+            if (currentOffer is not null)
             {
-                return Task.FromResult(new RtcMatchParameter(currentOffer, null));
+                logger.LogInformation("[RTC] Existing offer found for pair {Pair}", pair);
+
+                return new(currentOffer, null);
             }
 
-            currentOffer =
-                currentOffer ?? throw new UserFaultException("No offer found for the answer.");
+            currentOffers[pair] = (offer!, tcs);
 
-            currentOffers.TryRemove(couple, out _);
+            sendOffer = true;
 
-            waitingForAnswer.TrySetResult(new RtcMatchParameter(currentOffer, parameters.Answer));
-            logger.LogInformation(
-                "[RTC] Answer matched for pair {Couple}. Completing waiting initiator task.",
-                couple
-            );
-
-            return Task.FromResult(new RtcMatchParameter(offer, answer));
+            logger.LogInformation("[RTC] Stored offer for pair {Pair}", pair);
         }
 
-        if (currentOffer is not null)
+        if (sendOffer)
         {
-            logger.LogInformation(
-                "[RTC] Existing offer found for pair {Couple}. Returning current offer to requester.",
-                couple
-            );
-            return Task.FromResult(new RtcMatchParameter(currentOffer, null));
-        }
+            _ = RunOfferTimeoutAsync(pair, tcs);
 
-        var tcs = new TaskCompletionSource<RtcMatchParameter>();
-
-        currentOffers[couple] = (offer!, tcs);
-        logger.LogInformation(
-            "[RTC] Stored offer for pair {Couple}; waiting for answer up to {TimeoutSeconds}s.",
-            couple,
-            OfferTimeout.TotalSeconds
-        );
-
-        _ = Task.Run(
-            async () =>
+            try
             {
                 await messagesRepository.WriteMessageAsync(
                     MessageTypeJsonConverter.ToWireValue(MessageType.ConnectionAttempt),
@@ -113,31 +89,68 @@ public class RtcMatchMaker(
                     targetId,
                     cancellationToken
                 );
+            }
+            catch
+            {
+                await RemoveOfferAsync(pair, tcs);
 
-                using var __ = cancellationToken.Register(() =>
-                {
-                    currentOffers.TryRemove(couple, out _);
-                    tcs.TrySetCanceled();
-                });
+                throw;
+            }
+        }
 
-                await Task.Delay(OfferTimeout);
+        using var registration = cancellationToken.Register(() =>
+        {
+            tcs.TrySetCanceled(cancellationToken);
+        });
 
-                if (
-                    currentOffers.TryRemove(couple, out var offerAndTcs)
-                    && offerAndTcs.Item2 == tcs
-                )
-                {
-                    logger.LogWarning(
-                        "[RTC] Offer timed out for pair {Couple} after {TimeoutSeconds}s.",
-                        couple,
-                        OfferTimeout.TotalSeconds
-                    );
-                    tcs.TrySetResult(new(null, null));
-                }
-            },
-            cancellationToken
-        );
+        try
+        {
+            return await tcs.Task;
+        }
+        catch (OperationCanceledException)
+        {
+            await RemoveOfferAsync(pair, tcs);
 
-        return tcs.Task;
+            throw;
+        }
+    }
+
+    async Task RemoveOfferAsync(PeersPair pair, TaskCompletionSource<RtcMatchParameter> tcs)
+    {
+        using var _ = await locker.LockPairAsync(pair, CancellationToken.None);
+
+        if (
+            currentOffers.TryGetValue(pair, out var existing)
+            && ReferenceEquals(existing.Item2, tcs)
+        )
+        {
+            currentOffers.TryRemove(pair, out var __);
+        }
+    }
+
+    async Task RunOfferTimeoutAsync(PeersPair pair, TaskCompletionSource<RtcMatchParameter> tcs)
+    {
+        try
+        {
+            await Task.Delay(OfferTimeout);
+
+            using var _ = await locker.LockPairAsync(pair, CancellationToken.None);
+
+            if (
+                currentOffers.TryGetValue(pair, out var existing)
+                && ReferenceEquals(existing.Item2, tcs)
+            )
+            {
+                currentOffers.TryRemove(pair, out var __);
+
+                logger.LogWarning("[RTC] Offer timed out for pair {Pair}", pair);
+
+                tcs.TrySetResult(new(null, null));
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[RTC] Error while processing offer timeout for pair {Pair}", pair);
+        }
     }
 }

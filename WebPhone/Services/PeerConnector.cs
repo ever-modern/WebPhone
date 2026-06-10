@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
+using EverModern.Threading;
 using Microsoft.Extensions.Logging;
 using WebPhone.Domain;
-using WebPhone.Services.Background;
 
 namespace WebPhone.Services;
 
@@ -16,7 +16,7 @@ public class PeerConnector(
     readonly ConcurrentDictionary<string, ConnectionEstablishmentProcess> _connectionProcesses =
         new();
     readonly EventSource _connectionEventSource = new();
-    readonly EntityLocker<string> _perPeerLocker = new();
+    readonly KeyLocker<string> _perPeerLocker = new();
 
     bool _disposed = false;
 
@@ -53,38 +53,61 @@ public class PeerConnector(
         using (var locker = await _perPeerLocker.LockAsync(peerId, cancellationToken))
             if (_connectionProcesses.TryGetValue(peerId, out var existing))
             {
-                process = existing;
+                if (offer is not null && existing.IsOutgoing && !existing.IsCompleted)
+                {
+                    existing.Cancel();
+
+                    isNew = true;
+                    var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    var connectionTask = StartConnectingAsync(peerId, cts.Token, offer);
+
+                    process = new(connectionTask, cts, false);
+                    _connectionProcesses[peerId] = process;
+                    _connectionEventSource.Invoke();
+                }
+                else
+                {
+                    process = existing;
+                }
             }
             else
             {
                 isNew = true;
+                var isOutgoing = offer is null;
 
                 var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var connectionTask = StartConnectingAsync(peerId, cts.Token, offer);
 
-                process = new(connectionTask, cts, false);
+                process = new(connectionTask, cts, isOutgoing);
 
                 _connectionProcesses[peerId] = process;
 
                 _connectionEventSource.Invoke();
             }
 
-        var connection = await process
-            .WaitAsync(default)
-            .ContinueWith(t =>
-            {
-                if (t.IsFaulted && t.Exception.InnerException is not RecursionDepthException)
-                {
-                    return null;
-                }
-                return t.Result;
-            });
+        IRtcConnection? connection;
+
+        try
+        {
+            connection = await process.WaitAsync(default);
+        }
+        catch (Exception ex) when (ex is not RecursionDepthException and not HttpRequestException)
+        {
+            connection = null;
+        }
 
         if (isNew)
         {
             if (process.ConnectedSuccessfully is false)
             {
-                _connectionProcesses.TryRemove(peerId, out var __);
+                using var _ = await _perPeerLocker.LockAsync(peerId);
+                if (
+                    _connectionProcesses.TryGetValue(peerId, out var current)
+                    && ReferenceEquals(current, process)
+                )
+                {
+                    _connectionProcesses.TryRemove(peerId, out var __);
+                }
             }
 
             _connectionEventSource.Invoke();

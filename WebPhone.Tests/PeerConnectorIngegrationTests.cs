@@ -3,6 +3,10 @@ using WebPhone.Messages;
 using WebPhone.Services;
 using WebPhone.Services.Channels;
 using WebPhone.Tests.Provision;
+using PeerPair = (
+    (WebPhone.Services.PeerConnector First, string UserId),
+    (WebPhone.Services.PeerConnector Second, string UserId)
+);
 
 namespace WebPhone.Tests;
 
@@ -19,10 +23,12 @@ public class PeerConnectorIngegrationTests
 
         var channel = new BackendMessagesChannel(client, 50);
 
+        var incomingReader = channel.Subscribe(m => m.Type is MessageType.ConnectionAttempt);
+        channel.Start();
+
         _ = Task.Run(async () =>
         {
-            using var reader = channel.Subscribe(m => m.Type is MessageType.ConnectionAttempt);
-            channel.Start();
+            using var reader = incomingReader;
             await foreach (var message in reader.ReadAllAsync())
             {
                 var specificMessage = message.SpecifyPayload<WebRtcOffer>()!;
@@ -37,23 +43,39 @@ public class PeerConnectorIngegrationTests
         return result;
     }
 
-    static (
-        (PeerConnector First, string UserId),
-        (PeerConnector Second, string UserId)
-    ) CreateTwoPeers()
+    static PeerPair CreateTwoPeers() => GeneratePeers().Chunk(2).Select(FromArray).First();
+
+    static IEnumerable<(PeerConnector Connector, string PeerId)> GeneratePeers()
     {
-        string firstUserId = $"First-{Guid.NewGuid()}";
-        string secondUserId = $"Second-{Guid.NewGuid()}";
-        return (
-            (CreatePeerConnector(firstUserId), firstUserId),
-            (CreatePeerConnector(secondUserId), secondUserId)
-        );
+        for (int i = 0; i < int.MaxValue / 2; i++)
+        {
+            var user = $"User-{i}";
+            yield return (CreatePeerConnector(user), user);
+        }
+    }
+
+    static PeerPair FromArray((PeerConnector Connector, string PeerId)[] array) =>
+        (array[0], array[1]);
+
+    [Fact]
+    public async Task FirstConnects_SecondOnlyAccepts()
+    {
+        var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var ct = timeoutCts.Token;
+
+        var ((firstConnector, firstUserId), (secondConnector, secondUserId)) = CreateTwoPeers();
+        var firstConnection = await firstConnector.ConnectToPeerAsync(secondUserId, ct);
+
+        var secondConnection = secondConnector.FindReadyConnection(firstUserId);
+
+        Assert.NotNull(firstConnection);
+        Assert.NotNull(secondConnection);
     }
 
     [Fact]
-    public async Task TestSimpleAsync()
+    public async Task TwoConnectSimultaneously()
     {
-        var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var ct = timeoutCts.Token;
 
         var ((firstConnector, firstUserId), (secondConnector, secondUserId)) = CreateTwoPeers();
