@@ -21,7 +21,13 @@ public class MockLogger<T> : ILogger<T>
         TState state,
         Exception? exception,
         Func<TState, Exception?, string> formatter
-    ) { }
+    )
+    {
+        var message = formatter(state, exception);
+        Console.WriteLine(
+            $"[{DateTime.UtcNow:O}] [{typeof(T).Name}] [{logLevel}] {message}{(exception is null ? string.Empty : $" | {exception}")}"
+        );
+    }
 
     class NullScope : IDisposable
     {

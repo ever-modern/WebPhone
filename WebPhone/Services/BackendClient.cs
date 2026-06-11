@@ -9,14 +9,20 @@ using WebPhone.Services.Data;
 namespace WebPhone.Services;
 
 
-public class BackendClient(string baseUrl, IProfile profile, ILogger<BackendClient>? logger = null) : IDisposable, IBackendClient
+public class BackendClient(
+    string baseUrl,
+    IProfile profile,
+    ILogger<BackendClient>? logger = null,
+    HttpClient? httpClient = null
+) : IDisposable, IBackendClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = true,
     };
 
-    readonly HttpClient _httpClient = new();
+    readonly HttpClient _httpClient = httpClient ?? new();
+    readonly bool _ownsHttpClient = httpClient is null;
     readonly ILogger<BackendClient> _logger = logger ?? NullLogger<BackendClient>.Instance;
     readonly string _exchangeEndpoint = $"{baseUrl.TrimEnd('/')}/exchange";
     readonly string _pushSubscriptionEndpoint = $"{baseUrl.TrimEnd('/')}/subscribe-for-push";
@@ -269,5 +275,11 @@ public class BackendClient(string baseUrl, IProfile profile, ILogger<BackendClie
         return result!;
     }
 
-    public void Dispose() => _httpClient.Dispose();
+    public void Dispose()
+    {
+        if (_ownsHttpClient)
+        {
+            _httpClient.Dispose();
+        }
+    }
 }

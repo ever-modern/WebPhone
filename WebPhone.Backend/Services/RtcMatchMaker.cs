@@ -13,6 +13,7 @@ public class RtcMatchMaker(
 )
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
+    static readonly TimeSpan PairLockTimeout = TimeSpan.FromSeconds(1);
 
     public async Task<RtcMatchParameter> MatchAsync(
         string initiatorId,
@@ -34,7 +35,18 @@ public class RtcMatchMaker(
 
         bool sendOffer = false;
 
-        using (await locker.LockPairAsync(pair, cancellationToken))
+        var pairLock = await locker.TryLockPairAsync(pair, PairLockTimeout, cancellationToken);
+
+        if (pairLock is null)
+        {
+            logger.LogWarning(
+                "[RTC] Pair lock timeout for pair {Pair}. Returning empty match result.",
+                pair
+            );
+            return new(null, null);
+        }
+
+        using (pairLock)
         {
             var (currentOffer, waitingForAnswer) = currentOffers.GetValueOrDefault(pair);
 

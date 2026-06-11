@@ -46,6 +46,12 @@ public class PeerConnector(
     )
     {
         ObjectDisposedException.ThrowIf(_disposed, nameof(PeerConnector));
+        logger.LogInformation(
+            "[RTC][PeerConnector] ConnectToPeerAsync start. PeerId={PeerId}, IncomingOffer={IncomingOffer}, CancellationRequested={CancellationRequested}",
+            peerId,
+            offer is not null,
+            cancellationToken.IsCancellationRequested
+        );
 
         ConnectionEstablishmentProcess process;
         bool isNew = false;
@@ -55,6 +61,10 @@ public class PeerConnector(
             {
                 if (offer is not null && existing.IsOutgoing && !existing.IsCompleted)
                 {
+                    logger.LogInformation(
+                        "[RTC][PeerConnector] Incoming offer preempts pending outgoing process. PeerId={PeerId}",
+                        peerId
+                    );
                     existing.Cancel();
 
                     isNew = true;
@@ -67,6 +77,12 @@ public class PeerConnector(
                 }
                 else
                 {
+                    logger.LogInformation(
+                        "[RTC][PeerConnector] Reusing existing process. PeerId={PeerId}, IsOutgoing={IsOutgoing}, IsCompleted={IsCompleted}",
+                        peerId,
+                        existing.IsOutgoing,
+                        existing.IsCompleted
+                    );
                     process = existing;
                 }
             }
@@ -74,6 +90,11 @@ public class PeerConnector(
             {
                 isNew = true;
                 var isOutgoing = offer is null;
+                logger.LogInformation(
+                    "[RTC][PeerConnector] Creating new process. PeerId={PeerId}, IsOutgoing={IsOutgoing}",
+                    peerId,
+                    isOutgoing
+                );
 
                 var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var connectionTask = StartConnectingAsync(peerId, cts.Token, offer);
@@ -89,24 +110,60 @@ public class PeerConnector(
 
         try
         {
-            connection = await process.WaitAsync(default);
+            connection = await process.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogInformation(
+                "[RTC][PeerConnector] ConnectToPeerAsync canceled by caller token. PeerId={PeerId}",
+                peerId
+            );
+            throw;
         }
         catch (Exception ex) when (ex is not RecursionDepthException and not HttpRequestException)
         {
+            logger.LogWarning(
+                ex,
+                "[RTC][PeerConnector] ConnectToPeerAsync wait failed. PeerId={PeerId}, CancellationRequested={CancellationRequested}",
+                peerId,
+                cancellationToken.IsCancellationRequested
+            );
             connection = null;
         }
+
+        logger.LogInformation(
+            "[RTC][PeerConnector] ConnectToPeerAsync completed. PeerId={PeerId}, Success={Success}, IsNew={IsNew}",
+            peerId,
+            connection is not null,
+            isNew
+        );
 
         if (isNew)
         {
             if (process.ConnectedSuccessfully is false)
             {
-                using var _ = await _perPeerLocker.LockAsync(peerId);
+                logger.LogInformation(
+                    "[RTC][PeerConnector] Cleaning failed process. Waiting peer lock. PeerId={PeerId}",
+                    peerId
+                );
+
+                using var _ = await _perPeerLocker.LockAsync(peerId, cancellationToken);
+
+                logger.LogInformation(
+                    "[RTC][PeerConnector] Cleaning failed process. Acquired peer lock. PeerId={PeerId}",
+                    peerId
+                );
+
                 if (
                     _connectionProcesses.TryGetValue(peerId, out var current)
                     && ReferenceEquals(current, process)
                 )
                 {
                     _connectionProcesses.TryRemove(peerId, out var __);
+                    logger.LogInformation(
+                        "[RTC][PeerConnector] Removed failed process from map. PeerId={PeerId}",
+                        peerId
+                    );
                 }
             }
 
@@ -163,6 +220,13 @@ public class PeerConnector(
         int iteration = 0
     )
     {
+        logger.LogInformation(
+            "[RTC][PeerConnector] StartConnectingAsync. PeerId={PeerId}, IncomingOffer={IncomingOffer}, Iteration={Iteration}, CancellationRequested={CancellationRequested}",
+            peerId,
+            incomingOffer is not null,
+            iteration,
+            cancellationToken.IsCancellationRequested
+        );
         RecursionDepthException.ThrowIfExceeded(iteration);
         WebRtcOffer? counterOffer = null;
         IRtcConnection? rtcConnection;
@@ -174,6 +238,12 @@ public class PeerConnector(
                     var (responseOffer, responseAnswer) = await backendClient.ConnectRtcAsync(
                         new RtcConnectionRequest(peerId, offer, null),
                         cancellationToken
+                    );
+                    logger.LogInformation(
+                        "[RTC][PeerConnector] Initiator backend response. PeerId={PeerId}, ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
+                        peerId,
+                        responseOffer is not null,
+                        responseAnswer is not null
                     );
                     if (responseAnswer is null)
                     {
@@ -190,6 +260,7 @@ public class PeerConnector(
 
             if (counterOffer is not null)
             {
+            cancellationToken.ThrowIfCancellationRequested();
                 rtcConnection = await StartConnectingAsync(
                     peerId,
                     cancellationToken,
@@ -209,6 +280,12 @@ public class PeerConnector(
                     new RtcConnectionRequest(peerId, incomingOffer, answer),
                     cancellationToken
                 );
+                logger.LogInformation(
+                    "[RTC][PeerConnector] Acceptor backend response. PeerId={PeerId}, ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
+                    peerId,
+                    responseOffer is not null,
+                    responseAnswer is not null
+                );
 
                 if (responseAnswer is not null)
                 {
@@ -224,6 +301,7 @@ public class PeerConnector(
 
         if (counterOffer is not null)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             rtcConnection = await StartConnectingAsync(
                 peerId,
                 cancellationToken,

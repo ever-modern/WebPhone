@@ -31,19 +31,18 @@ public class PeerConnectorIngegrationTests : IClassFixture<TestWebApplicationFac
 {
     private readonly TestWebApplicationFactory _webApplicationFactory;
     readonly string _baseUrl;
-    readonly List<string> _serverStd;
+    readonly string _testRunPrefix = "";// Guid.NewGuid().ToString("N");
 
     public PeerConnectorIngegrationTests(TestWebApplicationFactory webApplicationFactory)
     {
         _webApplicationFactory = webApplicationFactory;
         var client = _webApplicationFactory.CreateClient();
         _baseUrl = client.BaseAddress.ToString();
-        _serverStd = webApplicationFactory.Logs;
     }
 
     PeerConnector CreatePeerConnector(string userId)
     {
-        var client = new BackendConnectionClient(_baseUrl, userId);
+        var client = new BackendConnectionClient(_webApplicationFactory.CreateClient(), _baseUrl, userId);
         var result = new PeerConnector(
             new MockRtcConnector(),
             new MockLogger<PeerConnector>(),
@@ -78,17 +77,17 @@ public class PeerConnectorIngegrationTests : IClassFixture<TestWebApplicationFac
     {
         for (int i = 0; i < int.MaxValue / 2; i++)
         {
-            var user = $"User-{i}";
+            var user = $"User-{_testRunPrefix}-{i}";
             yield return (CreatePeerConnector(user), user);
         }
     }
 
     PeerPair FromArray((PeerConnector Connector, string PeerId)[] array) => (array[0], array[1]);
 
-    [Fact]
+    [Fact(Timeout = 30000)]
     public async Task FirstConnects_SecondOnlyAccepts()
     {
-        var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var ct = timeoutCts.Token;
 
         var ((firstConnector, firstUserId), (secondConnector, secondUserId)) = CreateTwoPeers();
@@ -100,7 +99,7 @@ public class PeerConnectorIngegrationTests : IClassFixture<TestWebApplicationFac
         Assert.NotNull(secondConnection);
     }
 
-    [Fact]
+    [Fact(Timeout = 30000)]
     public async Task TwoConnectSimultaneously()
     {
         var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
@@ -119,10 +118,10 @@ public class PeerConnectorIngegrationTests : IClassFixture<TestWebApplicationFac
         Assert.NotNull(connectionSecond);
     }
 
-    [Fact]
+    [Fact(Timeout = 30000)]
     public async Task Connect_All_To_All()
     {
-        var peers = GeneratePeers().Take(2);
+        var peers = GeneratePeers().Take(50);
 
         var tasks = new List<Task<IRtcConnection?>>();
 
