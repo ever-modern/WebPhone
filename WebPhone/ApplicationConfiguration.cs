@@ -18,15 +18,17 @@ public static class ApplicationConfiguration
     )
     {
         services.AddSingleton(sp =>
-        {
-            var options = sp.GetRequiredService<PhoneOptions>();
-            return new JsRtcConnector(
-                sp.GetRequiredService<IJSRuntime>(),
-                options.WebRtcIceServers
-            );
-        });
+            {
+                var options = sp.GetRequiredService<PhoneOptions>();
+                return new JsRtcConnector(
+                    sp.GetRequiredService<IJSRuntime>(),
+                    options.WebRtcIceServers
+                );
+            }
+        );
 
-        services.AddSingleton<IRtcConnector>(sp => sp.GetRequiredService<JsRtcConnector>());
+        services.AddSingleton<IRtcConnector>(sp => sp.GetRequiredService<JsRtcConnector>()
+        );
 
         services.AddSingleton<VideoCallState>();
 
@@ -43,24 +45,28 @@ public static class ApplicationConfiguration
         );
 
         services.AddSingleton<IBackendClient>(sp =>
-        {
-            var profile = sp.GetRequiredService<IProfile>();
-            var options = sp.GetRequiredService<PhoneOptions>();
-            var baseUrl = options.ExternalChannelBaseUrl;
-            baseUrl = "https://web-phone-api.enjoyer-station.myvnc.com";
-            baseUrl = "http://localhost:5194";
-            var externalChannelBaseUrl = new BackendClient(baseUrl, profile);
-            return externalChannelBaseUrl;
-        });
+            {
+                var profile = sp.GetRequiredService<IProfile>();
+                var options = sp.GetRequiredService<PhoneOptions>();
+                var baseUrl = options.ExternalChannelBaseUrl;
+                baseUrl = "https://web-phone-api.enjoyer-station.myvnc.com";
+                baseUrl = "http://localhost:5194";
+                var externalChannelBaseUrl = new BackendClient(
+                    baseUrl,
+                    profile
+                );
+                return externalChannelBaseUrl;
+            }
+        );
 
         services.AddSingleton<BackendMessagesChannel>(sp =>
-        {
-            var options = sp.GetRequiredService<PhoneOptions>();
-            return new BackendMessagesChannel(
-                sp.GetRequiredService<IBackendClient>(),
-                options.PollIntervalMs
-            );
-        });
+            {
+                var options = sp.GetRequiredService<PhoneOptions>();
+                return new BackendMessagesChannel(
+                    options.ExternalChannelBaseUrl
+                );
+            }
+        );
 
         services.AddSingleton<IMessagesChannel>(sp =>
             sp.GetRequiredService<BackendMessagesChannel>()
@@ -68,10 +74,15 @@ public static class ApplicationConfiguration
 
         services.AddSingleton<ChatMessagesChannel>();
 
-        services.Configure<PhoneOptions>(configuration.GetSection("Phone"));
+        services.Configure<PhoneOptions>(
+            configuration.GetSection(
+                "Phone"
+            )
+        );
 
         services.AddSingleton<ILocalStore, BrowserLocalStore>();
         services.AddSingleton<ProfileStore>();
-        services.AddSingleton<IProfile>(sp => sp.GetRequiredService<ProfileStore>());
+        services.AddSingleton<IProfile>(sp => sp.GetRequiredService<ProfileStore>()
+        );
     }
 }

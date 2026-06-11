@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using WebPhone.Backend.Actions;
@@ -69,6 +70,16 @@ public static class ServicesConfiguration
             return new(clientId);
         });
 
+        services.AddSignalRConnectionsSupport();
+
+        return services;
+    }
+
+    public static IServiceCollection AddSignalRConnectionsSupport(this IServiceCollection services)
+    {
+        services.AddSignalR();
+        services.AddSingleton<IUserIdProvider, PeerUserProvider>();
         return services;
     }
 }
+

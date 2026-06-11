@@ -19,4 +19,8 @@
     <ProjectReference Include="..\WebPhone.Contract\WebPhone.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="SignalR\" />
+  </ItemGroup>
+
 </Project>

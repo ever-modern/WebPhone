@@ -1,5 +1,3 @@
-using EverModern.Blazor.DirectCommunication;
-using EverModern.Events;
 using Microsoft.Extensions.Logging;
 using WebPhone.Domain;
 using WebPhone.Services.Channels;

@@ -15,7 +15,10 @@ public sealed class AppStarter(
     ContactsDispatcher contactsDispatcher
 )
 {
-    readonly SemaphoreSlim _startLock = new(1, 1);
+    readonly SemaphoreSlim _startLock = new(
+        1,
+        1
+    );
     volatile bool _started;
 
     public async Task EnsureStartedAsync(CancellationToken cancellationToken = default)
@@ -23,18 +26,25 @@ public sealed class AppStarter(
         if (_started)
             return;
 
-        using var __ = await _startLock.LockScopeAsync(cancellationToken);
+        using var __ = await _startLock.LockScopeAsync(
+            cancellationToken
+        );
 
         if (_started)
             return;
 
-        await profileStore.InitializeAsync(cancellationToken);
-        _ = backendMessagesChannel.Start();
-        await contactsRepository.InitializeAsync(cancellationToken);
+        await profileStore.InitializeAsync(
+            cancellationToken
+        );
+        await contactsRepository.InitializeAsync(
+            cancellationToken
+        );
         contactsRepository.StartTracking();
         incomingConnectionsHandler.Start();
         await presenceAnnouncer.StartAsync();
-        await contactsDispatcher.StartAsync(cancellationToken);
+        await contactsDispatcher.StartAsync(
+            cancellationToken
+        );
 
         _started = true;
     }

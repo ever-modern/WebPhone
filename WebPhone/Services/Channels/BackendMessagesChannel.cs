@@ -1,159 +1,123 @@
 using System.Threading.Channels;
 using EverModern.Threading.Channels;
+using Microsoft.AspNetCore.SignalR.Client;
 using WebPhone.Domain;
+using WebPhone.Domain.Communication;
 using WebPhone.Messages;
 
 namespace WebPhone.Services.Channels;
 
-public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
+public static class HubConnectionExtensions
 {
-    private readonly List<Channel<IncomingMessage>> incomingChannels = [];
-    private readonly Channel<OutgoingMessage> outgoingChannel =
-        Channel.CreateUnbounded<OutgoingMessage>();
-    private readonly TimeSpan idleSendInterval;
-    private readonly CancellationTokenSource cts = new();
-    private Task? sendLoopTask;
-    private long _lastMessageId = CommonIdsGenerator.NewId();
-    private DateTime lastSentTimestamp = DateTime.UtcNow;
-    readonly IBackendClient _client;
-
-    public BackendMessagesChannel(IBackendClient client, int pollIntervalMs = 1000)
+    public static HubConnection Configure(this HubConnection connection,
+        Action<HubConnection> configure)
     {
-        _client = client;
-        idleSendInterval = TimeSpan.FromMilliseconds(Math.Max(pollIntervalMs, 50));
-        lastSentTimestamp = DateTime.UtcNow - idleSendInterval;
+        configure(
+            connection
+        );
+        return connection;
     }
 
-    public ChannelWriter<OutgoingMessage> Writer => outgoingChannel.Writer;
+    static int[] a =
+    [
+        324,
+        12321,
+        3242
+    ];
 
-    public IChannelSubscription<IncomingMessage> Subscribe() => Subscribe(null);
+}
 
-    public IChannelSubscription<IncomingMessage> Subscribe(Func<IncomingMessage, bool>? filter)
+public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
+{
+    readonly List<Channel<IncomingMessage>> _incomingChannels = new();
+    readonly Channel<OutgoingMessage> _outgoingChannel = Channel.CreateBounded<OutgoingMessage>(
+        50
+    );
+    readonly CancellationTokenSource _cts = new();
+    readonly HubConnection _hubConnection;
+
+    public BackendMessagesChannel(string baseUrl)
     {
-        var channel = Channel.CreateUnbounded<IncomingMessage>();
+        _hubConnection = new HubConnectionBuilder()
+            .WithUrl(
+                $"{baseUrl}/hub"
+            )
+            .WithAutomaticReconnect()
+            .Build();
+
+        _hubConnection.On<ExchangeResponse>(
+            nameof(MessageSpecifications.Push),
+            async exchange =>
+            {
+                var messages = exchange?.RelevantMessages.Select(rm => new IncomingMessage(
+                        rm.Id,
+                        MessageTypeJsonConverter.FromWireValue(
+                            rm.Type
+                        ),
+                        rm.Payload,
+                        rm.PublisherClientId,
+                        rm.DateTime
+                    )
+                );
+                foreach (var incomingChannel in _incomingChannels)
+                {
+                    foreach (var message in messages)
+                    {
+                        await incomingChannel.Writer.WriteAsync(
+                            message
+                        );
+                    }
+                }
+            }
+        );
+
+        _ = Task.Run(async () =>
+            {
+                await foreach (var message in _outgoingChannel.Reader.ReadAllAsync(
+                                   _cts.Token
+                               ))
+                {
+                    await _hubConnection.SendAsync(
+                        nameof(MessageSpecifications.Push),
+                        message
+                    );
+                }
+            }
+        );
+    }
+
+    public ChannelWriter<OutgoingMessage> Writer => _outgoingChannel.Writer;
+
+    public IChannelSubscription<IncomingMessage> Subscribe(Func<IncomingMessage, bool> filter)
+    {
+        var channel = Channel.CreateBounded<IncomingMessage>(
+            50
+        );
 
         var result = new ChannelSubscription<IncomingMessage>(
             channel.Reader,
-            (self) => incomingChannels.Remove(channel),
+            (self) => _incomingChannels.Remove(
+                channel
+            ),
             filter
         );
 
-        incomingChannels.Add(channel);
+        _incomingChannels.Add(
+            channel
+        );
 
         return result;
     }
 
-    public BackendMessagesChannel Start()
-    {
-        sendLoopTask = RunSendLoopAsync(cts.Token);
-        return this;
-    }
-
-    private async Task RunSendLoopAsync(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            var waitForMessageTask = outgoingChannel
-                .Reader.WaitToReadAsync(cancellationToken)
-                .AsTask();
-            var idleDelayTask = Task.Delay(GetIdleDelay(), cancellationToken);
-            var completedTask = await Task.WhenAny(waitForMessageTask, idleDelayTask);
-
-            if (completedTask == waitForMessageTask)
-            {
-                if (!await waitForMessageTask)
-                {
-                    break;
-                }
-
-                await SendExchangeAsync(DrainOutgoingMessages(), cancellationToken);
-                continue;
-            }
-
-            await SendExchangeAsync([], cancellationToken);
-        }
-    }
-
-    private TimeSpan GetIdleDelay()
-    {
-        var elapsedSinceLastSend = DateTime.UtcNow - lastSentTimestamp;
-        if (elapsedSinceLastSend >= idleSendInterval)
-        {
-            return TimeSpan.Zero;
-        }
-
-        return idleSendInterval - elapsedSinceLastSend;
-    }
-
-    private async Task SendExchangeAsync(
-        MessageRequest[] outgoingMessages,
-        CancellationToken cancellationToken
-    )
-    {
-        var requestStartTimestamp = DateTime.UtcNow;
-        var exchangeResponse = await _client.ExchangeAsync(
-            outgoingMessages,
-            _lastMessageId,
-            cancellationToken
-        );
-        var messages = exchangeResponse?.RelevantMessages;
-        if (messages is null)
-        {
-            lastSentTimestamp = requestStartTimestamp;
-            return;
-        }
-
-        if (messages.Length > 0)
-        {
-            _lastMessageId = messages.Max(m => m.Id);
-        }
-
-        foreach (var message in messages)
-        {
-            foreach (var incomingChannel in incomingChannels)
-            {
-                IncomingMessage incomingMessage = new(
-                    message.Id,
-                    MessageTypeJsonConverter.FromWireValue(message.Type),
-                    message.Payload,
-                    message.PublisherClientId,
-                    message.DateTime
-                );
-
-                await incomingChannel.Writer.WriteAsync(incomingMessage, cancellationToken);
-            }
-        }
-
-        lastSentTimestamp = requestStartTimestamp;
-    }
-
-    private MessageRequest[] DrainOutgoingMessages()
-    {
-        var messages = new List<MessageRequest>();
-        while (outgoingChannel.Reader.TryRead(out var message))
-        {
-            var targetClientId = message.TargetClientId;
-            messages.Add(
-                new MessageRequest(
-                    MessageTypeJsonConverter.ToWireValue(message.Type),
-                    message.Payload,
-                    targetClientId
-                )
-            );
-        }
-
-        return [.. messages];
-    }
 
     public async ValueTask DisposeAsync()
     {
-        cts.Cancel();
-        outgoingChannel.Writer.TryComplete();
-        incomingChannels.ForEach(ch => ch.Writer.TryComplete());
+        await _cts.CancelAsync();
+        await _hubConnection.DisposeAsync();
+        _outgoingChannel.Writer.TryComplete();
+        _incomingChannels.ForEach(ch => ch.Writer.TryComplete()
+        );
 
-        if (sendLoopTask is not null)
-            await sendLoopTask.ContinueWith(_ => Task.CompletedTask);
-
-        cts.Dispose();
+        _cts.Dispose();
     }
 }

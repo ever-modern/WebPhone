@@ -59,7 +59,7 @@ public class PeerConnector(
         using (var locker = await _perPeerLocker.LockAsync(peerId, cancellationToken))
             if (_connectionProcesses.TryGetValue(peerId, out var existing))
             {
-                if (offer is not null && existing.IsOutgoing && !existing.IsCompleted)
+                if (offer is not null && existing is { IsOutgoing: true, IsCompleted: false })
                 {
                     logger.LogInformation(
                         "[RTC][PeerConnector] Incoming offer preempts pending outgoing process. PeerId={PeerId}",
@@ -169,16 +169,12 @@ public class PeerConnector(
 
             _connectionEventSource.Invoke();
 
-            connection?.StateChanged.Subscribe(
-                async (newState, sub) =>
+            connection?.StateChanged.Subscribe(async (newState, sub) =>
                 {
                     using var _ = await _perPeerLocker.LockAsync(peerId);
                     if (newState == "closed")
                     {
-                        if (
-                            _connectionProcesses.TryGetValue(peerId, out var current)
-                            && ReferenceEquals(current, process)
-                        )
+                        if (_connectionProcesses.TryGetValue(peerId, out var current) && ReferenceEquals(current, process))
                         {
                             _connectionProcesses.TryRemove(peerId, out var __);
                         }
@@ -200,17 +196,17 @@ public class PeerConnector(
     {
         ObjectDisposedException.ThrowIf(_disposed, nameof(PeerConnector));
         using var _ = await _perPeerLocker.LockAsync(peerId, cancellationToken);
-        if (_connectionProcesses.TryRemove(peerId, out var connectionProcess))
+        
+        if (!_connectionProcesses.TryRemove(peerId, out var connectionProcess))            
+            return false;
+        
+        connectionProcess.Cancel();
+        if (connectionProcess.ConnectedSuccessfully)
         {
-            connectionProcess.Cancel();
-            if (connectionProcess.ConnectedSuccessfully)
-            {
-                connectionProcess.Result!.Dispose();
-            }
-            _connectionEventSource.Invoke();
-            return true;
+            await connectionProcess.Result!.DisposeAsync();
         }
-        return false;
+        _connectionEventSource.Invoke();
+        return true;
     }
 
     async Task<IRtcConnection?> StartConnectingAsync(
@@ -260,7 +256,7 @@ public class PeerConnector(
 
             if (counterOffer is not null)
             {
-            cancellationToken.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
                 rtcConnection = await StartConnectingAsync(
                     peerId,
                     cancellationToken,
@@ -337,6 +333,6 @@ public class PeerConnector(
         }
 
         public RecursionDepthException()
-            : base("Maximum recursion depth exceeded.") { }
+            : base("Maximum recursion depth exceeded.") {}
     }
 }
