@@ -1,7 +1,9 @@
 ﻿using System.Text.Json;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using WebPhone.Backend.Storage;
 using WebPhone.Domain;
+using WebPhone.Domain.Communication;
 
 namespace WebPhone.Backend.Services;
 
@@ -9,7 +11,8 @@ public class RtcMatchMaker(
     MessagesWriter messagesWriter,
     WebRtcParametersStorage currentOffers,
     ILogger<RtcMatchMaker> logger,
-    PairMatchLocker locker
+    PairMatchLocker locker,
+    IHubContext<SignallingHub> hubContext
 )
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
@@ -88,21 +91,47 @@ public class RtcMatchMaker(
         {
             _ = RunOfferTimeoutAsync(pair, tcs);
 
+            await messagesWriter.EnqueueAsync(
+                MessageTypeJsonConverter.ToWireValue(MessageType.ConnectionAttempt),
+                JsonSerializer.SerializeToElement(offer),
+                initiatorId,
+                targetId,
+                cancellationToken
+            );
+
+            // Push the ConnectionAttempt message via SignalR so the target peer's
+            // BackendMessagesChannel receives it in real time (the DB write alone
+            // is picked up only by polling, which is no longer used).
             try
             {
-                await messagesWriter.EnqueueAsync(
-                    MessageTypeJsonConverter.ToWireValue(MessageType.ConnectionAttempt),
-                    JsonSerializer.SerializeToElement(offer),
-                    initiatorId,
-                    targetId,
+                var exchangeResponse = new ExchangeResponse([
+                    new MessageResponse(
+                        CommonIdsGenerator.NewId(),
+                        initiatorId,
+                        MessageTypeJsonConverter.ToWireValue(MessageType.ConnectionAttempt),
+                        DateTime.UtcNow,
+                        JsonSerializer.SerializeToElement(offer)
+                    )
+                ]);
+
+                await hubContext.Clients.User(targetId).SendAsync(
+                    MessageSpecifications.Push.Key,
+                    exchangeResponse,
                     cancellationToken
                 );
-            }
-            catch
-            {
-                await RemoveOfferAsync(pair, tcs);
 
-                throw;
+                logger.LogInformation(
+                    "[RTC] Pushed ConnectionAttempt to {TargetId} via SignalR",
+                    targetId
+                );
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(
+                    ex,
+                    "[RTC] Failed to push ConnectionAttempt to {TargetId} via SignalR (peer may not be connected to hub). Falling back to DB storage.",
+                    targetId
+                );
             }
         }
 

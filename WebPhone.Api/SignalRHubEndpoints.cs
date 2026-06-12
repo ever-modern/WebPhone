@@ -1,4 +1,3 @@
-using Microsoft.AspNetCore.SignalR;
 using WebPhone.Backend.Services;
 
 namespace WebPhone.Api;

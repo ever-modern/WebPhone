@@ -1,4 +1,5 @@
-﻿using WebPhone.Domain;
+﻿using Microsoft.AspNetCore.SignalR.Client;
+using WebPhone.Domain;
 
 namespace WebPhone.Services;
 
@@ -15,4 +16,5 @@ public interface IBackendClient
     Task<ChatMessageDto> SendChatMessageAsync(string recipientId, string text, CancellationToken cancellationToken = default);
     Task UpsertContactSettingsAsync(ContactSettingsDto dto, CancellationToken cancellationToken = default);
     Task UpsertUserSettingsAsync(UserSettingsDto dto, CancellationToken cancellationToken = default);
+    Task<HubConnection> OpenHubConnectionAsync(CancellationToken cancellationToken = default);
 }

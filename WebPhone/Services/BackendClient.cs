@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
+using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using WebPhone.Domain;
@@ -8,12 +9,11 @@ using WebPhone.Services.Data;
 
 namespace WebPhone.Services;
 
-
 public class BackendClient(
     string baseUrl,
     IProfile profile,
     ILogger<BackendClient>? logger = null,
-    HttpClient? httpClient = null
+    HttpMessageHandler? httpMessageHandler = null
 ) : IDisposable, IBackendClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -21,8 +21,7 @@ public class BackendClient(
         PropertyNameCaseInsensitive = true,
     };
 
-    readonly HttpClient _httpClient = httpClient ?? new();
-    readonly bool _ownsHttpClient = httpClient is null;
+    readonly HttpClient _httpClient = new(httpMessageHandler ?? new HttpClientHandler());
     readonly ILogger<BackendClient> _logger = logger ?? NullLogger<BackendClient>.Instance;
     readonly string _exchangeEndpoint = $"{baseUrl.TrimEnd('/')}/exchange";
     readonly string _pushSubscriptionEndpoint = $"{baseUrl.TrimEnd('/')}/subscribe-for-push";
@@ -68,7 +67,7 @@ public class BackendClient(
     )
     {
         string сlientId = profile.User.Id;
-        var body = subscriptionPayload; //JsonSerializer.Serialize(subscriptionPayload, JsonOptions);
+        var body = subscriptionPayload;//JsonSerializer.Serialize(subscriptionPayload, JsonOptions);
         using var request = new HttpRequestMessage(HttpMethod.Post, _pushSubscriptionEndpoint);
         request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
         request.Headers.Add("X-Client-Id", сlientId);
@@ -121,9 +120,9 @@ public class BackendClient(
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadFromJsonAsync<ChatMessageDto>(
-                JsonOptions,
-                cancellationToken
-            ) ?? throw new InvalidOperationException("Empty response from chat/send.");
+            JsonOptions,
+            cancellationToken
+        ) ?? throw new InvalidOperationException("Empty response from chat/send.");
     }
 
     /// <summary>
@@ -147,9 +146,9 @@ public class BackendClient(
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadFromJsonAsync<ChatMessageDto[]>(
-                JsonOptions,
-                cancellationToken
-            ) ?? [];
+            JsonOptions,
+            cancellationToken
+        ) ?? [];
     }
 
     public async Task<UserSettingsDto> GetUserSettingsAsync(
@@ -164,9 +163,14 @@ public class BackendClient(
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadFromJsonAsync<UserSettingsDto>(
-                JsonOptions,
-                cancellationToken
-            ) ?? new UserSettingsDto("", true, true, false);
+            JsonOptions,
+            cancellationToken
+        ) ?? new UserSettingsDto(
+            "",
+            true,
+            true,
+            false
+        );
     }
 
     public async Task UpsertUserSettingsAsync(
@@ -197,9 +201,9 @@ public class BackendClient(
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadFromJsonAsync<ContactSettingsDto[]>(
-                JsonOptions,
-                cancellationToken
-            ) ?? [];
+            JsonOptions,
+            cancellationToken
+        ) ?? [];
     }
 
     public async Task<ContactSettingsDto> GetContactSettingsAsync(
@@ -216,9 +220,16 @@ public class BackendClient(
         response.EnsureSuccessStatusCode();
 
         return await response.Content.ReadFromJsonAsync<ContactSettingsDto>(
-                JsonOptions,
-                cancellationToken
-            ) ?? new ContactSettingsDto(clientId, contactId, false, true, true, null);
+            JsonOptions,
+            cancellationToken
+        ) ?? new ContactSettingsDto(
+            clientId,
+            contactId,
+            false,
+            true,
+            true,
+            null
+        );
     }
 
     public async Task UpsertContactSettingsAsync(
@@ -229,7 +240,13 @@ public class BackendClient(
         string clientId = profile.User.Id;
         using var request = new HttpRequestMessage(HttpMethod.Post, _contactSettingsEndpoint)
         {
-            Content = JsonContent.Create(dto with { OwnerId = clientId }, options: JsonOptions),
+            Content = JsonContent.Create(
+                dto with
+                {
+                    OwnerId = clientId
+                },
+                options: JsonOptions
+            ),
         };
         request.Headers.Add("X-Client-Id", clientId);
 
@@ -275,11 +292,24 @@ public class BackendClient(
         return result!;
     }
 
-    public void Dispose()
+    public async Task<HubConnection> OpenHubConnectionAsync(CancellationToken cancellationToken = default)
     {
-        if (_ownsHttpClient)
-        {
-            _httpClient.Dispose();
-        }
+        var hubConnection = new HubConnectionBuilder()
+            .WithUrl(
+                $"{baseUrl}/hub",
+                options =>
+                {
+                    options.Headers["X-Client-Id"] = profile.User.Id;
+                    options.HttpMessageHandlerFactory = (_) => httpMessageHandler ?? new HttpClientHandler();
+                }
+            )
+            .WithAutomaticReconnect()
+            .Build();
+
+        await hubConnection.StartAsync(cancellationToken);
+
+        return hubConnection;
     }
+
+    public void Dispose() { _httpClient.Dispose(); }
 }

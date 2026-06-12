@@ -27,8 +27,7 @@ public static class ApplicationConfiguration
             }
         );
 
-        services.AddSingleton<IRtcConnector>(sp => sp.GetRequiredService<JsRtcConnector>()
-        );
+        services.AddSingleton<IRtcConnector>(sp => sp.GetRequiredService<JsRtcConnector>());
 
         services.AddSingleton<VideoCallState>();
 
@@ -61,10 +60,8 @@ public static class ApplicationConfiguration
 
         services.AddSingleton<BackendMessagesChannel>(sp =>
             {
-                var options = sp.GetRequiredService<PhoneOptions>();
-                return new BackendMessagesChannel(
-                    options.ExternalChannelBaseUrl
-                );
+                var backendClient = sp.GetRequiredService<BackendClient>();
+                return new BackendMessagesChannel(backendClient.OpenHubConnectionAsync());
             }
         );
 
@@ -74,15 +71,10 @@ public static class ApplicationConfiguration
 
         services.AddSingleton<ChatMessagesChannel>();
 
-        services.Configure<PhoneOptions>(
-            configuration.GetSection(
-                "Phone"
-            )
-        );
+        services.Configure<PhoneOptions>(configuration.GetSection("Phone"));
 
         services.AddSingleton<ILocalStore, BrowserLocalStore>();
         services.AddSingleton<ProfileStore>();
-        services.AddSingleton<IProfile>(sp => sp.GetRequiredService<ProfileStore>()
-        );
+        services.AddSingleton<IProfile>(sp => sp.GetRequiredService<ProfileStore>());
     }
 }

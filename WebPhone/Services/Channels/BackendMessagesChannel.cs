@@ -7,78 +7,50 @@ using WebPhone.Messages;
 
 namespace WebPhone.Services.Channels;
 
-public static class HubConnectionExtensions
-{
-    public static HubConnection Configure(this HubConnection connection,
-        Action<HubConnection> configure)
-    {
-        configure(
-            connection
-        );
-        return connection;
-    }
-
-    static int[] a =
-    [
-        324,
-        12321,
-        3242
-    ];
-
-}
-
 public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
 {
     readonly List<Channel<IncomingMessage>> _incomingChannels = new();
-    readonly Channel<OutgoingMessage> _outgoingChannel = Channel.CreateBounded<OutgoingMessage>(
-        50
-    );
+    readonly Channel<OutgoingMessage> _outgoingChannel = Channel.CreateBounded<OutgoingMessage>(50);
     readonly CancellationTokenSource _cts = new();
-    readonly HubConnection _hubConnection;
+    readonly TaskCompletionSource _whenReadyTcs = new();
+    public Task WhenReady => _whenReadyTcs.Task;
 
-    public BackendMessagesChannel(string baseUrl)
+    public BackendMessagesChannel(HubConnection hubConnection) : this(Task.FromResult(hubConnection)) {}
+
+    public BackendMessagesChannel(Task<HubConnection> openingHubConnection)
     {
-        _hubConnection = new HubConnectionBuilder()
-            .WithUrl(
-                $"{baseUrl}/hub"
-            )
-            .WithAutomaticReconnect()
-            .Build();
-
-        _hubConnection.On<ExchangeResponse>(
-            nameof(MessageSpecifications.Push),
-            async exchange =>
-            {
-                var messages = exchange?.RelevantMessages.Select(rm => new IncomingMessage(
-                        rm.Id,
-                        MessageTypeJsonConverter.FromWireValue(
-                            rm.Type
-                        ),
-                        rm.Payload,
-                        rm.PublisherClientId,
-                        rm.DateTime
-                    )
-                );
-                foreach (var incomingChannel in _incomingChannels)
-                {
-                    foreach (var message in messages)
-                    {
-                        await incomingChannel.Writer.WriteAsync(
-                            message
-                        );
-                    }
-                }
-            }
-        );
-
         _ = Task.Run(async () =>
             {
-                await foreach (var message in _outgoingChannel.Reader.ReadAllAsync(
-                                   _cts.Token
-                               ))
+                var hubConnection = await openingHubConnection;
+
+                hubConnection.On<ExchangeResponse>(
+                    nameof(MessageSpecifications.Push),
+                    async exchange =>
+                    {
+                        var messages = exchange?.RelevantMessages.Select(rm => new IncomingMessage(
+                                rm.Id,
+                                MessageTypeJsonConverter.FromWireValue(rm.Type),
+                                rm.Payload,
+                                rm.PublisherClientId,
+                                rm.DateTime
+                            )
+                        );
+                        foreach (var incomingChannel in _incomingChannels)
+                        {
+                            foreach (var message in messages)
+                            {
+                                await incomingChannel.Writer.WriteAsync(message);
+                            }
+                        }
+                    }
+                );
+
+                _whenReadyTcs.TrySetResult();
+
+                await foreach (var message in _outgoingChannel.Reader.ReadAllAsync(_cts.Token))
                 {
-                    await _hubConnection.SendAsync(
-                        nameof(MessageSpecifications.Push),
+                    await hubConnection.SendAsync(
+                        nameof(MessageSpecifications.Send),
                         message
                     );
                 }
@@ -90,21 +62,15 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
 
     public IChannelSubscription<IncomingMessage> Subscribe(Func<IncomingMessage, bool> filter)
     {
-        var channel = Channel.CreateBounded<IncomingMessage>(
-            50
-        );
+        var channel = Channel.CreateBounded<IncomingMessage>(50);
 
         var result = new ChannelSubscription<IncomingMessage>(
             channel.Reader,
-            (self) => _incomingChannels.Remove(
-                channel
-            ),
+            (_) => _incomingChannels.Remove(channel),
             filter
         );
 
-        _incomingChannels.Add(
-            channel
-        );
+        _incomingChannels.Add(channel);
 
         return result;
     }
@@ -113,10 +79,8 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _cts.CancelAsync();
-        await _hubConnection.DisposeAsync();
         _outgoingChannel.Writer.TryComplete();
-        _incomingChannels.ForEach(ch => ch.Writer.TryComplete()
-        );
+        _incomingChannels.ForEach(ch => ch.Writer.TryComplete());
 
         _cts.Dispose();
     }

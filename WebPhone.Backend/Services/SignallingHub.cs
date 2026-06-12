@@ -6,6 +6,12 @@ namespace WebPhone.Backend.Services;
 
 public class SignallingHub : Hub
 {
+    public SignallingHub()
+    {
+        var a = 55;
+    }
+
+
     public async Task NotifyClientAsync(
         string peerId,
         ExchangeResponse exchangeResponse,
@@ -25,6 +31,8 @@ public class SignallingHub : Hub
     {
         var time = DateTime.UtcNow;
 
+        var everyoneRelatedMessages = exchangeRequest.Messages.Where(m => m.TargetClientId is null).ToArray();
+
         var messagesByReceiver = exchangeRequest
             .Messages.Where(m => m.TargetClientId is not null)
             .GroupBy(m => m.TargetClientId)
@@ -33,8 +41,15 @@ public class SignallingHub : Hub
         foreach (var (receiverId, messages) in messagesByReceiver)
         {
             var receiver = Clients.User(receiverId);
-            var messagesToSend = messages
-                .Select(m => new MessageResponse(-1, peerId, m.Type, time, m.Payload))
+            var messagesToSend = messages.Concat(everyoneRelatedMessages)
+                .Select(m => new MessageResponse(
+                        Id: -1,
+                        PublisherClientId: peerId,
+                        Type: m.Type,
+                        DateTime: time,
+                        Payload: m.Payload
+                    )
+                )
                 .ToArray();
 
             await receiver.SendAsync(
