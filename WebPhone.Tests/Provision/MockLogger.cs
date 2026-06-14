@@ -2,7 +2,7 @@
 
 namespace WebPhone.Tests.Provision;
 
-public class MockLogger<T> : ILogger<T>
+public class MockLogger<T>(string? categoryName = null) : ILogger<T>
 {
     public IDisposable? BeginScope<TState>(TState state)
         where TState : notnull
@@ -25,7 +25,7 @@ public class MockLogger<T> : ILogger<T>
     {
         var message = formatter(state, exception);
         Console.WriteLine(
-            $"[{DateTime.UtcNow:O}] [{typeof(T).Name}] [{logLevel}] {message}{(exception is null ? string.Empty : $" | {exception}")}"
+            $"[{DateTime.UtcNow:O}] [{categoryName}] [{logLevel}] {message}{(exception is null ? string.Empty : $" | {exception}")}"
         );
     }
 

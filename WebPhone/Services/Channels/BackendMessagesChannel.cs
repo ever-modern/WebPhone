@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using EverModern.Events;
 using EverModern.Threading.Channels;
 using Microsoft.AspNetCore.SignalR.Client;
 using WebPhone.Domain;
@@ -15,6 +16,7 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
     readonly TaskCompletionSource _whenReadyTcs = new();
     public Task WhenReady => _whenReadyTcs.Task;
 
+
     public BackendMessagesChannel(HubConnection hubConnection) : this(Task.FromResult(hubConnection)) {}
 
     public BackendMessagesChannel(Task<HubConnection> openingHubConnection)
@@ -22,14 +24,14 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
         _ = Task.Run(async () =>
             {
                 var hubConnection = await openingHubConnection;
-
+                var ct = _cts.Token;
                 hubConnection.On<ExchangeResponse>(
                     nameof(MessageSpecifications.Push),
                     async exchange =>
                     {
                         var messages = exchange?.RelevantMessages.Select(rm => new IncomingMessage(
                                 rm.Id,
-                                MessageTypeJsonConverter.FromWireValue(rm.Type),
+                                WebPhone.Domain.MessageTypeConversion.FromWireValue(rm.Type),
                                 rm.Payload,
                                 rm.PublisherClientId,
                                 rm.DateTime
@@ -37,10 +39,12 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
                         );
                         foreach (var incomingChannel in _incomingChannels)
                         {
+                            var incomingChannelWriter = incomingChannel.Writer;
                             foreach (var message in messages)
                             {
-                                await incomingChannel.Writer.WriteAsync(message);
+                                await incomingChannelWriter.WriteAsync(message);
                             }
+                            incomingChannelWriter.TryComplete();
                         }
                     }
                 );
@@ -49,10 +53,11 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
 
                 await foreach (var message in _outgoingChannel.Reader.ReadAllAsync(_cts.Token))
                 {
-                    await hubConnection.SendAsync(
+                    await hubConnection.InvokeAsync(
                         nameof(MessageSpecifications.Send),
-                        message
-                    );
+                        message,
+                        _cts.Token
+                    );                    
                 }
             }
         );

@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
-using EverModern.Threading;
 using Microsoft.Extensions.Logging;
 using WebPhone.Domain;
 
@@ -16,7 +15,7 @@ public class PeerConnector(
     readonly ConcurrentDictionary<string, ConnectionEstablishmentProcess> _connectionProcesses =
         new();
     readonly EventSource _connectionEventSource = new();
-    readonly KeyLocker<string> _perPeerLocker = new();
+    readonly NewKeyLocker<string> _perPeerLocker = new();
 
     bool _disposed = false;
 
@@ -29,14 +28,13 @@ public class PeerConnector(
 
     public IRtcConnection? FindReadyConnection(string peerId)
     {
-        if (_connectionProcesses.TryGetValue(peerId, out var connectionProcess))
-        {
-            if (connectionProcess.ConnectedSuccessfully)
-            {
-                return connectionProcess.Result;
-            }
-        }
-        return null;
+        if (!_connectionProcesses.TryGetValue(peerId, out var connectionProcess))
+            return null;
+
+        if (!connectionProcess.ConnectedSuccessfully)
+            return null;
+
+        return connectionProcess.Result;
     }
 
     public async Task<IRtcConnection?> ConnectToPeerAsync(
@@ -55,56 +53,63 @@ public class PeerConnector(
 
         ConnectionEstablishmentProcess process;
         bool isNew = false;
-
-        using (var locker = await _perPeerLocker.LockAsync(peerId, cancellationToken))
-            if (_connectionProcesses.TryGetValue(peerId, out var existing))
-            {
-                if (offer is not null && existing is { IsOutgoing: true, IsCompleted: false })
+        try
+        {
+            using (var locker = await _perPeerLocker.LockAsync(peerId, cancellationToken))
+                if (_connectionProcesses.TryGetValue(peerId, out var existing))
                 {
-                    logger.LogInformation(
-                        "[RTC][PeerConnector] Incoming offer preempts pending outgoing process. PeerId={PeerId}",
-                        peerId
-                    );
-                    existing.Cancel();
+                    if (offer is not null && existing is { IsOutgoing: true, IsCompleted: false })
+                    {
+                        logger.LogInformation(
+                            "[RTC][PeerConnector] Incoming offer preempts pending outgoing process. PeerId={PeerId}",
+                            peerId
+                        );
+                        existing.Cancel();
 
-                    isNew = true;
-                    var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    var connectionTask = StartConnectingAsync(peerId, cts.Token, offer);
+                        isNew = true;
+                        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        var connectionTask = StartConnectingAsync(peerId, cts.Token, offer);
 
-                    process = new(connectionTask, cts, false);
-                    _connectionProcesses[peerId] = process;
-                    _connectionEventSource.Invoke();
+                        process = new(connectionTask, cts, false);
+                        _connectionProcesses[peerId] = process;
+                        _connectionEventSource.Invoke();
+                    }
+                    else
+                    {
+                        logger.LogInformation(
+                            "[RTC][PeerConnector] Reusing existing process. PeerId={PeerId}, IsOutgoing={IsOutgoing}, IsCompleted={IsCompleted}",
+                            peerId,
+                            existing.IsOutgoing,
+                            existing.IsCompleted
+                        );
+                        process = existing;
+                    }
                 }
                 else
                 {
+                    isNew = true;
+                    var isOutgoing = offer is null;
                     logger.LogInformation(
-                        "[RTC][PeerConnector] Reusing existing process. PeerId={PeerId}, IsOutgoing={IsOutgoing}, IsCompleted={IsCompleted}",
+                        "[RTC][PeerConnector] Creating new process. PeerId={PeerId}, IsOutgoing={IsOutgoing}",
                         peerId,
-                        existing.IsOutgoing,
-                        existing.IsCompleted
+                        isOutgoing
                     );
-                    process = existing;
+
+                    var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    var connectionTask = StartConnectingAsync(peerId, cts.Token, offer);
+
+                    process = new(connectionTask, cts, isOutgoing);
+
+                    _connectionProcesses[peerId] = process;
+
+                    _connectionEventSource.Invoke();
                 }
-            }
-            else
-            {
-                isNew = true;
-                var isOutgoing = offer is null;
-                logger.LogInformation(
-                    "[RTC][PeerConnector] Creating new process. PeerId={PeerId}, IsOutgoing={IsOutgoing}",
-                    peerId,
-                    isOutgoing
-                );
-
-                var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                var connectionTask = StartConnectingAsync(peerId, cts.Token, offer);
-
-                process = new(connectionTask, cts, isOutgoing);
-
-                _connectionProcesses[peerId] = process;
-
-                _connectionEventSource.Invoke();
-            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError($"Error trying to connect to {peerId} with offer = {offer}");
+            throw;
+        }
 
         IRtcConnection? connection;
 
@@ -138,53 +143,53 @@ public class PeerConnector(
             isNew
         );
 
-        if (isNew)
+        if (!isNew)
+            return connection;
+
+        if (process.ConnectedSuccessfully is false)
         {
-            if (process.ConnectedSuccessfully is false)
-            {
-                logger.LogInformation(
-                    "[RTC][PeerConnector] Cleaning failed process. Waiting peer lock. PeerId={PeerId}",
-                    peerId
-                );
-
-                using var _ = await _perPeerLocker.LockAsync(peerId, cancellationToken);
-
-                logger.LogInformation(
-                    "[RTC][PeerConnector] Cleaning failed process. Acquired peer lock. PeerId={PeerId}",
-                    peerId
-                );
-
-                if (
-                    _connectionProcesses.TryGetValue(peerId, out var current)
-                    && ReferenceEquals(current, process)
-                )
-                {
-                    _connectionProcesses.TryRemove(peerId, out var __);
-                    logger.LogInformation(
-                        "[RTC][PeerConnector] Removed failed process from map. PeerId={PeerId}",
-                        peerId
-                    );
-                }
-            }
-
-            _connectionEventSource.Invoke();
-
-            connection?.StateChanged.Subscribe(async (newState, sub) =>
-                {
-                    using var _ = await _perPeerLocker.LockAsync(peerId);
-                    if (newState == "closed")
-                    {
-                        if (_connectionProcesses.TryGetValue(peerId, out var current) && ReferenceEquals(current, process))
-                        {
-                            _connectionProcesses.TryRemove(peerId, out var __);
-                        }
-
-                        sub.Dispose();
-                    }
-                    _connectionEventSource.Invoke();
-                }
+            logger.LogInformation(
+                "[RTC][PeerConnector] Cleaning failed process. Waiting peer lock. PeerId={PeerId}",
+                peerId
             );
+
+            using var _ = await _perPeerLocker.LockAsync(peerId, cancellationToken);
+
+            logger.LogInformation(
+                "[RTC][PeerConnector] Cleaning failed process. Acquired peer lock. PeerId={PeerId}",
+                peerId
+            );
+
+            if (
+                _connectionProcesses.TryGetValue(peerId, out var current)
+                && ReferenceEquals(current, process)
+            )
+            {
+                _connectionProcesses.TryRemove(peerId, out var __);
+                logger.LogInformation(
+                    "[RTC][PeerConnector] Removed failed process from map. PeerId={PeerId}",
+                    peerId
+                );
+            }
         }
+
+        _connectionEventSource.Invoke();
+
+        connection?.StateChanged.Subscribe(async (newState, sub) =>
+            {
+                using var _ = await _perPeerLocker.LockAsync(peerId);
+                if (newState == "closed")
+                {
+                    if (_connectionProcesses.TryGetValue(peerId, out var current) && ReferenceEquals(current, process))
+                    {
+                        _connectionProcesses.TryRemove(peerId, out var __);
+                    }
+
+                    sub.Dispose();
+                }
+                _connectionEventSource.Invoke();
+            }
+        );
 
         return connection;
     }
@@ -196,10 +201,10 @@ public class PeerConnector(
     {
         ObjectDisposedException.ThrowIf(_disposed, nameof(PeerConnector));
         using var _ = await _perPeerLocker.LockAsync(peerId, cancellationToken);
-        
-        if (!_connectionProcesses.TryRemove(peerId, out var connectionProcess))            
+
+        if (!_connectionProcesses.TryRemove(peerId, out var connectionProcess))
             return false;
-        
+
         connectionProcess.Cancel();
         if (connectionProcess.ConnectedSuccessfully)
         {
@@ -232,9 +237,22 @@ public class PeerConnector(
                 async (offer) =>
                 {
                     var (responseOffer, responseAnswer) = await backendClient.ConnectRtcAsync(
-                        new RtcConnectionRequest(peerId, offer, null),
-                        cancellationToken
-                    );
+                            new RtcConnectionRequest(peerId, offer, null),
+                            cancellationToken
+                        )
+                        .ContinueWith(
+                            t =>
+                            {
+                                if (t.Exception is not null)
+                                {
+                                    logger.LogError($"Error sending connection request: {t.Exception}");
+                                    throw t.Exception;
+                                }
+
+                                return t.Result;
+                            },
+                            cancellationToken
+                        );
                     logger.LogInformation(
                         "[RTC][PeerConnector] Initiator backend response. PeerId={PeerId}, ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
                         peerId,
@@ -273,9 +291,22 @@ public class PeerConnector(
             async answer =>
             {
                 var (responseOffer, responseAnswer) = await backendClient.ConnectRtcAsync(
-                    new RtcConnectionRequest(peerId, incomingOffer, answer),
-                    cancellationToken
-                );
+                        new RtcConnectionRequest(peerId, incomingOffer, answer),
+                        cancellationToken
+                    )
+                    .ContinueWith(
+                        t =>
+                        {
+                            if (t.Exception is not null)
+                            {
+                                logger.LogError($"Error sending connection request with incoming offer = {incomingOffer}:\n {t.Exception}");
+                                throw t.Exception;
+                            }
+
+                            return t.Result;
+                        },
+                        cancellationToken
+                    );
                 logger.LogInformation(
                     "[RTC][PeerConnector] Acceptor backend response. PeerId={PeerId}, ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
                     peerId,

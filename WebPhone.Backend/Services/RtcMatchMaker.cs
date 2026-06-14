@@ -92,7 +92,7 @@ public class RtcMatchMaker(
             _ = RunOfferTimeoutAsync(pair, tcs);
 
             await messagesWriter.EnqueueAsync(
-                MessageTypeJsonConverter.ToWireValue(MessageType.ConnectionAttempt),
+                MessageType.ConnectionAttempt.ToWireValue(),
                 JsonSerializer.SerializeToElement(offer),
                 initiatorId,
                 targetId,
@@ -108,7 +108,7 @@ public class RtcMatchMaker(
                     new MessageResponse(
                         CommonIdsGenerator.NewId(),
                         initiatorId,
-                        MessageTypeJsonConverter.ToWireValue(MessageType.ConnectionAttempt),
+                        MessageType.ConnectionAttempt.ToWireValue(),
                         DateTime.UtcNow,
                         JsonSerializer.SerializeToElement(offer)
                     )

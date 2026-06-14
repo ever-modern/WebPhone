@@ -230,7 +230,5 @@ public static class RestEndpoints
                 CancellationToken cancellationToken
             ) => rtcHandshakeAction.ExecuteAsync(request, cancellationToken)
         );
-
-        app.Run();
     }
 }

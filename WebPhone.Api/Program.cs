@@ -29,5 +29,7 @@ public partial class Program
         app.UseExceptionMapper();
         app.MapRestEndpoints();
         app.MapSignalRHubEndpoints();
+        
+        app.Start();
     }
 }

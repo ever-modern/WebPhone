@@ -3,7 +3,6 @@ using System.Text.Json.Serialization;
 
 namespace WebPhone.Domain;
 
-
 [JsonConverter(typeof(MessageTypeJsonConverter))]
 public enum MessageType
 {
@@ -19,11 +18,12 @@ public enum MessageType
     CallResponse
 }
 
-public sealed class MessageTypeJsonConverter : JsonConverter<MessageType>
+public static class MessageTypeConversion
 {
-    public static string ToWireValue(MessageType value)
+    public static string ToWireValue(this MessageType value)
         => value switch
         {
+            MessageType.Signal => "signal",
             MessageType.Presence => "presence",
             MessageType.Hangup => "hangup",
             MessageType.ConnectionAttempt => "connection-attempt",
@@ -36,7 +36,8 @@ public sealed class MessageTypeJsonConverter : JsonConverter<MessageType>
     public static MessageType FromWireValue(string? value)
         => value?.ToLowerInvariant() switch
         {
-            "presence" => MessageType.Presence ,
+            "signal" => MessageType.Signal,
+            "presence" => MessageType.Presence,
             "hangup" => MessageType.Hangup,
             "connection-attempt" => MessageType.ConnectionAttempt,
             "connection-accepted" => MessageType.ConnectionAccepted,
@@ -44,7 +45,10 @@ public sealed class MessageTypeJsonConverter : JsonConverter<MessageType>
             "connection-closed" => MessageType.ConnectionClosed,
             _ => MessageType.Unknown
         };
+}
 
+public sealed class MessageTypeJsonConverter : JsonConverter<MessageType>
+{
     public override MessageType Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         if (reader.TokenType != JsonTokenType.String)
@@ -52,9 +56,14 @@ public sealed class MessageTypeJsonConverter : JsonConverter<MessageType>
             return MessageType.Unknown;
         }
 
-        return FromWireValue(reader.GetString());
+        var stringValue = reader.GetString();
+        var value = MessageTypeConversion.FromWireValue(stringValue);
+        return value;
     }
 
     public override void Write(Utf8JsonWriter writer, MessageType value, JsonSerializerOptions options)
-        => writer.WriteStringValue(ToWireValue(value));
+    {
+        var stringValue = value.ToWireValue();
+        writer.WriteStringValue(stringValue);
+    }
 }

@@ -1,6 +1,5 @@
 using System.Net.Http.Json;
 using System.Text.Json;
-using EverModern.Blazor.DirectCommunication;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -296,7 +295,7 @@ public class BackendClient(
     {
         var hubConnection = new HubConnectionBuilder()
             .WithUrl(
-                $"{baseUrl}/hub",
+                $"{baseUrl.TrimEnd('/')}/hub",
                 options =>
                 {
                     options.Headers["X-Client-Id"] = profile.User.Id;

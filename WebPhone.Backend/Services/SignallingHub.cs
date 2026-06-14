@@ -1,47 +1,46 @@
 ﻿using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.Logging;
 using WebPhone.Domain;
 using WebPhone.Domain.Communication;
 
 namespace WebPhone.Backend.Services;
 
-public class SignallingHub : Hub
+public class SignallingHub(
+    ILogger<SignallingHub> logger
+) : Hub
 {
-    public SignallingHub()
-    {
-        var a = 55;
-    }
-
-
     public async Task NotifyClientAsync(
         string peerId,
-        ExchangeResponse exchangeResponse,
-        CancellationToken cancellationToken
+        ExchangeResponse exchangeResponse
     )
     {
         var client = Clients.User(peerId);
-        await client.SendAsync(MessageSpecifications.Push.Key, exchangeResponse, cancellationToken);
+        await client.SendAsync(MessageSpecifications.Push.Key, exchangeResponse);
     }
 
     [HubMethodName(nameof(MessageSpecifications.Send))]
     public async Task NotifyServerAsync(
-        string peerId,
-        ExchangeRequest exchangeRequest,
-        CancellationToken cancellationToken
+        MessageRequest message
     )
     {
         var time = DateTime.UtcNow;
 
-        var everyoneRelatedMessages = exchangeRequest.Messages.Where(m => m.TargetClientId is null).ToArray();
+        MessageRequest[] messages = [message];
 
-        var messagesByReceiver = exchangeRequest
-            .Messages.Where(m => m.TargetClientId is not null)
+        var peerId = Context.UserIdentifier;
+
+        logger.LogInformation($"PeerId: {peerId} sending  {messages.Length} messages");
+
+        var everyoneRelatedMessages = messages.Where(m => m.TargetClientId is null).ToArray();
+
+        var messagesByReceiver = messages.Where(m => m.TargetClientId is not null)
             .GroupBy(m => m.TargetClientId)
             .ToDictionary(g => g.Key!, g => g.ToArray());
 
-        foreach (var (receiverId, messages) in messagesByReceiver)
+        foreach (var (receiverId, messagesForReceiver) in messagesByReceiver)
         {
             var receiver = Clients.User(receiverId);
-            var messagesToSend = messages.Concat(everyoneRelatedMessages)
+            var messagesToSend = messagesForReceiver.Concat(everyoneRelatedMessages)
                 .Select(m => new MessageResponse(
                         Id: -1,
                         PublisherClientId: peerId,
@@ -54,8 +53,7 @@ public class SignallingHub : Hub
 
             await receiver.SendAsync(
                 MessageSpecifications.Push.Key,
-                new ExchangeResponse(messagesToSend),
-                cancellationToken
+                new ExchangeResponse(messagesToSend)
             );
         }
     }

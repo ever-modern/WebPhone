@@ -2,33 +2,32 @@
 
 namespace WebPhone.Tests;
 
-public sealed class TestLoggerProvider : ILoggerProvider
+public sealed class TestLoggerProvider(
+    Action<string> sink
+) : ILoggerProvider, ILoggerFactory
 {
-    private readonly List<string> _logs;
     private readonly object _logsLock = new();
 
-    public TestLoggerProvider(List<string> logs)
+    public ILogger CreateLogger(string categoryName) => new TestLogger(sink, _logsLock, categoryName);
+
+    public ILogger<T> CreateLogger<T>(string categoryName) => new TestLogger<T>(sink, _logsLock, categoryName);
+
+    public void AddProvider(ILoggerProvider provider) {}
+
+    public void Dispose() {}
+
+    class TestLogger<T>(
+        Action<string> sink,
+        object logsLock,
+        string category
+    ) : TestLogger(sink, logsLock, category), ILogger<T> {}
+
+    private class TestLogger(
+        Action<string> sink,
+        object logsLock,
+        string category
+    ) : ILogger
     {
-        _logs = logs;
-    }
-
-    public ILogger CreateLogger(string categoryName) => new TestLogger(_logs, _logsLock, categoryName);
-
-    public void Dispose() { }
-
-    private sealed class TestLogger : ILogger
-    {
-        private readonly List<string> _logs;
-        private readonly object _logsLock;
-        private readonly string _category;
-
-        public TestLogger(List<string> logs, object logsLock, string category)
-        {
-            _logs = logs;
-            _logsLock = logsLock;
-            _category = category;
-        }
-
         public IDisposable BeginScope<TState>(TState state) => null!;
 
         public bool IsEnabled(LogLevel logLevel) => true;
@@ -41,10 +40,10 @@ public sealed class TestLoggerProvider : ILoggerProvider
             Func<TState, Exception?, string> formatter
         )
         {
-            var log = $"[{logLevel}] {_category}: {formatter(state, exception)};";
-            lock (_logsLock)
+            var log = $"[{logLevel}] {category}: {formatter(state, exception)};";
+            lock (logsLock)
             {
-                _logs.Add(log);
+                sink(log);
             }
             Console.WriteLine($"[SERVER]: {log}");
         }
