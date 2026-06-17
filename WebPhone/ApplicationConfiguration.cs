@@ -43,7 +43,7 @@ public static class ApplicationConfiguration
             sp.GetRequiredService<IOptions<PhoneOptions>>().Value
         );
 
-        services.AddSingleton<IBackendClient>(sp =>
+        services.AddSingleton<BackendClient>(sp =>
             {
                 var profile = sp.GetRequiredService<IProfile>();
                 var options = sp.GetRequiredService<PhoneOptions>();
@@ -58,12 +58,9 @@ public static class ApplicationConfiguration
             }
         );
 
-        services.AddSingleton<BackendMessagesChannel>(sp =>
-            {
-                var backendClient = sp.GetRequiredService<BackendClient>();
-                return new BackendMessagesChannel(backendClient.OpenHubConnectionAsync());
-            }
-        );
+        services.AddSingleton<IBackendClient>(sp => sp.GetRequiredService<BackendClient>());
+
+        services.AddSingleton<BackendMessagesChannel>(        );
 
         services.AddSingleton<IMessagesChannel>(sp =>
             sp.GetRequiredService<BackendMessagesChannel>()

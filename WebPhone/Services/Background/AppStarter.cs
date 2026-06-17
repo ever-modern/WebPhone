@@ -12,7 +12,8 @@ public sealed class AppStarter(
     ContactsRepository contactsRepository,
     IncomingConnectionsHandler incomingConnectionsHandler,
     PresenceAnnouncer presenceAnnouncer,
-    ContactsDispatcher contactsDispatcher
+    ContactsDispatcher contactsDispatcher,
+    IBackendClient  backendClient
 )
 {
     readonly SemaphoreSlim _startLock = new(
@@ -40,7 +41,14 @@ public sealed class AppStarter(
             cancellationToken
         );
         contactsRepository.StartTracking();
-        incomingConnectionsHandler.Start();
+        
+
+        var hub = await backendClient.OpenHubConnectionAsync(cancellationToken);
+
+        await backendMessagesChannel.StartAsync(hub);
+        
+        await incomingConnectionsHandler.StartReadingAsync(backendMessagesChannel);
+        
         await presenceAnnouncer.StartAsync();
         await contactsDispatcher.StartAsync(
             cancellationToken

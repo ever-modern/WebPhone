@@ -2,50 +2,60 @@
 
 namespace WebPhone.Backend.Services;
 
-public class PairMatchLocker
-{
-    readonly ConcurrentDictionary<PeersPair, SemaphoreSlim> _locks =
-        new(PairsEqualityComparer.Instance);
+using System.Collections.Concurrent;
 
-    SemaphoreSlim GetSemaphore(PeersPair pair) => _locks.GetOrAdd(pair, _ => new(1, 1));
+public sealed class PairMatchLocker
+{
+    private static readonly Func<PeersPair, SemaphoreSlim> SemaphoreFactory =
+        static _ => new SemaphoreSlim(1, 1);
+
+    private readonly ConcurrentDictionary<PeersPair, SemaphoreSlim> _locks =
+        new(PairsEqualityComparer.Instance);
 
     public async Task<IDisposable> LockPairAsync(
         PeersPair pair,
-        CancellationToken cancellationToken
-    )
+        CancellationToken cancellationToken = default)
     {
-        var semaphore = GetSemaphore(pair);
-        await semaphore.WaitAsync(cancellationToken);
+        var semaphore = _locks.GetOrAdd(pair, SemaphoreFactory);
+
+        await semaphore.WaitAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         return new Releaser(semaphore);
     }
 
     public async Task<IDisposable?> TryLockPairAsync(
         PeersPair pair,
         TimeSpan timeout,
-        CancellationToken cancellationToken
-    )
+        CancellationToken cancellationToken = default)
     {
-        var semaphore = GetSemaphore(pair);
+        var semaphore = _locks.GetOrAdd(pair, SemaphoreFactory);
 
-        var lockAcquired = await semaphore.WaitAsync(timeout, cancellationToken);
-
-        if (!lockAcquired)
+        if (!await semaphore.WaitAsync(timeout, cancellationToken)
+                .ConfigureAwait(false))
+        {
             return null;
+        }
 
         return new Releaser(semaphore);
     }
 
-    sealed class Releaser(SemaphoreSlim semaphore) : IDisposable
+    private sealed class Releaser : IDisposable
     {
-        bool _disposed;
+        private readonly SemaphoreSlim _semaphore;
+        private int _disposed;
+
+        public Releaser(SemaphoreSlim semaphore)
+        {
+            _semaphore = semaphore;
+        }
 
         public void Dispose()
         {
-            if (_disposed)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
                 return;
 
-            _disposed = true;
-            semaphore.Release();
+            _semaphore.Release();
         }
     }
 }

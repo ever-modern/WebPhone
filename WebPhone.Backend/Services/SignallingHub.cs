@@ -6,7 +6,8 @@ using WebPhone.Domain.Communication;
 namespace WebPhone.Backend.Services;
 
 public class SignallingHub(
-    ILogger<SignallingHub> logger
+    ILogger<SignallingHub> logger,
+    ConnectedUsersStorage users
 ) : Hub
 {
     public async Task NotifyClientAsync(
@@ -23,38 +24,52 @@ public class SignallingHub(
         MessageRequest message
     )
     {
-        var time = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
 
         MessageRequest[] messages = [message];
 
         var peerId = Context.UserIdentifier;
 
-        logger.LogInformation($"PeerId: {peerId} sending  {messages.Length} messages");
+        var transmittedMessages = messages.GroupBy(m => m.TargetClientId)
+            .Select(group => (group.Key, new ExchangeResponse([..group.Select(i => ToTransmittedMessage(peerId, i, now))])))
+            .ToArray();
 
-        var everyoneRelatedMessages = messages.Where(m => m.TargetClientId is null).ToArray();
-
-        var messagesByReceiver = messages.Where(m => m.TargetClientId is not null)
-            .GroupBy(m => m.TargetClientId)
-            .ToDictionary(g => g.Key!, g => g.ToArray());
-
-        foreach (var (receiverId, messagesForReceiver) in messagesByReceiver)
+        foreach (var (receiverId, exchangeResponse) in transmittedMessages)
         {
-            var receiver = Clients.User(receiverId);
-            var messagesToSend = messagesForReceiver.Concat(everyoneRelatedMessages)
-                .Select(m => new MessageResponse(
-                        Id: -1,
-                        PublisherClientId: peerId,
-                        Type: m.Type,
-                        DateTime: time,
-                        Payload: m.Payload
-                    )
-                )
-                .ToArray();
+            if (receiverId is null)
+            {
+                var concernedUsers = users.Users.Where(u => u != peerId).ToArray();
+                await Clients.Users(concernedUsers).SendAsync(MessageSpecifications.Push.Key, exchangeResponse);
+                continue;
+            }
 
+            var receiver = Clients.User(receiverId);
             await receiver.SendAsync(
                 MessageSpecifications.Push.Key,
-                new ExchangeResponse(messagesToSend)
+                exchangeResponse
             );
         }
     }
+
+    public override Task OnConnectedAsync()
+    {
+        if (Context.UserIdentifier is not null)
+            users.Connected(Context.UserIdentifier, Context.ConnectionId);
+        return Task.CompletedTask;
+    }
+
+    public override Task OnDisconnectedAsync(Exception? exception)
+    {
+        if (Context.UserIdentifier is not null)
+            users.Disconnected(Context.UserIdentifier, Context.ConnectionId);
+        return Task.CompletedTask;
+    }
+
+    static MessageResponse ToTransmittedMessage(string peerId, MessageRequest incoming, DateTime time) => new MessageResponse(
+        Id: -1,
+        PublisherClientId: peerId,
+        Type: incoming.Type,
+        DateTime: time,
+        Payload: incoming.Payload
+    );
 }

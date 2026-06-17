@@ -18,12 +18,10 @@ public class MessagesChannelTestsSet(
     {
         var ct = Timeout.Token;
 
-        var client = CreateBackendClient(_userId);
+        var client = CreateVirtualBackendClient(_userId);
         var hub = await client.OpenHubConnectionAsync(ct);
 
-        var channel = new BackendMessagesChannel(hub);
-
-        await channel.WhenReady.WaitAsync(ct);
+        var channel = await BackendMessagesChannel.BindAsync(hub);
 
         OutgoingMessage<int> messageOut = new(MessageType.Signal, 203, _userId);
 

@@ -36,6 +36,7 @@ public static class ServicesConfiguration
         services.AddSingleton(sp =>
             new MessagesWriter(sp.GetRequiredService<DbConnectionResolver>()).Start()
         );
+        services.AddSingleton<ConnectedUsersStorage>();
 
         services.AddScoped<RtcMatchMaker>();
 

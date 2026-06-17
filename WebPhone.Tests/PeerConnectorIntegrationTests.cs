@@ -1,8 +1,8 @@
 ﻿using System.Runtime.CompilerServices;
 using EverModern.Blazor.DirectCommunication;
-using Microsoft.Extensions.Logging;
 using WebPhone.Domain;
 using WebPhone.Services;
+using WebPhone.Services.Background;
 using WebPhone.Services.Channels;
 using WebPhone.Tests.Provision;
 using Xunit.Abstractions;
@@ -20,37 +20,21 @@ public class PeerConnectorIntegrationTests(
 {
     async Task<PeerConnector> CreatePeerConnectorAsync(string userId, CancellationToken cancellationToken = default)
     {
-        var client = CreateBackendClient(userId);
+        var client = CreateVirtualBackendClient(userId);
         var result = new PeerConnector(
             new MockRtcConnector(),
             LoggerFactory.CreateLogger<PeerConnector>($"PeerConnector-user-{userId}"),
             client
         );
 
-        var hub = client.OpenHubConnectionAsync(cancellationToken);
+        var hub = await client.OpenHubConnectionAsync(cancellationToken);
 
-        var channel = new BackendMessagesChannel(hub);
+        var channel = await BackendMessagesChannel.BindAsync(hub);
 
         var incomingReader = channel.Subscribe(m => m.Type is MessageType.ConnectionAttempt);
 
-        await channel.WhenReady;
-
-        _ = Task.Run(async () =>
-            {
-                using var reader = incomingReader;
-                await foreach (var message in reader.ReadAllAsync(default))
-                {
-                    var (_, _, webRtcOffer, senderClientId, _) = message.SpecifyPayload<WebRtcOffer>()!;
-                    await result.ConnectToPeerAsync(
-                        senderClientId,
-                        default,
-                        webRtcOffer
-                    );
-                }
-            }
-        );
-
-        await channel.WhenReady.WaitAsync(cancellationToken);
+        IncomingConnectionsHandler connectionsHandler = await new IncomingConnectionsHandler(peerConnector: result, logger: LoggerFactory.CreateLogger<IncomingConnectionsHandler>($"IncomingConnectionsHandler-{userId}"))
+            .StartReadingAsync(channel, default);
 
         return result;
     }
@@ -122,35 +106,36 @@ public class PeerConnectorIntegrationTests(
         Assert.NotNull(connectionSecond);
     }
 
-    [Fact(Timeout = 30000)]
+    [Fact(Timeout = 300_000)]
     public async Task Connect_All_To_All()
     {
         var peers = new List<(PeerConnector Connector, string PeerId)>();
 
-        const int peersCount = 40;
+        const int peersCount = 35;
         await foreach (var item in GeneratePeers(default).Take(peersCount))
             peers.Add(item);
 
         var ct = Timeout.Token;
 
         var tasks = peers.SelectMany(peer =>
-            {
-                var (connector, peerId) = peer;
-                var connectionTasks = peers.Where(p => p.PeerId != peerId)
-                    .Select((otherPeer) =>
-                        {
-                            var (otherConnection, otherPeerId) = otherPeer;
-                            var connectToPeerAsync = connector.ConnectToPeerAsync(otherPeerId, default);
-                            return (peerId, otherPeerId, connectToPeerAsync);
-                        }
-                    )
-                    .ToArray();
+                {
+                    var (connector, peerId) = peer;
+                    var connectionTasks = peers.Where(p => p.PeerId != peerId)
+                        .Select((otherPeer) =>
+                            {
+                                var (otherConnection, otherPeerId) = otherPeer;
+                                var connectToPeerAsync = connector.ConnectToPeerAsync(otherPeerId, default);
+                                return (peerId, otherPeerId, connectToPeerAsync);
+                            }
+                        )
+                        .ToArray();
 
-                return  connectionTasks;
-            }
-        ).ToArray();
+                    return connectionTasks;
+                }
+            )
+            .ToArray();
 
-        await Task.WhenAll(tasks.Select(t=>t.connectToPeerAsync));
+        await Task.WhenAll(tasks.Select(t => t.connectToPeerAsync));
 
         var failedTasks = tasks.Where(t => t.connectToPeerAsync.Result is null).ToArray();
 

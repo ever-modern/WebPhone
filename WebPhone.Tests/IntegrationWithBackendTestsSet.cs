@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Logging;
 using WebPhone.Services;
+using WebPhone.Services.Data;
 using WebPhone.Tests.Provision;
 using Xunit.Abstractions;
 
@@ -28,10 +29,10 @@ public class TestWebApplicationFactory : WebApplicationFactory<WebPhone.Api.Prog
 public abstract class IntegrationWithBackendTestsSet : IClassFixture<TestWebApplicationFactory>
 {
     readonly TestWebApplicationFactory _webApplicationFactory;
-    readonly string _baseUrl;
+    readonly string _virtualBaseUrl;
     protected readonly List<string> ServerLogs;
 
-    protected TestLoggerProvider LoggerFactory { get; }  
+    protected TestLoggerProvider LoggerFactory { get; }
 
     protected static CancellationTokenSource Timeout => new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(2));
 
@@ -39,21 +40,31 @@ public abstract class IntegrationWithBackendTestsSet : IClassFixture<TestWebAppl
     {
         _webApplicationFactory = webApplicationFactory;
         var client = _webApplicationFactory.CreateClient();
-        _baseUrl = client.BaseAddress!.ToString();
+        _virtualBaseUrl = client.BaseAddress!.ToString();
         ServerLogs = webApplicationFactory.Logs;
-        _webApplicationFactory.OnLog += log => output.WriteLine($"[SERVER]{log}");
+        _webApplicationFactory.OnLog += log =>
+        {
+            try { output.WriteLine($"[SERVER]{log}"); }
+            catch {}
+        };
         LoggerFactory = new TestLoggerProvider(output.WriteLine);
     }
 
-    protected BackendClient CreateBackendClient(string userId)
+    protected BackendClient CreateVirtualBackendClient(string userId)
     {
         var httpMessageHandler = _webApplicationFactory.Server.CreateHandler();
         var client = new BackendClient(
-            _baseUrl,
+            _virtualBaseUrl,
             new TestProfile(userId),
             httpMessageHandler: httpMessageHandler
         );
 
+        return client;
+    }
+
+    protected BackendClient CreateRealBackendClient(string userId, int port = 5194)
+    {
+        var client = new BackendClient($"http://localhost:{port}", new TestProfile(userId));
         return client;
     }
 }

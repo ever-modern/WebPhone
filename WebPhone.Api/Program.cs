@@ -4,7 +4,7 @@ namespace WebPhone.Api;
 
 public partial class Program
 {
-    static void Main(string[] args)
+    static async Task Main(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +30,6 @@ public partial class Program
         app.MapRestEndpoints();
         app.MapSignalRHubEndpoints();
         
-        app.Start();
+        await app.RunAsync();
     }
 }

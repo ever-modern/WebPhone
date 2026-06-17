@@ -191,6 +191,9 @@ public class PeerConnector(
             }
         );
 
+        if (connection is null)
+            logger.LogWarning($"Could not establish connection with peer {peerId}");
+
         return connection;
     }
 
@@ -237,37 +240,26 @@ public class PeerConnector(
                 async (offer) =>
                 {
                     var (responseOffer, responseAnswer) = await backendClient.ConnectRtcAsync(
-                            new RtcConnectionRequest(peerId, offer, null),
-                            cancellationToken
-                        )
-                        .ContinueWith(
-                            t =>
-                            {
-                                if (t.Exception is not null)
-                                {
-                                    logger.LogError($"Error sending connection request: {t.Exception}");
-                                    throw t.Exception;
-                                }
+                        new RtcConnectionRequest(peerId, offer, null),
+                        cancellationToken
+                    );
 
-                                return t.Result;
-                            },
-                            cancellationToken
-                        );
                     logger.LogInformation(
                         "[RTC][PeerConnector] Initiator backend response. PeerId={PeerId}, ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
                         peerId,
                         responseOffer is not null,
                         responseAnswer is not null
                     );
+
                     if (responseAnswer is null)
                     {
+                        if (responseOffer is null)
+                            logger.LogWarning("[RTC][PeerConnector] Server returned neither a response, nor a counter offer.");
                         counterOffer = responseOffer;
                         return null;
                     }
-                    else
-                    {
-                        return responseAnswer;
-                    }
+
+                    return responseAnswer;
                 },
                 cancellationToken
             );
@@ -291,22 +283,10 @@ public class PeerConnector(
             async answer =>
             {
                 var (responseOffer, responseAnswer) = await backendClient.ConnectRtcAsync(
-                        new RtcConnectionRequest(peerId, incomingOffer, answer),
-                        cancellationToken
-                    )
-                    .ContinueWith(
-                        t =>
-                        {
-                            if (t.Exception is not null)
-                            {
-                                logger.LogError($"Error sending connection request with incoming offer = {incomingOffer}:\n {t.Exception}");
-                                throw t.Exception;
-                            }
+                    new RtcConnectionRequest(peerId, incomingOffer, answer),
+                    cancellationToken
+                );
 
-                            return t.Result;
-                        },
-                        cancellationToken
-                    );
                 logger.LogInformation(
                     "[RTC][PeerConnector] Acceptor backend response. PeerId={PeerId}, ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
                     peerId,
@@ -316,6 +296,8 @@ public class PeerConnector(
 
                 if (responseAnswer is not null)
                 {
+                    if (responseOffer is null)
+                        logger.LogWarning("[RTC][PeerConnector] Server returned neither a response, nor a counter offer.");
                     return true;
                 }
 

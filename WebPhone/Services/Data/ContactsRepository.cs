@@ -87,7 +87,7 @@ public class ContactsRepository(
         await foreach (var message in reader.ReadAllAsync(ct))
         {
             var payload = message.SpecifyPayload<PresencePayload>();
-            if (payload is null)
+            if (payload is null || message.SenderClientId is null)
                 continue;
 
             _contactSettings.TryGetValue(message.SenderClientId, out var settings);

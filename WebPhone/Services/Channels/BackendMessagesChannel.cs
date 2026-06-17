@@ -1,5 +1,5 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
-using EverModern.Events;
 using EverModern.Threading.Channels;
 using Microsoft.AspNetCore.SignalR.Client;
 using WebPhone.Domain;
@@ -10,82 +10,130 @@ namespace WebPhone.Services.Channels;
 
 public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
 {
-    readonly List<Channel<IncomingMessage>> _incomingChannels = new();
-    readonly Channel<OutgoingMessage> _outgoingChannel = Channel.CreateBounded<OutgoingMessage>(50);
+    readonly ConcurrentDictionary<Channel<IncomingMessage>, byte> _incomingChannels = new();
+    readonly Lock _starting = new();
+
+    readonly Channel<OutgoingMessage> _outgoingChannel =
+        Channel.CreateBounded<OutgoingMessage>(50);
+
     readonly CancellationTokenSource _cts = new();
-    readonly TaskCompletionSource _whenReadyTcs = new();
-    public Task WhenReady => _whenReadyTcs.Task;
 
+    BackendMessagesChannel() {}
 
-    public BackendMessagesChannel(HubConnection hubConnection) : this(Task.FromResult(hubConnection)) {}
-
-    public BackendMessagesChannel(Task<HubConnection> openingHubConnection)
+    public static async Task<BackendMessagesChannel> BindAsync(HubConnection hubConnection)
     {
-        _ = Task.Run(async () =>
+        var channel = new BackendMessagesChannel();
+        await channel.StartAsync(hubConnection);
+        return channel;
+    }
+
+    public async Task StartAsync(HubConnection hubConnection)
+    {
+        if (_starting.TryEnter() is false)
+            return;
+
+        var ct = _cts.Token;
+
+        hubConnection.On<ExchangeResponse>(
+            nameof(MessageSpecifications.Push),
+            exchange =>
             {
-                var hubConnection = await openingHubConnection;
-                var ct = _cts.Token;
-                hubConnection.On<ExchangeResponse>(
-                    nameof(MessageSpecifications.Push),
-                    async exchange =>
-                    {
-                        var messages = exchange?.RelevantMessages.Select(rm => new IncomingMessage(
+                var messages =
+                    exchange?.RelevantMessages
+                        .Select(rm => new IncomingMessage(
                                 rm.Id,
-                                WebPhone.Domain.MessageTypeConversion.FromWireValue(rm.Type),
+                                MessageTypeConversion.FromWireValue(rm.Type),
                                 rm.Payload,
                                 rm.PublisherClientId,
                                 rm.DateTime
                             )
-                        );
-                        foreach (var incomingChannel in _incomingChannels)
-                        {
-                            var incomingChannelWriter = incomingChannel.Writer;
-                            foreach (var message in messages)
-                            {
-                                await incomingChannelWriter.WriteAsync(message);
-                            }
-                            incomingChannelWriter.TryComplete();
-                        }
-                    }
-                );
+                        )
+                        .ToArray()
+                    ?? [];
 
-                _whenReadyTcs.TrySetResult();
-
-                await foreach (var message in _outgoingChannel.Reader.ReadAllAsync(_cts.Token))
+                foreach (var subscriber in _incomingChannels.Keys)
                 {
-                    await hubConnection.InvokeAsync(
-                        nameof(MessageSpecifications.Send),
-                        message,
-                        _cts.Token
-                    );                    
+                    var writer = subscriber.Writer;
+
+                    foreach (var message in messages)
+                    {
+                        writer.TryWrite(message);
+                    }
                 }
+
+                return Task.CompletedTask;
             }
         );
+
+        TaskCompletionSource startedReading = new();
+
+        _ = Task.Run(
+            async () =>
+            {
+                await foreach (
+                    var message in _outgoingChannel.Reader.ReadAllAsync(ct).Prepend(null!)
+                )
+                {
+                    if (message is null)
+                    {
+                        startedReading.TrySetResult();
+                        continue;
+                    }
+                    try
+                    {
+                        await hubConnection.InvokeAsync(
+                            nameof(MessageSpecifications.Send),
+                            message,
+                            ct
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        var a = 99;
+                    }
+                }
+            },
+            ct
+        );
+
+        await startedReading.Task;
     }
 
     public ChannelWriter<OutgoingMessage> Writer => _outgoingChannel.Writer;
 
-    public IChannelSubscription<IncomingMessage> Subscribe(Func<IncomingMessage, bool> filter)
+    public IChannelSubscription<IncomingMessage> Subscribe(
+        Func<IncomingMessage, bool> filter)
     {
         var channel = Channel.CreateBounded<IncomingMessage>(50);
 
-        var result = new ChannelSubscription<IncomingMessage>(
+        _incomingChannels.TryAdd(channel, 0);
+
+        return new ChannelSubscription<IncomingMessage>(
             channel.Reader,
-            (_) => _incomingChannels.Remove(channel),
+            _ =>
+            {
+                if (_incomingChannels.TryRemove(channel, out var _))
+                {
+                    channel.Writer.TryComplete();
+                }
+            },
             filter
         );
-
-        _incomingChannels.Add(channel);
-
-        return result;
     }
-
 
     public async ValueTask DisposeAsync()
     {
-        await _cts.CancelAsync();
+        if (_starting.TryEnter())
+            return;
+
         _outgoingChannel.Writer.TryComplete();
-        _incomingChannels.ForEach(ch => ch.Writer.TryComplete());
+
+        await _cts.CancelAsync();
+
+        foreach (var channel in _incomingChannels.Keys)
+        {
+            channel.Writer.TryComplete();
+        }
 
         _cts.Dispose();
     }

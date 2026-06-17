@@ -295,10 +295,9 @@ public class BackendClient(
     {
         var hubConnection = new HubConnectionBuilder()
             .WithUrl(
-                $"{baseUrl.TrimEnd('/')}/hub",
+                $"{baseUrl.TrimEnd('/')}/hub?clientId={profile.User.Id}",
                 options =>
                 {
-                    options.Headers["X-Client-Id"] = profile.User.Id;
                     options.HttpMessageHandlerFactory = (_) => httpMessageHandler ?? new HttpClientHandler();
                 }
             )

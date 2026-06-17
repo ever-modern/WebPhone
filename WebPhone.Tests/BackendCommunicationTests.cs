@@ -13,7 +13,7 @@ public class BackendCommunicationTests : IntegrationWithBackendTestsSet
     {
         var ct = Timeout.Token;
 
-        var client = CreateBackendClient(_userId);
+        var client = CreateVirtualBackendClient(_userId);
 
         var result = await client.GetChatMessagesAsync(Guid.NewGuid().ToString(), 0, ct);
 
@@ -26,7 +26,7 @@ public class BackendCommunicationTests : IntegrationWithBackendTestsSet
     {
         var ct = Timeout.Token;
 
-        var client = CreateBackendClient(_userId);
+        var client = CreateVirtualBackendClient(_userId);
 
         var connection = await client.OpenHubConnectionAsync(ct);
 
