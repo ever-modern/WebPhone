@@ -7,16 +7,34 @@ using WebPhone.Domain.Communication;
 
 namespace WebPhone.Backend.Services;
 
+public class PeerPairLocker() : NewKeyLocker<PeersPair>(PairsEqualityComparer.Instance) {}
+
+public class OngoingNegotiation(
+    TaskCompletionSource<RtcMatchParameter> completionSource,
+    WebRtcOffer offer
+)
+{
+    public void Complete(WebRtcAnswer answer)
+        => completionSource.TrySetResult(new(offer, answer));
+    public void ReplaceOffer(WebRtcOffer offer) => completionSource.TrySetResult(new(offer, null));
+    public void Negate(WebRtcOffer offer) => completionSource.TrySetResult(new(null, null));
+}
+
+public class RtcNegotiationStore
+{
+    readonly NewKeyLocker<PeersPair> _locker = new();
+}
+
 public class RtcMatchMaker(
     MessagesWriter messagesWriter,
     WebRtcParametersStorage currentOffers,
     ILogger<RtcMatchMaker> logger,
-    PairMatchLocker locker,
+    PeerPairLocker locker,
     IHubContext<SignallingHub> hubContext
 )
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
-    static readonly TimeSpan PairLockTimeout = TimeSpan.FromSeconds(1);
+    static readonly TimeSpan PairLockTimeout = TimeSpan.FromSeconds(30);
 
     public async Task<RtcMatchParameter> MatchAsync(
         string initiatorId,
@@ -32,10 +50,6 @@ public class RtcMatchMaker(
 
         var pair = new PeersPair(initiatorId, targetId);
 
-        var tcs = new TaskCompletionSource<RtcMatchParameter>(
-            TaskCreationOptions.RunContinuationsAsynchronously
-        );
-
         bool sendOffer = false;
 
         var pairLock = await locker.TryLockPairAsync(pair, PairLockTimeout, cancellationToken);
@@ -48,6 +62,8 @@ public class RtcMatchMaker(
             );
             return new(null, null);
         }
+
+        var tcs = new TaskCompletionSource<RtcMatchParameter>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         using (pairLock)
         {
@@ -104,21 +120,24 @@ public class RtcMatchMaker(
             // is picked up only by polling, which is no longer used).
             try
             {
-                var exchangeResponse = new ExchangeResponse([
-                    new MessageResponse(
-                        CommonIdsGenerator.NewId(),
-                        initiatorId,
-                        MessageType.ConnectionAttempt.ToWireValue(),
-                        DateTime.UtcNow,
-                        JsonSerializer.SerializeToElement(offer)
-                    )
-                ]);
-
-                await hubContext.Clients.User(targetId).SendAsync(
-                    MessageSpecifications.Push.Key,
-                    exchangeResponse,
-                    cancellationToken
+                var exchangeResponse = new ExchangeResponse(
+                    [
+                        new MessageResponse(
+                            CommonIdsGenerator.NewId(),
+                            initiatorId,
+                            MessageType.ConnectionAttempt.ToWireValue(),
+                            DateTime.UtcNow,
+                            JsonSerializer.SerializeToElement(offer)
+                        )
+                    ]
                 );
+
+                await hubContext.Clients.User(targetId)
+                    .SendAsync(
+                        MessageSpecifications.Push.Key,
+                        exchangeResponse,
+                        cancellationToken
+                    );
 
                 logger.LogInformation(
                     "[RTC] Pushed ConnectionAttempt to {TargetId} via SignalR",
@@ -136,9 +155,10 @@ public class RtcMatchMaker(
         }
 
         using var registration = cancellationToken.Register(() =>
-        {
-            tcs.TrySetCanceled(cancellationToken);
-        });
+            {
+                tcs.TrySetCanceled(cancellationToken);
+            }
+        );
 
         try
         {
@@ -154,7 +174,7 @@ public class RtcMatchMaker(
 
     async Task RemoveOfferAsync(PeersPair pair, TaskCompletionSource<RtcMatchParameter> tcs)
     {
-        using var _ = await locker.LockPairAsync(pair, CancellationToken.None);
+        using var _ = await locker.LockAsync(pair, CancellationToken.None);
 
         if (
             currentOffers.TryGetValue(pair, out var existing)
@@ -171,7 +191,7 @@ public class RtcMatchMaker(
         {
             await Task.Delay(OfferTimeout);
 
-            using var _ = await locker.LockPairAsync(pair, CancellationToken.None);
+            using var _ = await locker.LockAsync(pair, CancellationToken.None);
 
             if (
                 currentOffers.TryGetValue(pair, out var existing)

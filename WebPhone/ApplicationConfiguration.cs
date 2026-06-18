@@ -31,7 +31,7 @@ public static class ApplicationConfiguration
 
         services.AddSingleton<VideoCallState>();
 
-        services.AddSingleton<PeerConnector>();
+        services.AddSingleton<PeerConnectionsDispatcher>();
         services.AddSingleton<IncomingConnectionsHandler>();
         services.AddSingleton<ContactsDispatcher>();
         services.AddSingleton<ContactsRepository>();

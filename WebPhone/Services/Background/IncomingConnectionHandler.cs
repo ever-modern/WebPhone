@@ -5,7 +5,7 @@ using WebPhone.Services.Channels;
 namespace WebPhone.Services.Background;
 
 public sealed class IncomingConnectionsHandler(
-    PeerConnector peerConnector,
+    PeerConnectionsDispatcher peerConnectionsDispatcher,
     ILogger<IncomingConnectionsHandler> logger
 ) : IDisposable
 {
@@ -45,7 +45,7 @@ public sealed class IncomingConnectionsHandler(
                         !string.IsNullOrWhiteSpace(concreteMessage.Payload.Sdp)
                     );
 
-                    _ = peerConnector.ConnectToPeerAsync(
+                    _ = peerConnectionsDispatcher.ConnectAsync(
                         message.SenderClientId,
                         ct,
                         concreteMessage.Payload

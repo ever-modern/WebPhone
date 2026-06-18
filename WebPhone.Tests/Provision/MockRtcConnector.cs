@@ -23,9 +23,10 @@ class MockRtcConnector : IRtcConnector
     )
     {
         var answer = GenerateAnswer(offer);
-        if (!await sendAnswerBack(answer))
+        var couldSendAnswer = await sendAnswerBack(answer); 
+        if (couldSendAnswer is false)
         {
-            return new MockRtcConnection(null, null);
+            return null;
         }
 
         return new MockRtcConnection(offer, answer);

@@ -26,7 +26,7 @@ public enum InteractionType
 }
 
 public sealed class ContactsDispatcher(
-    PeerConnector peerConnector,
+    PeerConnectionsDispatcher peerConnectionsDispatcher,
     ContactsRepository contactsRepository,
     IBackendClient backendClient,
     VideoCallState videoCallState
@@ -76,7 +76,7 @@ public sealed class ContactsDispatcher(
                 _ = contactsRepository.SetNicknameAsync(contact.Id, nickname),
             Notify: () => _ = backendClient.NotifyAsync(contact.Id, null),
             Disconnect: () =>
-                _ = peerConnector
+                _ = peerConnectionsDispatcher
                     .ClosePeerConnectionAsync(contact.Id)
                     .ContinueWith((_) => StateHasChanged())
         );
@@ -94,7 +94,7 @@ public sealed class ContactsDispatcher(
         _isStarted = true;
 
         OnDisposed += contactsRepository.StateChanged.Subscribe(StateHasChanged).Dispose;
-        OnDisposed += peerConnector.StateChanged.Subscribe(StateHasChanged).Dispose;
+        OnDisposed += peerConnectionsDispatcher.StateChanged.Subscribe(StateHasChanged).Dispose;
 
         StateHasChanged();
         await Task.CompletedTask;
@@ -111,7 +111,7 @@ public sealed class ContactsDispatcher(
             if (_contexts.ContainsKey(contact.Id))
                 continue;
 
-            var manager = new ContactManager(peerConnector, contact.Id, videoCallState);
+            var manager = new ContactManager(peerConnectionsDispatcher, contact.Id, videoCallState);
             var subscription = manager.StateChanged.Subscribe(StateHasChanged);
             var context = new ContactContext(manager, subscription);
             _contexts[contact.Id] = context;
@@ -130,7 +130,7 @@ public sealed class ContactsDispatcher(
     {
         foreach (var (contactId, context) in _contexts)
         {
-            var connection = peerConnector.FindReadyConnection(contactId);
+            var connection = peerConnectionsDispatcher.FindReadyConnection(contactId);
             if (connection is null)
             {
                 context.ChatConnection = null;
@@ -212,7 +212,7 @@ public sealed class ContactsDispatcher(
                 var effectiveState = context.Manager.State;
                 if (
                     effectiveState is InteractionType.None
-                    && peerConnector.FindReadyConnection(contact.Id) is not null
+                    && peerConnectionsDispatcher.FindReadyConnection(contact.Id) is not null
                 )
                 {
                     effectiveState = InteractionType.Connected;

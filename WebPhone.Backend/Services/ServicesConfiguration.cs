@@ -32,7 +32,7 @@ public static class ServicesConfiguration
         services.AddScoped<PushNotifier>();
 
         services.AddSingleton(new WebRtcParametersStorage());
-        services.AddSingleton(new PairMatchLocker());
+        services.AddSingleton(new PeerPairLocker());
         services.AddSingleton(sp =>
             new MessagesWriter(sp.GetRequiredService<DbConnectionResolver>()).Start()
         );

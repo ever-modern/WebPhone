@@ -11,9 +11,7 @@ namespace WebPhone.Tests;
 
 public class TestWebApplicationFactory : WebApplicationFactory<WebPhone.Api.Program>
 {
-    public List<string> Logs { get; } = [];
-
-    public event Action<string> OnLog = Console.WriteLine;
+    public event Action<string> OnLog = _ => {};
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -23,6 +21,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<WebPhone.Api.Prog
                 logging.AddProvider(new TestLoggerProvider(log => OnLog.Invoke(log)));
             }
         );
+        OnLog = (_) => {};
     }
 }
 
@@ -30,9 +29,14 @@ public abstract class IntegrationWithBackendTestsSet : IClassFixture<TestWebAppl
 {
     readonly TestWebApplicationFactory _webApplicationFactory;
     readonly string _virtualBaseUrl;
-    protected readonly List<string> ServerLogs;
+    protected IEnumerable<string> ServerLogs => Logs.Where(l => l.IsServer).Select(l => l.Message);
+    protected IEnumerable<string> ClientLogs => Logs.Where(l => l.IsServer == false).Select(l => l.Message);
 
-    protected TestLoggerProvider LoggerFactory { get; }
+    readonly List<(string Message, bool IsServer)> _logs = [];
+
+    protected IReadOnlyList<(string Message, bool IsServer)> Logs => _logs;
+
+    protected Func<string, TestLoggerProvider> CreateLoggerFactory { get; }
 
     protected static CancellationTokenSource Timeout => new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(2));
 
@@ -41,13 +45,19 @@ public abstract class IntegrationWithBackendTestsSet : IClassFixture<TestWebAppl
         _webApplicationFactory = webApplicationFactory;
         var client = _webApplicationFactory.CreateClient();
         _virtualBaseUrl = client.BaseAddress!.ToString();
-        ServerLogs = webApplicationFactory.Logs;
         _webApplicationFactory.OnLog += log =>
         {
+            _logs.Add((log, true));
             try { output.WriteLine($"[SERVER]{log}"); }
             catch {}
         };
-        LoggerFactory = new TestLoggerProvider(output.WriteLine);
+        CreateLoggerFactory = prefix => new TestLoggerProvider(log =>
+            {
+                var logWithPrefix = $"[{prefix}]:{log}";
+                output.WriteLine(logWithPrefix);
+                _logs.Add((logWithPrefix, false));
+            }
+        );
     }
 
     protected BackendClient CreateVirtualBackendClient(string userId)

@@ -1,19 +1,19 @@
 ﻿using System.Collections.Concurrent;
 
-namespace WebPhone.Backend.Services;
+namespace WebPhone.Domain;
 
-using System.Collections.Concurrent;
-
-public sealed class PairMatchLocker
+public class NewKeyLocker<TKey>(IEqualityComparer<TKey> comparer) where TKey : notnull
 {
-    private static readonly Func<PeersPair, SemaphoreSlim> SemaphoreFactory =
+    private static readonly Func<TKey, SemaphoreSlim> SemaphoreFactory =
         static _ => new SemaphoreSlim(1, 1);
 
-    private readonly ConcurrentDictionary<PeersPair, SemaphoreSlim> _locks =
-        new(PairsEqualityComparer.Instance);
+    private readonly ConcurrentDictionary<TKey, SemaphoreSlim> _locks =
+        new(comparer);
 
-    public async Task<IDisposable> LockPairAsync(
-        PeersPair pair,
+    public NewKeyLocker() : this(EqualityComparer<TKey>.Default) {}
+
+    public async Task<IDisposable> LockAsync(
+        TKey pair,
         CancellationToken cancellationToken = default)
     {
         var semaphore = _locks.GetOrAdd(pair, SemaphoreFactory);
@@ -25,7 +25,7 @@ public sealed class PairMatchLocker
     }
 
     public async Task<IDisposable?> TryLockPairAsync(
-        PeersPair pair,
+        TKey pair,
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {

@@ -2,7 +2,7 @@
 @implements IAsyncDisposable
 
 @inject VideoCallState VideoCallState
-@inject PeerConnector PeerConnector
+@inject PeerConnectionsDispatcher PeerConnectionsDispatcher
 @inject ContactsDispatcher Dispatcher
 
 @if (VideoCallState.IsOpen)
@@ -48,9 +48,9 @@
         var contactId = VideoCallState.ContactId;
         if (contactId is null)
             return false;
-        var connections = PeerConnector.CurrentConnectionProcesses;
+        var connections = PeerConnectionsDispatcher.CurrentConnectionProcesses;
         Console.WriteLine($"[VIDEO] ConnectTargetAsync: contactId={contactId} connections.Count={connections.Count} keys=[{string.Join(",", connections.Keys)}]");
-        var conn = await PeerConnector.ConnectToPeerAsync(contactId);
+        var conn = await PeerConnectionsDispatcher.ConnectAsync(contactId);
         if (conn is null)
             return false;
         Console.WriteLine("[VIDEO] ConnectTargetAsync: found connection → calling SetVideoTargetAsync");

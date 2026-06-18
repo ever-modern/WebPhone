@@ -5,16 +5,13 @@ namespace WebPhone.Services;
 
 class ConnectionEstablishmentProcess(
     Task<IRtcConnection?> source,
-    CancellationTokenSource cts,
-    bool isOutgoing
+    CancellationTokenSource cts
 )
 {
     public TaskAwaiter<IRtcConnection?> GetAwaiter() => source.GetAwaiter();
 
     public bool ConnectedSuccessfully =>
         source.IsCompletedSuccessfully && source.Result is not null;
-
-    public bool IsOutgoing => isOutgoing;
 
     public bool IsCompleted => source.IsCompleted;
 

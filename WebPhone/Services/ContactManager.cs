@@ -5,7 +5,7 @@ using WebPhone.Services.Channels;
 
 namespace WebPhone.Services;
 
-class ContactManager(PeerConnector peerConnector, string contactId, VideoCallState videoCallState)
+class ContactManager(PeerConnectionsDispatcher peerConnectionsDispatcher, string contactId, VideoCallState videoCallState)
     : IDisposable
 {
     readonly EventSource _stateChanged = new();
@@ -43,7 +43,7 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
         _isEnabled = true;
         StartSyncLoop();
 
-        OnDispose += peerConnector
+        OnDispose += peerConnectionsDispatcher
             .StateChanged.Subscribe(() =>
             {
                 var existingConnection = GetConnection();
@@ -100,8 +100,8 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
 
         SetState(InteractionType.Connecting, connectingCts.Cancel);
 
-        var connection = await peerConnector
-            .ConnectToPeerAsync(contactId, connectingCts.Token)
+        var connection = await peerConnectionsDispatcher
+            .ConnectAsync(contactId, connectingCts.Token)
             .ContinueWith(t => t.IsCompletedSuccessfully ? t.Result : null);
 
         if (connection is null)
@@ -127,7 +127,7 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
     {
         StopSession();
         SetState(InteractionType.None, () => { });
-        await peerConnector.ClosePeerConnectionAsync(contactId, cancellationToken);
+        await peerConnectionsDispatcher.ClosePeerConnectionAsync(contactId, cancellationToken);
     }
 
     public async Task StartCallAsync(CancellationToken cancellationToken = default)
@@ -328,7 +328,7 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
         _connectionStateSubscription = connection.StateChanged.Subscribe(state =>
         {
             if (state is "disconnected" or "failed" or "closed")
-                _ = peerConnector.ClosePeerConnectionAsync(contactId);
+                _ = peerConnectionsDispatcher.ClosePeerConnectionAsync(contactId);
         });
         ListenIncomingCall(connection);
     }
@@ -388,7 +388,7 @@ class ContactManager(PeerConnector peerConnector, string contactId, VideoCallSta
         );
     }
 
-    IRtcConnection? GetConnection() => peerConnector.FindReadyConnection(contactId);
+    IRtcConnection? GetConnection() => peerConnectionsDispatcher.FindReadyConnection(contactId);
 
     static async Task EnableMediaAsync(IRtcConnection connection)
     {
