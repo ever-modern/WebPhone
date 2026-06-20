@@ -31,34 +31,6 @@ public class BackendClient(
     readonly string _contactSettingsEndpoint = $"{baseUrl.TrimEnd('/')}/contacts";
     readonly string _rtcConnectEndpoint = $"{baseUrl.TrimEnd('/')}/rtc-connect";
 
-    public async Task<ExchangeResponse> ExchangeAsync(
-        MessageRequest[] outgoingMessages,
-        long messagesSinceId,
-        CancellationToken cancellationToken = default
-    )
-    {
-        string сlientId = profile.User.Id;
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, _exchangeEndpoint)
-        {
-            Content = JsonContent.Create(
-                new ExchangeRequest(сlientId, messagesSinceId, outgoingMessages),
-                options: JsonOptions
-            ),
-        };
-        request.Headers.Add("X-Client-Id", сlientId);
-
-        using var response = await _httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-
-        var exchangeResponse =
-            await response.Content.ReadFromJsonAsync<ExchangeResponse>(
-                JsonOptions,
-                cancellationToken
-            ) ?? throw new InvalidOperationException();
-
-        return exchangeResponse;
-    }
 
     public async Task RegisterPushSubscriptionAsync(
         string subscriptionPayload,

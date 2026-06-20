@@ -24,27 +24,6 @@ public static class RestEndpoints
         );
 
         app.MapPost(
-            "/exchange",
-            async Task<Results<BadRequest<string>, Ok<ExchangeResponse>>> (
-                HttpRequest req,
-                ExchangeRequest request,
-                ExchangeApiAction action,
-                CancellationToken ct
-            ) =>
-            {
-                var clientId = RequireClientId(req);
-                if (string.IsNullOrWhiteSpace(clientId))
-                    return TypedResults.BadRequest("Missing X-Client-Id header");
-
-                var response = await action.ExecuteAsync(
-                    new ExchangeActionInput(clientId, request),
-                    ct
-                );
-                return TypedResults.Ok(response);
-            }
-        );
-
-        app.MapPost(
             "/notify",
             async Task<IResult> (
                 HttpRequest req,

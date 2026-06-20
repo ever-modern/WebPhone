@@ -34,31 +34,23 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
 
         var ct = _cts.Token;
 
-        hubConnection.On<ExchangeResponse>(
+        hubConnection.On<ReceivedMessage>(
             nameof(MessageSpecifications.Push),
             exchange =>
             {
-                var messages =
-                    exchange?.RelevantMessages
-                        .Select(rm => new IncomingMessage(
-                                rm.Id,
-                                MessageTypeConversion.FromWireValue(rm.Type),
-                                rm.Payload,
-                                rm.PublisherClientId,
-                                rm.DateTime
-                            )
-                        )
-                        .ToArray()
-                    ?? [];
+                IncomingMessage message = new(
+                    -1,
+                    exchange.Type,
+                    exchange.Payload,
+                    exchange.Sender,
+                    DateTime.UtcNow
+                );
 
                 foreach (var subscriber in _incomingChannels.Keys)
                 {
                     var writer = subscriber.Writer;
 
-                    foreach (var message in messages)
-                    {
-                        writer.TryWrite(message);
-                    }
+                    writer.TryWrite(message);
                 }
 
                 return Task.CompletedTask;
@@ -79,18 +71,12 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
                         startedReading.TrySetResult();
                         continue;
                     }
-                    try
-                    {
-                        await hubConnection.InvokeAsync(
-                            nameof(MessageSpecifications.Send),
-                            message,
-                            ct
-                        );
-                    }
-                    catch (Exception ex)
-                    {
-                        var a = 99;
-                    }
+
+                    await hubConnection.InvokeAsync(
+                        nameof(MessageSpecifications.Send),
+                        message,
+                        ct
+                    );
                 }
             },
             ct

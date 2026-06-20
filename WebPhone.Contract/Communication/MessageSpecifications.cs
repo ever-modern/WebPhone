@@ -1,12 +1,14 @@
-﻿namespace WebPhone.Domain.Communication;
+﻿using EverModern.Threading.Locks;
+
+namespace WebPhone.Domain.Communication;
 
 public static class MessageSpecifications
 {
-    public static ClientSendMessageSpecification<ExchangeRequest> Send { get; } = new(
+    public static ClientSendMessageSpecification<SentMessage> Send { get; } = new(
         "Send"
     );
 
-    public static ServerSendMessageSpecification<ExchangeResponse> Push { get; } = new(
+    public static ServerSendMessageSpecification<ReceivedMessage> Push { get; } = new(
         "Push"
     );
 }
@@ -15,6 +17,7 @@ public class ClientSendMessageSpecification<TMessage>
 {
     public string Key { get; }
     internal ClientSendMessageSpecification(string key) { Key = key; }
+    
 }
 
 public class ServerSendMessageSpecification<TMessage>

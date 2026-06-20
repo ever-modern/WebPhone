@@ -31,16 +31,14 @@ public static class ServicesConfiguration
         services.AddScoped<PushSubscriptionsRepository>();
         services.AddScoped<PushNotifier>();
 
-        services.AddSingleton(new WebRtcParametersStorage());
-        services.AddSingleton(new PeerPairLocker());
-        services.AddSingleton(sp =>
-            new MessagesWriter(sp.GetRequiredService<DbConnectionResolver>()).Start()
-        );
+        services.AddSingleton(new RtcNegotiationStore());
+       
+        services.AddSingleton<IMessagesWriter, HubMessagesChannel>();
+        services.AddSingleton<DbMessagesWriter>();
         services.AddSingleton<ConnectedUsersStorage>();
 
         services.AddScoped<RtcMatchMaker>();
 
-        services.AddScoped<ExchangeApiAction>();
         services.AddScoped<NotifyApiAction>();
         services.AddScoped<SubscriptionApiAction>();
         services.AddScoped<GetProfileSettingsApiAction>();

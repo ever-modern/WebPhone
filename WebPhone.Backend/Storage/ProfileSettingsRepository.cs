@@ -11,13 +11,7 @@ public sealed class ProfileSettingsRepository(DbConnectionResolver connectionRes
     {
         await using var connection = await connectionResovler.GetAsync(cancellationToken);
 
-        var sql = """
-            SELECT name, notify_calls, notify_messages, notify_from_everyone
-            FROM profiles
-            WHERE user_id = @UserId;
-            """;
-
-        var projectedSql = """
+        const string projectedSql = """
             SELECT
                 name                 AS "Name",
                 notify_calls         AS "NotifyCalls",
@@ -37,7 +31,7 @@ public sealed class ProfileSettingsRepository(DbConnectionResolver connectionRes
     {
         await using var connection = await connectionResovler.GetAsync(cancellationToken);
 
-        var sql = """
+        const string sql = """
             INSERT INTO profiles (user_id, name, notify_calls, notify_messages, notify_from_everyone, updated_at)
             VALUES (@UserId, @Name, @NotifyCalls, @NotifyMessages, @NotifyFromEveryone, NOW())
             ON CONFLICT (user_id)

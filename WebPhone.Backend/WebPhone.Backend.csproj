@@ -8,6 +8,7 @@
 
 	<ItemGroup>
 		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+		<PackageReference Include="EverModern.Threading" Version="0.0.36" />
 		
 		<PackageReference Include="ForEvolve.ExceptionMapper" Version="4.0.6" />		
 		<PackageReference Include="Dapper" Version="2.1.42" />

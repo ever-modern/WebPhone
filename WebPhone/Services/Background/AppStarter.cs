@@ -1,5 +1,6 @@
 using System.Threading;
 using EverModern.Threading;
+using EverModern.Threading.Locks;
 using EverModern.Threading.Queues;
 using WebPhone.Services.Channels;
 using WebPhone.Services.Data;
@@ -20,7 +21,7 @@ public sealed class AppStarter(
         1,
         1
     );
-    volatile bool _started;
+    bool _started;
 
     public async Task EnsureStartedAsync(CancellationToken cancellationToken = default)
     {

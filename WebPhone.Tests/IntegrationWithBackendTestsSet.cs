@@ -16,9 +16,10 @@ public class TestWebApplicationFactory : WebApplicationFactory<WebPhone.Api.Prog
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureLogging(logging =>
-            {
+            {                
                 logging.ClearProviders();
                 logging.AddProvider(new TestLoggerProvider(log => OnLog.Invoke(log)));
+                logging.SetMinimumLevel(LogLevel.Trace);
             }
         );
         OnLog = (_) => {};

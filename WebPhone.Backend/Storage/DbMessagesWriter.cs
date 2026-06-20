@@ -1,13 +1,15 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Dapper;
-using EverModern.Threading;
 using EverModern.Threading.Channels;
+using EverModern.Threading.Locks;
 using WebPhone.Backend.Services;
 using WebPhone.Domain;
 
 namespace WebPhone.Backend.Storage;
 
-public class MessagesWriter(DbConnectionResolver connectionResovler) : IDisposable
+public class DbMessagesWriter(
+    DbConnectionResolver connectionResovler
+) : IMessagesWriter, IDisposable
 {
     private const int DefaultWriteBatchSize = 100;
 
@@ -39,46 +41,55 @@ public class MessagesWriter(DbConnectionResolver connectionResovler) : IDisposab
         CancellationToken cancellationToken = default
     ) =>
         EnqueueAsync(
-            [new MessageWriteEntry(messageType, payload, publisherId, receiverId)],
+            [
+                new MessageWriteEntry(
+                    messageType,
+                    payload,
+                    publisherId,
+                    receiverId
+                )
+            ],
             cancellationToken: cancellationToken
         );
 
-    public MessagesWriter Start()
+    public IMessagesWriter Start()
     {
         List<MessageWriteEntry> batch = new();
 
         Lock batchLock = new();
 
         _ = Task.Run(async () =>
-        {
-            await using var connection = await connectionResovler.GetAsync(_cts.Token);
-            while (_cts.IsCancellationRequested == false)
             {
-                await Task.Delay(500);
+                await using var connection = await connectionResovler.GetAsync(_cts.Token);
+                while (_cts.IsCancellationRequested == false)
+                {
+                    await Task.Delay(500);
 
-                MessageWriteEntry[] toWrite;
-                using (batchLock.LockScope())
-                {
-                    toWrite = batch.ToArray();
-                    batch = [];
+                    MessageWriteEntry[] toWrite;
+                    using (batchLock.LockScope())
+                    {
+                        toWrite = batch.ToArray();
+                        batch = [];
+                    }
+                    try
+                    {
+                        await WriteMessagesAsync(toWrite, cancellationToken: _cts.Token);
+                    }
+                    catch (Exception ex) {}
                 }
-                try
-                {
-                    await WriteMessagesAsync(toWrite, cancellationToken: _cts.Token);
-                }
-                catch (Exception ex) { }
             }
-        });
+        );
 
         var __ = Task.Run(async () =>
-        {
-            using var reader = _channel.Subscribe(_ => true);
-            await foreach (var entry in reader.ReadAllAsync(_cts.Token))
             {
-                using var _ = batchLock.LockScope();
-                batch.Add(entry);
+                using var reader = _channel.Subscribe(_ => true);
+                await foreach (var entry in reader.ReadAllAsync(_cts.Token))
+                {
+                    using var _ = batchLock.LockScope();
+                    batch.Add(entry);
+                }
             }
-        });
+        );
 
         return this;
     }
@@ -115,9 +126,7 @@ public class MessagesWriter(DbConnectionResolver connectionResovler) : IDisposab
                 var publisherIdParameter = $"PublisherId{parameterSuffix}";
                 var receiverIdParameter = $"ReceiverId{parameterSuffix}";
 
-                values.Add(
-                    $"(@{idParameter}, @{dateTimeParameter}, @{typeParameter}, @{payloadParameter}::jsonb, @{publisherIdParameter}, @{receiverIdParameter})"
-                );
+                values.Add($"(@{idParameter}, @{dateTimeParameter}, @{typeParameter}, @{payloadParameter}::jsonb, @{publisherIdParameter}, @{receiverIdParameter})");
                 parameters.Add(idParameter, message.Id ?? CommonIdsGenerator.NewId());
                 parameters.Add(
                     dateTimeParameter,
@@ -136,13 +145,26 @@ public class MessagesWriter(DbConnectionResolver connectionResovler) : IDisposab
             }
 
             var sql = $"""
-                INSERT INTO messages (id, date_time, type, payload, publisher_id, receiver_id)
-                VALUES {string.Join(", ", values)};
-                """;
+                       INSERT INTO messages (id, date_time, type, payload, publisher_id, receiver_id)
+                       VALUES {string.Join(", ", values)};
+                       """;
 
-            await connection.ExecuteAsync(
-                new CommandDefinition(sql, parameters, cancellationToken: cancellationToken)
-            );
+            await connection.ExecuteAsync(new CommandDefinition(sql, parameters, cancellationToken: cancellationToken));
         }
+    }
+
+    public Task WriteAsync(string targetId, string senderId, MessageContent messageContent, CancellationToken cancellationToken)
+    {
+        var (type, payload) = messageContent;
+        var toEnqueue = new MessageWriteEntry(
+            type.ToWireValue(),
+            payload,
+            senderId,
+            targetId,
+            DateTime.UtcNow,
+            CommonIdsGenerator.NewId()
+        );
+        var result = EnqueueAsync([toEnqueue], cancellationToken);
+        return result.AsTask();
     }
 }

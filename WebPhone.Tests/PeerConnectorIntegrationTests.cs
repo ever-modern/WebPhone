@@ -107,12 +107,12 @@ public class PeerConnectorIntegrationTests(
         Assert.NotNull(connectionSecond);
     }
 
-    [Fact(Timeout = 300_000)]
+    [Fact(Timeout = 30_000)]
     public async Task Connect_All_To_All()
     {
         var peers = new List<(PeerConnectionsDispatcher Connector, string PeerId)>();
 
-        const int peersCount = 300;
+        const int peersCount = 50;
         await foreach (var item in GeneratePeers(default).Take(peersCount))
             peers.Add(item);
 

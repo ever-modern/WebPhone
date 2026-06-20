@@ -6,7 +6,6 @@ namespace WebPhone.Services;
 public interface IBackendClient
 {
     Task<RtcMatchParameter> ConnectRtcAsync(RtcConnectionRequest connectionRequest, CancellationToken cancellationToken);
-    Task<ExchangeResponse> ExchangeAsync(MessageRequest[] outgoingMessages, long messagesSinceId, CancellationToken cancellationToken = default);
     Task<ContactSettingsDto[]> GetAllContactSettingsAsync(CancellationToken cancellationToken = default);
     Task<ChatMessageDto[]> GetChatMessagesAsync(string peerId, long sinceId = 0, CancellationToken cancellationToken = default);
     Task<ContactSettingsDto> GetContactSettingsAsync(string contactId, CancellationToken cancellationToken = default);

@@ -1,40 +1,17 @@
 ﻿using System.Text.Json;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using WebPhone.Backend.Storage;
 using WebPhone.Domain;
-using WebPhone.Domain.Communication;
 
 namespace WebPhone.Backend.Services;
 
-public class PeerPairLocker() : NewKeyLocker<PeersPair>(PairsEqualityComparer.Instance) {}
-
-public class OngoingNegotiation(
-    TaskCompletionSource<RtcMatchParameter> completionSource,
-    WebRtcOffer offer
-)
-{
-    public void Complete(WebRtcAnswer answer)
-        => completionSource.TrySetResult(new(offer, answer));
-    public void ReplaceOffer(WebRtcOffer offer) => completionSource.TrySetResult(new(offer, null));
-    public void Negate(WebRtcOffer offer) => completionSource.TrySetResult(new(null, null));
-}
-
-public class RtcNegotiationStore
-{
-    readonly NewKeyLocker<PeersPair> _locker = new();
-}
-
 public class RtcMatchMaker(
-    MessagesWriter messagesWriter,
-    WebRtcParametersStorage currentOffers,
+    RtcNegotiationStore currentNegotiations,
     ILogger<RtcMatchMaker> logger,
-    PeerPairLocker locker,
-    IHubContext<SignallingHub> hubContext
+    IMessagesWriter messagesWriter
 )
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
-    static readonly TimeSpan PairLockTimeout = TimeSpan.FromSeconds(30);
 
     public async Task<RtcMatchParameter> MatchAsync(
         string initiatorId,
@@ -45,169 +22,112 @@ public class RtcMatchMaker(
     {
         var (offer, answer) = parameters;
 
-        if (offer is null && answer is null)
-            throw new UserFaultException("Both offer and answer cannot be null.");
+        if (offer is null)
+        {
+            throw new UserFaultException("No offer provided");
+        }
 
         var pair = new PeersPair(initiatorId, targetId);
 
         bool sendOffer = false;
 
-        var pairLock = await locker.TryLockPairAsync(pair, PairLockTimeout, cancellationToken);
+        var isNew = false;
 
-        if (pairLock is null)
-        {
-            logger.LogWarning(
-                "[RTC] Pair lock timeout for pair {Pair}. Returning empty match result.",
-                pair
-            );
-            return new(null, null);
-        }
-
-        var tcs = new TaskCompletionSource<RtcMatchParameter>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        using (pairLock)
-        {
-            var (currentOffer, waitingForAnswer) = currentOffers.GetValueOrDefault(pair);
-
-            if (answer is not null)
+        using var negotiationEntry = currentNegotiations.Acquire(
+            pair,
+            p =>
             {
-                if (offer is null)
-                    throw new UserFaultException("Answer provided without corresponding offer.");
-
-                if (currentOffer is null)
-                    return new(null, null);
-
-                if (!Equals(currentOffer, offer))
-                    return new(currentOffer, null);
-
-                currentOffers.TryRemove(pair, out _);
-
-                waitingForAnswer.TrySetResult(new(currentOffer, answer));
-
-                logger.LogInformation("[RTC] Answer matched for pair {Pair}", pair);
-
-                return new(currentOffer, answer);
-            }
-
-            if (currentOffer is not null)
-            {
-                logger.LogInformation("[RTC] Existing offer found for pair {Pair}", pair);
-
-                return new(currentOffer, null);
-            }
-
-            currentOffers[pair] = (offer!, tcs);
-
-            sendOffer = true;
-
-            logger.LogInformation("[RTC] Stored offer for pair {Pair}", pair);
-        }
-
-        if (sendOffer)
-        {
-            _ = RunOfferTimeoutAsync(pair, tcs);
-
-            await messagesWriter.EnqueueAsync(
-                MessageType.ConnectionAttempt.ToWireValue(),
-                JsonSerializer.SerializeToElement(offer),
-                initiatorId,
-                targetId,
-                cancellationToken
-            );
-
-            // Push the ConnectionAttempt message via SignalR so the target peer's
-            // BackendMessagesChannel receives it in real time (the DB write alone
-            // is picked up only by polling, which is no longer used).
-            try
-            {
-                var exchangeResponse = new ExchangeResponse(
-                    [
-                        new MessageResponse(
-                            CommonIdsGenerator.NewId(),
-                            initiatorId,
-                            MessageType.ConnectionAttempt.ToWireValue(),
-                            DateTime.UtcNow,
-                            JsonSerializer.SerializeToElement(offer)
-                        )
-                    ]
-                );
-
-                await hubContext.Clients.User(targetId)
-                    .SendAsync(
-                        MessageSpecifications.Push.Key,
-                        exchangeResponse,
-                        cancellationToken
-                    );
-
-                logger.LogInformation(
-                    "[RTC] Pushed ConnectionAttempt to {TargetId} via SignalR",
-                    targetId
-                );
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(
-                    ex,
-                    "[RTC] Failed to push ConnectionAttempt to {TargetId} via SignalR (peer may not be connected to hub). Falling back to DB storage.",
-                    targetId
-                );
-            }
-        }
-
-        using var registration = cancellationToken.Register(() =>
-            {
-                tcs.TrySetCanceled(cancellationToken);
+                isNew = true;
+                return StartNegotiation(offer, OfferTimeout);
             }
         );
 
+        logger.LogDebug("{initiatorId} trying to connect to {targetId}", initiatorId, targetId);
+        
+        if (isNew == false)
+        {
+            logger.LogDebug("There is already proceeding negotiation for pair {pair}", pair);
+            var request = negotiationEntry.Value;
+            if (offer != request.Offer)
+            {
+                logger.LogDebug("Countering incoming offer.");
+                request.ReplaceOffer(request.Offer);
+                return new(request.Offer, null);
+            }
+            if (answer is null)
+            {
+                logger.LogWarning("{initiatorId} tried to connect without an answer", initiatorId);
+                throw new UserFaultException("No answer provided");
+            }
+
+            request.Complete(answer);
+
+            return new(offer, answer);
+        }
+
+        logger.LogDebug("{initiatorId} started negotiation with {targetId}", initiatorId, targetId);
+
         try
         {
-            return await tcs.Task;
+            await NotifyTargetPeerAsync(
+                initiatorId,
+                targetId,
+                offer,
+                cancellationToken
+            );
+
+            var answerFromPeer = await negotiationEntry.Value.WhenCompleted;
+
+            return answerFromPeer;
         }
         catch (OperationCanceledException)
         {
-            await RemoveOfferAsync(pair, tcs);
-
-            throw;
+            logger.LogWarning("The pair {pair} negotiation timed out.", pair);
+            throw new UserFaultException($"Negotiation hasn't been completed within the time boundary of {OfferTimeout}.");
         }
-    }
-
-    async Task RemoveOfferAsync(PeersPair pair, TaskCompletionSource<RtcMatchParameter> tcs)
-    {
-        using var _ = await locker.LockAsync(pair, CancellationToken.None);
-
-        if (
-            currentOffers.TryGetValue(pair, out var existing)
-            && ReferenceEquals(existing.Item2, tcs)
-        )
+        finally
         {
-            currentOffers.TryRemove(pair, out var __);
+            logger.LogDebug("Removing pair {pair} negotiation from store.", pair);
+            negotiationEntry.Remove();
         }
     }
 
-    async Task RunOfferTimeoutAsync(PeersPair pair, TaskCompletionSource<RtcMatchParameter> tcs)
+    async Task NotifyTargetPeerAsync(
+        string initiatorId,
+        string targetId,
+        WebRtcOffer offer,
+        CancellationToken cancellationToken)
     {
         try
         {
-            await Task.Delay(OfferTimeout);
+            await messagesWriter.WriteAsync(
+                targetId: targetId,
+                senderId: initiatorId,
+                messageContent: new(Type: MessageType.ConnectionAttempt, Payload: JsonSerializer.SerializeToElement(value: offer)),
+                cancellationToken: cancellationToken
+            );
 
-            using var _ = await locker.LockAsync(pair, CancellationToken.None);
-
-            if (
-                currentOffers.TryGetValue(pair, out var existing)
-                && ReferenceEquals(existing.Item2, tcs)
-            )
-            {
-                currentOffers.TryRemove(pair, out var __);
-
-                logger.LogWarning("[RTC] Offer timed out for pair {Pair}", pair);
-
-                tcs.TrySetResult(new(null, null));
-            }
+            logger.LogInformation(
+                message: "[RTC] Pushed ConnectionAttempt to {TargetId} via SignalR",
+                args: targetId
+            );
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "[RTC] Error while processing offer timeout for pair {Pair}", pair);
+            logger.LogWarning(
+                exception: ex,
+                message: "[RTC] Failed to push ConnectionAttempt to {TargetId} via SignalR (peer may not be connected to hub). Falling back to DB storage.",
+                args: targetId
+            );
         }
+    }
+
+    static OngoingNegotiation StartNegotiation(WebRtcOffer offer, TimeSpan timeout)
+    {
+        var tcs = new TaskCompletionSource<RtcMatchParameter>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cts = new CancellationTokenSource(timeout);
+        cts.Token.Register(() => tcs.TrySetCanceled());
+        OngoingNegotiation result = new(tcs, offer);
+        return result;
     }
 }

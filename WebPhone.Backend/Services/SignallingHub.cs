@@ -1,55 +1,37 @@
 ﻿using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.Logging;
 using WebPhone.Domain;
 using WebPhone.Domain.Communication;
 
 namespace WebPhone.Backend.Services;
 
 public class SignallingHub(
-    ILogger<SignallingHub> logger,
     ConnectedUsersStorage users
 ) : Hub
 {
-    public async Task NotifyClientAsync(
-        string peerId,
-        ExchangeResponse exchangeResponse
-    )
-    {
-        var client = Clients.User(peerId);
-        await client.SendAsync(MessageSpecifications.Push.Key, exchangeResponse);
-    }
-
     [HubMethodName(nameof(MessageSpecifications.Send))]
-    public async Task NotifyServerAsync(
-        MessageRequest message
+    public async Task NotifyOthersAsync(
+        SentMessage message
     )
     {
-        var now = DateTime.UtcNow;
+        var sender = Context.UserIdentifier!;
+        var receiver = message.Receiver;
 
-        MessageRequest[] messages = [message];
+        var messageForClient = new ReceivedMessage(sender, message.Type, message.Payload);
 
-        var peerId = Context.UserIdentifier;
-
-        var transmittedMessages = messages.GroupBy(m => m.TargetClientId)
-            .Select(group => (group.Key, new ExchangeResponse([..group.Select(i => ToTransmittedMessage(peerId, i, now))])))
-            .ToArray();
-
-        foreach (var (receiverId, exchangeResponse) in transmittedMessages)
+        if (receiver is null)
         {
-            if (receiverId is null)
-            {
-                var concernedUsers = users.Users.Where(u => u != peerId).ToArray();
-                await Clients.Users(concernedUsers).SendAsync(MessageSpecifications.Push.Key, exchangeResponse);
-                continue;
-            }
-
-            var receiver = Clients.User(receiverId);
-            await receiver.SendAsync(
-                MessageSpecifications.Push.Key,
-                exchangeResponse
-            );
+            var concernedUsers = users.Users.Where(u => u != sender).ToArray();
+            await Clients.Users(concernedUsers).SendAsync(nameof(MessageSpecifications.Push), messageForClient);
+            return;
         }
+
+        await Clients.User(receiver)
+            .SendAsync(
+                MessageSpecifications.Push.Key,
+                messageForClient
+            );
     }
+
 
     public override Task OnConnectedAsync()
     {
@@ -64,12 +46,4 @@ public class SignallingHub(
             users.Disconnected(Context.UserIdentifier, Context.ConnectionId);
         return Task.CompletedTask;
     }
-
-    static MessageResponse ToTransmittedMessage(string peerId, MessageRequest incoming, DateTime time) => new MessageResponse(
-        Id: -1,
-        PublisherClientId: peerId,
-        Type: incoming.Type,
-        DateTime: time,
-        Payload: incoming.Payload
-    );
 }

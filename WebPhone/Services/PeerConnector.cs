@@ -1,6 +1,7 @@
 ﻿using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
 using EverModern.Threading;
+using EverModern.Threading.Locks;
 using Microsoft.Extensions.Logging;
 using WebPhone.Domain;
 
@@ -26,8 +27,8 @@ public class PeerConnector(
 
     public IRtcConnection? GetReadyConnection()
     {
-        using var _ = _locker.LockScope() ;
-            
+        using var _ = _locker.LockScope();
+
         if (_connecting?.IsCompletedSuccessfully is not true)
             return null;
 
@@ -40,41 +41,41 @@ public class PeerConnector(
     )
     {
         Task<IRtcConnection> task;
-        
-        logger.LogDebug("Required a peer connection {offer}.", offer is null ? "without an offer" : "with an offer");
+
+        logger.LogDebug("Required a peer connection {offer}.", offer is null ? "without an incoming offer" : "with an incoming offer");
 
         using (var _ = _locker.LockScope())
         {
-            if (_connecting is null || _connecting.IsFaulted)
+            if (_connecting is not null && !_connecting.IsFaulted)
+                return _connecting;
+
+            if (_connecting is null)
             {
-                if (_connecting is null)
-                {
-                    logger.LogInformation("No connection yet or the previous has been closed. Starting new negotiation.");
-                }
-                else if (_connecting.IsFaulted)
-                {
-                    logger.LogInformation("Previous connection attempt failed. Starting new attempt.");
-                }
-
-                _connectionEventSource.Invoke();
-                _connecting = StartConnectingAsync(cancellationToken, offer)
-                    .ContinueWith(
-                        t =>
-                        {
-                            _connectionEventSource.Invoke();
-
-                            if (t.IsFaulted)
-                            {
-                                logger.LogError(t.Exception, "Could not establish connection.");
-                                throw t.Exception;
-                            }
-
-
-                            return WithSubscription(t.Result);
-                        },
-                        CancellationToken.None
-                    );
+                logger.LogInformation("No connection yet or the previous has been closed. Starting new negotiation.");
             }
+            else if (_connecting.IsFaulted)
+            {
+                logger.LogInformation("Previous connection attempt failed. Starting new attempt.");
+            }
+
+            _connectionEventSource.Invoke();
+            _connecting = StartConnectingAsync(cancellationToken, offer)
+                .ContinueWith(
+                    t =>
+                    {
+                        _connectionEventSource.Invoke();
+
+                        if (t.IsFaulted)
+                        {
+                            logger.LogError(t.Exception, "Could not establish connection.");
+                            throw t.Exception;
+                        }
+
+
+                        return WithSubscription(t.Result);
+                    },
+                    CancellationToken.None
+                );
         }
 
         return _connecting;
@@ -85,7 +86,7 @@ public class PeerConnector(
         using var _ = _locker.LockScope();
         if (_connecting?.IsCompletedSuccessfully != true)
             return false;
-        
+
         _connecting.Result.Dispose();
         return true;
     }
@@ -94,12 +95,12 @@ public class PeerConnector(
     {
         connection.StateChanged.Subscribe((newState, sub) =>
             {
-                using (var _ = _locker.LockScope())
-                    if (newState == "closed")
-                    {
-                        _connecting = null;
-                        sub.Dispose();
-                    }
+                if (newState != "closed")
+                    return;
+
+                using var _ = _locker.LockScope();
+                _connecting = null;
+                sub.Dispose();
             }
         );
 

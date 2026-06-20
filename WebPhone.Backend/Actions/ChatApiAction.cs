@@ -12,7 +12,7 @@ public sealed record GetChatMessagesInput(string ClientId, string PeerId, long? 
 
 public sealed class SendChatApiAction(
     ILogger<SendChatApiAction> logger,
-    MessagesWriter messagesWriter,
+    DbMessagesWriter messagesWriter,
     PushNotifier pushNotificationService,
     ProfileSettingsRepository userSettingsRepository,
     ContactSettingsRepository contactSettingsRepository
