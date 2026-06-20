@@ -112,7 +112,7 @@ public class PeerConnectorIntegrationTests(
     {
         var peers = new List<(PeerConnectionsDispatcher Connector, string PeerId)>();
 
-        const int peersCount = 50;
+        const int peersCount = 200;
         await foreach (var item in GeneratePeers(default).Take(peersCount))
             peers.Add(item);
 

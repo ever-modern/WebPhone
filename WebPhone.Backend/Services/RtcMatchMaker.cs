@@ -42,15 +42,15 @@ public class RtcMatchMaker(
             }
         );
 
-        logger.LogDebug("{initiatorId} trying to connect to {targetId}", initiatorId, targetId);
+        logger.LogInformation("{initiatorId} trying to connect to {targetId}", initiatorId, targetId);
         
         if (isNew == false)
         {
-            logger.LogDebug("There is already proceeding negotiation for pair {pair}", pair);
+            logger.LogInformation("There is already proceeding negotiation for pair {pair}", pair);
             var request = negotiationEntry.Value;
             if (offer != request.Offer)
             {
-                logger.LogDebug("Countering incoming offer.");
+                logger.LogInformation("Countering incoming offer.");
                 request.ReplaceOffer(request.Offer);
                 return new(request.Offer, null);
             }
@@ -65,7 +65,7 @@ public class RtcMatchMaker(
             return new(offer, answer);
         }
 
-        logger.LogDebug("{initiatorId} started negotiation with {targetId}", initiatorId, targetId);
+        logger.LogInformation("{initiatorId} started negotiation with {targetId}", initiatorId, targetId);
 
         try
         {
@@ -76,7 +76,9 @@ public class RtcMatchMaker(
                 cancellationToken
             );
 
-            var answerFromPeer = await negotiationEntry.Value.WhenCompleted;
+            var task = negotiationEntry.Value.WhenCompleted;
+            negotiationEntry.Dispose();            
+            var answerFromPeer = await task;
 
             return answerFromPeer;
         }
@@ -87,7 +89,7 @@ public class RtcMatchMaker(
         }
         finally
         {
-            logger.LogDebug("Removing pair {pair} negotiation from store.", pair);
+            logger.LogInformation("Removing pair {pair} negotiation from store.", pair);
             negotiationEntry.Remove();
         }
     }

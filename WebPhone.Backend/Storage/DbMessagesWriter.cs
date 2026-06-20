@@ -13,7 +13,7 @@ public class DbMessagesWriter(
 {
     private const int DefaultWriteBatchSize = 100;
 
-    readonly BroadcastChannel<MessageWriteEntry> _channel = new();
+    readonly MultireadChannel<MessageWriteEntry> _channel = new();
     readonly CancellationTokenSource _cts = new();
 
     public void Dispose()

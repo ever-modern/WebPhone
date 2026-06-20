@@ -11,7 +11,7 @@ public class DbConnectionResolver(string connectionString)
 {
     readonly RateController _rateController = new(
         [new CallConstraint(TimeSpan.FromSeconds(0.1), 3)],
-        RealTimeChronos.Instance
+        RealtimeChronos.Instance
     );
 
     public async ValueTask<NpgsqlConnection> GetAsync(CancellationToken cancellationToken = default)

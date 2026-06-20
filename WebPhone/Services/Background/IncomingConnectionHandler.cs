@@ -25,11 +25,13 @@ public sealed class IncomingConnectionsHandler(
             async () =>
             {
                 using var reader = messagesChannel.Subscribe(m => m.Type is MessageType.ConnectionAttempt);
+                bool startedFlag = false;
 
                 await foreach (var message in reader.ReadAllAsync(_cts.Token).Prepend(null!))
                 {
-                    if (message is null)
+                    if (startedFlag is false)
                     {
+                        startedFlag = true;
                         started.TrySetResult();
                         continue;
                     }

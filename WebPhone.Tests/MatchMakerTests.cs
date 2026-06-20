@@ -9,7 +9,7 @@ namespace WebPhone.Tests;
 
 public class InMemoryMessagesChannel : IMessagesWriter
 {
-    readonly BroadcastChannel<TransmittedMessage> _inner = new();
+    readonly MultireadChannel<TransmittedMessage> _inner = new();
 
     public Task WriteAsync(string targetId, string senderId, MessageContent messageContent, CancellationToken cancellationToken)
     {
