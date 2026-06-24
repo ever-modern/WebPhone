@@ -48,21 +48,27 @@
 
         <div class="contact-detail-actions">
             <ContactSettingsSection ContactId="@contact.Id" />
-            @if (interaction is InteractionState.ReceivingCall)
+            @if (Manager.AcceptCall is not null)
             {
                 <button class="webrtc-button" @onclick="AcceptCall">Accept call</button>
+            }
+            @if (Manager.DeclineCall is not null)
+            {
                 <button class="webrtc-button webrtc-button--danger" @onclick="DeclineCall">Decline</button>
             }
-            else if (interaction is InteractionState.Connected and not InteractionState.Calling and not InteractionState.ReceivingCall and not InteractionState.OnCall)
+            @if (Manager.AudioCall is not null)
             {
                 <button class="webrtc-button" @onclick="StartCall">Call</button>
+            }
+            @if (Manager.VideoCall is not null)
+            {
                 <button class="webrtc-button" @onclick="StartVideoCall">&#127909; Video call</button>
             }
-            @if (interaction is InteractionState.OnCall)
+            @if (Manager.Hangup is not null)
             {
                 <button class="webrtc-button webrtc-button--danger" @onclick="EndCall">Hang up</button>
             }
-            @if (interaction is InteractionState.Calling)
+            @if (Manager.StopCalling is not null)
             {
                 <button class="webrtc-button webrtc-button--danger" @onclick="CancelCall">Cancel call</button>
             }
@@ -115,5 +121,4 @@
         InteractionState.Connected => "Connected",
         _ => ""
     };
-}
 }
