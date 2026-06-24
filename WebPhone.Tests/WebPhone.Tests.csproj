@@ -19,7 +19,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\WebPhone.Api\WebPhone.Api.csproj" />
-		<ProjectReference Include="..\WebPhone\WebPhone.csproj" />
+		<ProjectReference Include="..\WebPhone\WebPhone.UI.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>

@@ -9,10 +9,11 @@
   <Project Path="WebPhone.Contract/WebPhone.Domain.csproj" Id="031d1bef-7968-400e-bcc3-80a6ca845f5e">
     <Build Solution="Debug|*" Project="false" />
   </Project>
+  <Project Path="WebPhone.Core/WebPhone.csproj" />
   <Project Path="WebPhone.Mobile/WebPhone.Mobile.csproj" Id="02567dc8-72e4-4a2a-840c-b8f5d9b537e2">
     <Deploy Solution="Debug|*" />
   </Project>
   <Project Path="WebPhone.Tests/WebPhone.Tests.csproj" Id="48b95fbd-526b-4efe-a722-075dd34ab1ee" />
   <Project Path="WebPhone.Web/WebPhone.Web.csproj" />
-  <Project Path="WebPhone/WebPhone.csproj" Id="8cb35cef-88a1-4bb0-8c4a-341f06dd33a9" />
+  <Project Path="WebPhone/WebPhone.UI.csproj" Id="8cb35cef-88a1-4bb0-8c4a-341f06dd33a9" />
 </Solution>

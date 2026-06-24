@@ -2,7 +2,6 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Logging;
-using WebPhone.Services;
 using WebPhone.Services.Data;
 using WebPhone.Tests.Provision;
 using Xunit.Abstractions;

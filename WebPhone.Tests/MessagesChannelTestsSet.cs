@@ -1,7 +1,7 @@
 ﻿using System.Text.Json;
+using WebPhone.Channels;
 using WebPhone.Domain;
 using WebPhone.Messages;
-using WebPhone.Services.Channels;
 using Xunit.Abstractions;
 
 namespace WebPhone.Tests;

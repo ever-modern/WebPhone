@@ -17,7 +17,7 @@
 	<ItemGroup>
 		<ProjectReference Include="..\EverModern.Blazor.DirectCommunication\EverModern.Blazor.DirectCommunication.csproj" />
 		<ProjectReference Include="..\WebPhone.Contract\WebPhone.Domain.csproj" />
-		<ProjectReference Include="..\WebPhone\WebPhone.csproj" />
+		<ProjectReference Include="..\WebPhone\WebPhone.UI.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>

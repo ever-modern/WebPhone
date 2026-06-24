@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Components;
+using WebPhone.Background;
 using WebPhone.Components;
-using WebPhone.Services.Background;
 
-namespace WebPhone.Pages;
+namespace WebPhone.UI.Pages;
 
 public partial class ContactPage
 {

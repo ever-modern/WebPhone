@@ -5,7 +5,7 @@ using WebPhone.Components;
 using WebPhone.Domain;
 using WebPhone.Services;
 
-namespace WebPhone.Layout;
+namespace WebPhone.UI.Layout;
 
 public partial class MainLayout
 {

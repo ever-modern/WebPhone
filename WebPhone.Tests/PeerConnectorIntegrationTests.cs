@@ -1,15 +1,14 @@
 ﻿using System.Runtime.CompilerServices;
 using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
+using WebPhone.Background;
+using WebPhone.Channels;
 using WebPhone.Domain;
-using WebPhone.Services;
-using WebPhone.Services.Background;
-using WebPhone.Services.Channels;
 using WebPhone.Tests.Provision;
 using Xunit.Abstractions;
-using PeerPair=(
-    (WebPhone.Services.PeerConnectionsDispatcher First, string UserId),
-    (WebPhone.Services.PeerConnectionsDispatcher Second, string UserId)
+using PeerPair = (
+    (WebPhone.PeerConnectionsDispatcher First, string UserId),
+    (WebPhone.PeerConnectionsDispatcher Second, string UserId)
     );
 
 namespace WebPhone.Tests;

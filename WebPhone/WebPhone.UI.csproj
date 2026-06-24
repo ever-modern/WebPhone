@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+	</PropertyGroup>
+
+
+	<ItemGroup>
+		<SupportedPlatform Include="browser" />
+	</ItemGroup>
+
+
+	<PropertyGroup>
+		<BuildDate>$([System.DateTime]::UtcNow.ToString("yyyy.MM.dd HH:mm:ss"))</BuildDate>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<AssemblyMetadata Include="BuildDate" Value="$(BuildDate)" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <ProjectReference Include="..\EverModern.Blazor.DirectCommunication\EverModern.Blazor.DirectCommunication.csproj" />
+	  <ProjectReference Include="..\WebPhone.Core\WebPhone.csproj" />
+	  </ItemGroup>
+
+</Project>
