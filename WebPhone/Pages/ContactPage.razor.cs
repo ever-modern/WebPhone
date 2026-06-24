@@ -18,7 +18,7 @@ public partial class ContactPage
 
     protected override void OnInitialized()
     {
-        BoundToLifetime(Dispatcher.StateChanged.Subscribe(SyncAndRender));
+        BoundToLifetime(Dispatcher.State.Subscribe(SyncAndRender));
     }
 
     protected override async Task OnInitializedAsync()

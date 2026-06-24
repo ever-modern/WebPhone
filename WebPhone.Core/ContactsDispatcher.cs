@@ -7,9 +7,7 @@ using WebPhone.Data;
 
 namespace WebPhone;
 
-public record PhoneState(
-    IReadOnlyList<ContactManager> Contacts
-);
+public record PhoneState(IReadOnlyList<ContactManager> Contacts);
 
 public sealed class ContactsDispatcher(
     PeerConnectionsDispatcher peerConnectionsDispatcher,
@@ -17,25 +15,23 @@ public sealed class ContactsDispatcher(
     ILoggerFactory loggerFactory
 ) : IDisposable
 {
-    readonly EventSource<PhoneState> _stateChanged = new();
-    public INotifier<PhoneState> StateChanged => _stateChanged;
+    readonly ObservedValue<PhoneState> _exposedState = new(new([]));
+    public IValueNotifier<PhoneState> State => _exposedState;
 
     Dictionary<string, Entry> _state = [];
 
     readonly List<IDisposable> _toDispose = [];
     readonly Lock _locker = new();
-    
-    volatile bool  _started;
+
+    volatile bool _started;
 
     public ContactsDispatcher Start()
     {
         if (_started)
             return this;
         _started = true;
-        
-        var sub1 = peerConnectionsDispatcher.ConnectionsChange.Subscribe(_ =>
-            ResetState()
-        );
+
+        var sub1 = peerConnectionsDispatcher.ConnectionsChange.Subscribe(_ => ResetState());
         var sub2 = contactsRepository.StateChanged.Subscribe(ResetState);
         _toDispose.AddRange(sub1, sub2);
         return this;
@@ -50,51 +46,57 @@ public sealed class ContactsDispatcher(
             entry.Dispose();
         }
         var newPhoneState = new PhoneState(
-            _state.Select(kv =>
-                    {
-                        ContactManager manager = new(kv.Value.MediaConnection, kv.Key, peerConnectionsDispatcher);
-                        return manager;
-                    }
-                )
+            _state
+                .Select(kv =>
+                {
+                    ContactManager manager = new(
+                        kv.Value.MediaConnection,
+                        kv.Key,
+                        peerConnectionsDispatcher
+                    );
+                    return manager;
+                })
                 .ToArray()
         );
-        _stateChanged.Invoke(newPhoneState);
+
+        _exposedState.Change(newPhoneState);
     }
 
     Dictionary<string, Entry> CalculateState(out IReadOnlyList<Entry> irrelevantEntries)
     {
         var entriesToRemove = new List<Entry>();
 
-        var state = contactsRepository.Contacts
-            .Select(contact =>
+        var state = contactsRepository
+            .Contacts.Select(contact =>
+            {
+                var connection = peerConnectionsDispatcher.FindReadyConnection(contact.Id);
+                if (connection is null && contact.IsFavorite == false)
                 {
-                    var connection = peerConnectionsDispatcher.FindReadyConnection(contact.Id);
-                    if (connection is null && contact.IsFavorite == false)
-                    {
-                        return null;
-                    }
-
-                    if (_state.TryGetValue(contact.Id, out var existingEntry) && ReferenceEquals(existingEntry.Connection, connection))
-                    {
-                        return existingEntry;
-                    }
-
-                    if (existingEntry is not null)
-                    {
-                        entriesToRemove.Add(existingEntry);
-                    }
-
-                    InteractionState initialState = DateTime.UtcNow - contact.LastSeen > TimeSpan.FromSeconds(10) ? InteractionState.Offline.Instance : InteractionState.Disconnected.Instance;
-                    var newEntry = Entry.Create(
-                        contact.Id,
-                        connection!,
-                        loggerFactory,
-                        initialState
-                    );
-
-                    return newEntry;
+                    return null;
                 }
-            )
+
+                if (
+                    _state.TryGetValue(contact.Id, out var existingEntry)
+                    && ReferenceEquals(existingEntry.Connection, connection)
+                )
+                {
+                    return existingEntry;
+                }
+
+                if (existingEntry is not null)
+                {
+                    entriesToRemove.Add(existingEntry);
+                }
+
+                InteractionState initialState =
+                    DateTime.UtcNow - contact.LastSeen > TimeSpan.FromSeconds(10)
+                        ? InteractionState.Offline.Instance
+                        : InteractionState.Disconnected.Instance;
+
+                var newEntry = Entry.Create(contact.Id, connection!, loggerFactory, initialState);
+
+                return newEntry;
+            })
             .Where(entry => entry is not null)
             .ToDictionary(entry => entry!.PeerId, entry => entry!);
 
@@ -112,26 +114,26 @@ public sealed class ContactsDispatcher(
         internal required ObservedValue<InteractionState> State { get; init; }
         public IValueNotifier<InteractionState> StateChanged => State;
 
-        public static Entry Create(string peerId, IRtcConnection connection, ILoggerFactory loggerFactory, InteractionState initialState)
+        public static Entry Create(
+            string peerId,
+            IRtcConnection connection,
+            ILoggerFactory loggerFactory,
+            InteractionState initialState
+        )
         {
             var logger = loggerFactory.CreateLogger($"MediaConnection-{peerId}");
             var channel = new RtcConnectionMessageChannel(connection);
             var state = new ObservedValue<InteractionState>(initialState);
             var mediaConnection = new MediaConnection(channel, logger, state);
-            Entry result = new(
-                peerId,
-                connection,
-                channel,
-                mediaConnection
-            )
-            {
-                State = state
-            };
+            Entry result = new(peerId, connection, channel, mediaConnection) { State = state };
 
             return result;
         }
 
-        public void Dispose() { Connection.Dispose(); }
+        public void Dispose()
+        {
+            Connection.Dispose();
+        }
     }
 
     public void Dispose()

@@ -32,7 +32,7 @@ public partial class MainLayout
 
         await AppStarter.EnsureStartedAsync();
 
-        _dispatcherSub = Dispatcher.StateChanged.Subscribe(OnDispatcherChanged);
+        _dispatcherSub = Dispatcher.State.Subscribe(OnDispatcherChanged);
         _profileSub = Profile.UserChanged.Subscribe(_ => InvokeAsync(StateHasChanged));
         Nav.LocationChanged += OnLocationChanged;
 
