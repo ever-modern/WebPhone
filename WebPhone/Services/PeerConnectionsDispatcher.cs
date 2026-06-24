@@ -3,8 +3,14 @@ using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
 using Microsoft.Extensions.Logging;
 using WebPhone.Domain;
+using WebPhone.Services.Channels;
 
 namespace WebPhone.Services;
+
+public class MediaEnabler
+{
+    public async Task SetMediaAsync(MediaState mediaState) {}
+}
 
 public class PeerConnectionsDispatcher(
     IRtcConnector rtcConnector,
@@ -13,11 +19,13 @@ public class PeerConnectionsDispatcher(
 ) : IDisposable
 {
     readonly ConcurrentDictionary<string, PeerConnector> _connectors = new();
-    readonly EventSource _connectionEventSource = new();
+    readonly ObservedValue<IReadOnlyDictionary<string, InteractionState>> _connectionEventSource = new(new Dictionary<string, InteractionState>());
     readonly CancellationTokenSource _cts = new();
     readonly Lock _disposeLock = new();
 
     bool _disposed = false;
+
+    public IValueNotifier<IReadOnlyDictionary<string, InteractionState>> ConnectionsChange => _connectionEventSource;
 
     public Task<IRtcConnection> ConnectAsync(string peerId, CancellationToken cancellationToken = default, WebRtcOffer? offer = null)
     {
@@ -74,7 +82,6 @@ public class PeerConnectionsDispatcher(
 
     PeerConnector NewConnector(string peerId)
     {
-        var id = CommonIdsGenerator.NewId();
         var logger = loggerFactory.CreateLogger($"[PeerConnector][User:{peerId}]");
         var connector = new PeerConnector(
             peerId,
@@ -82,6 +89,15 @@ public class PeerConnectionsDispatcher(
             backendClient,
             rtcConnector
         );
+
+        connector.ConnectionChanged.Subscribe(newConnectionState =>
+            {
+                var newConnectionsState = _connectionEventSource.Value.ToDictionary();
+                newConnectionsState[peerId] = newConnectionState;
+                _connectionEventSource.Change(newConnectionsState);
+            }
+        );
+
         return connector;
     }
 }

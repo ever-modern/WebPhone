@@ -23,7 +23,7 @@ public static class MauiProgram
         using var stream = FileSystem.OpenAppPackageFileAsync("appsettings.json").GetAwaiter().GetResult();
         builder.Configuration.AddJsonStream(stream);
 
-        services.ConfigureWebPhoneApplication(builder.Configuration);
+        services.ConfigureWebPhoneFrontendApplication(builder.Configuration);
         services.AddSingleton<ILocalStore, MauiLocalStore>();
         //services.AddScoped<IRtcConnector, NativeRtcConnector>();
 #if DEBUG

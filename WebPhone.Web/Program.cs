@@ -8,7 +8,7 @@ builder.RootComponents.Add<HeadOutlet>("head::after");
 
 IServiceCollection services = builder.Services;
 
-services.ConfigureWebPhoneApplication(builder.Configuration);
+services.ConfigureWebPhoneFrontendApplication(builder.Configuration);
 
 builder.Logging.SetMinimumLevel(LogLevel.Debug);
 

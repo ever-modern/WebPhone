@@ -7,6 +7,7 @@ using WebPhone.Domain;
 
 namespace WebPhone.Services;
 
+
 public class PeerConnector(
     string peerId,
     ILogger logger,
@@ -16,10 +17,10 @@ public class PeerConnector(
 {
     const int _maxCounterOfferAttempts = 3;
     readonly Lock _locker = new();
-    readonly EventSource _connectionEventSource = new();
+    readonly ObservedValue<InteractionState> _connectionEventSource = new(InteractionState.Disconnected.Instance);
     readonly CancellationTokenSource _cts = new();
 
-    public INotifier ConnectionChanged => _connectionEventSource;
+    public IValueNotifier<InteractionState> ConnectionChanged => _connectionEventSource;
 
     public Task<IRtcConnection>? Connecting => _connecting;
 
@@ -58,20 +59,18 @@ public class PeerConnector(
                 logger.LogInformation("Previous connection attempt failed. Starting new attempt.");
             }
 
-            _connectionEventSource.Invoke();
+            _connectionEventSource.Change(InteractionState.Connecting.Instance);
             _connecting = StartConnectingAsync(cancellationToken, offer)
                 .ContinueWith(
                     t =>
                     {
-                        _connectionEventSource.Invoke();
-
                         if (t.IsFaulted)
                         {
                             logger.LogError(t.Exception, "Could not establish connection.");
+                            _connectionEventSource.Change(InteractionState.Disconnected.Instance);
                             throw t.Exception;
                         }
-
-
+                        _connectionEventSource.Change(InteractionState.Connected.Instance);                        
                         return WithSubscription(t.Result);
                     },
                     CancellationToken.None
@@ -95,15 +94,15 @@ public class PeerConnector(
     {
         connection.StateChanged.Subscribe((newState, sub) =>
             {
-                if (newState != "closed")
-                    return;
-
-                using var _ = _locker.LockScope();
-                _connecting = null;
-                sub.Dispose();
+                if (newState is "closed")
+                {
+                    using var _ = _locker.LockScope();
+                    _connecting = null;
+                    sub.Dispose();
+                }
             }
         );
-
+        
         return connection;
     }
 

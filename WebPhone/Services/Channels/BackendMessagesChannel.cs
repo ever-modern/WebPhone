@@ -8,7 +8,7 @@ using WebPhone.Messages;
 
 namespace WebPhone.Services.Channels;
 
-public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
+public class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
 {
     readonly ConcurrentDictionary<Channel<IncomingMessage>, byte> _incomingChannels = new();
     readonly Lock _starting = new();
@@ -18,7 +18,7 @@ public sealed class BackendMessagesChannel : IMessagesChannel, IAsyncDisposable
 
     readonly CancellationTokenSource _cts = new();
 
-    BackendMessagesChannel() {}
+    public BackendMessagesChannel() {}
 
     public static async Task<BackendMessagesChannel> BindAsync(HubConnection hubConnection)
     {

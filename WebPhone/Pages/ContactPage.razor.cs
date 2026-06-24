@@ -7,7 +7,7 @@ namespace WebPhone.Pages;
 public partial class ContactPage
 {
     [Inject]
-    public AppStarter AppStarter { get; set; } = default!;
+    public AppStarter AppStarter { get; set; } = null!;
 
     [Parameter]
     public string ContactId { get; set; } = "";

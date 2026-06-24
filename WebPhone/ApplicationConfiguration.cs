@@ -12,7 +12,7 @@ namespace WebPhone;
 
 public static class ApplicationConfiguration
 {
-    public static void ConfigureWebPhoneApplication(
+    public static void ConfigureWebPhoneFrontendApplication(
         this IServiceCollection services,
         IConfiguration configuration
     )
@@ -49,7 +49,9 @@ public static class ApplicationConfiguration
                 var options = sp.GetRequiredService<PhoneOptions>();
                 var baseUrl = options.ExternalChannelBaseUrl;
                 baseUrl = "https://web-phone-api.enjoyer-station.myvnc.com";
+#if DEBUG
                 baseUrl = "http://localhost:5194";
+#endif
                 var externalChannelBaseUrl = new BackendClient(
                     baseUrl,
                     profile
@@ -60,7 +62,7 @@ public static class ApplicationConfiguration
 
         services.AddSingleton<IBackendClient>(sp => sp.GetRequiredService<BackendClient>());
 
-        services.AddSingleton<BackendMessagesChannel>(        );
+        services.AddSingleton(new BackendMessagesChannel());
 
         services.AddSingleton<IMessagesChannel>(sp =>
             sp.GetRequiredService<BackendMessagesChannel>()

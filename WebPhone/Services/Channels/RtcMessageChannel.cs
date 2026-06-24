@@ -9,13 +9,23 @@ namespace WebPhone.Services.Channels;
 
 public enum RtcMessageType
 {
+    Ping,
+    Disconnect,
     User,
     WantCall,
+    ContinueCall,
+    StopCall,
     RejectCall,
     WantVideoCall,
 }
 
-public record struct RtcMessage(RtcMessageType Type, string? Payload = null);
+public record struct RtcMessage(
+    RtcMessageType Type,
+    string? Payload = null
+)
+{
+    public static RtcMessage Create(RtcMessageType type, object payload) => new RtcMessage(type, JsonSerializer.Serialize(payload));
+}
 
 public class RtcConnectionMessageChannel
     : IBroadcastChannel<RtcMessage, RtcMessage>,
@@ -23,13 +33,13 @@ public class RtcConnectionMessageChannel
         IDisposable
 {
     readonly IRtcConnection _rtcConnection;
-    private readonly List<Channel<RtcMessage>> _incoming = [];
-    private readonly Channel<RtcMessage> _outgoing = Channel.CreateUnbounded<RtcMessage>();
-    private readonly CancellationTokenSource _cts = new();
-    private readonly Task _initializeTask;
-    private readonly Task _sendLoopTask;
-    private Subscription? _bytesSubscription;
-    private bool _isDisposed;
+    readonly List<Channel<RtcMessage>> _incoming = [];
+    readonly Channel<RtcMessage> _outgoing = Channel.CreateUnbounded<RtcMessage>();
+    readonly CancellationTokenSource _cts = new();
+    readonly Task _initializeTask;
+    readonly Task _sendLoopTask;
+    Subscription? _bytesSubscription;
+    bool _isDisposed;
 
     public RtcConnectionMessageChannel(IRtcConnection rtcConnection)
     {
@@ -40,7 +50,7 @@ public class RtcConnectionMessageChannel
 
     public ChannelWriter<RtcMessage> Writer => _outgoing.Writer;
 
-    public IChannelSubscription<RtcMessage> Subscribe() => Subscribe(null);
+    public IChannelSubscription<RtcMessage> Subscribe() => Subscribe(_ => true);
 
     public IChannelSubscription<RtcMessage> Subscribe(Func<RtcMessage, bool> filter)
     {
@@ -78,7 +88,7 @@ public class RtcConnectionMessageChannel
         {
             await _initializeTask;
         }
-        catch { }
+        catch {}
 
         _bytesSubscription?.Dispose();
 
@@ -97,18 +107,19 @@ public class RtcConnectionMessageChannel
         {
             await _sendLoopTask;
         }
-        catch { }
+        catch {}
 
         _cts.Dispose();
     }
 
-    private async Task InitializeAsync(CancellationToken ct)
+    Task InitializeAsync(CancellationToken ct)
     {
         _bytesSubscription = _rtcConnection.BytesReceived.Subscribe(OnBytesReceived);
         ct.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
     }
 
-    private void OnBytesReceived(byte[] bytes)
+    void OnBytesReceived(byte[] bytes)
     {
         if (!TryParseWireMessage(bytes, out var message))
             return;
@@ -116,7 +127,7 @@ public class RtcConnectionMessageChannel
         BroadcastIncoming(message);
     }
 
-    private async Task RunSendLoopAsync(CancellationToken cancellationToken)
+    async Task RunSendLoopAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -127,10 +138,10 @@ public class RtcConnectionMessageChannel
                     return;
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) {}
     }
 
-    private void BroadcastIncoming(RtcMessage message)
+    void BroadcastIncoming(RtcMessage message)
     {
         Channel<RtcMessage>[] subscriptions;
         lock (_incoming)
@@ -144,10 +155,10 @@ public class RtcConnectionMessageChannel
         }
     }
 
-    private static byte[] ToWireMessage(RtcMessage message) =>
+    static byte[] ToWireMessage(RtcMessage message) =>
         Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
 
-    private static bool TryParseWireMessage(byte[] rawMessage, out RtcMessage parsed)
+    static bool TryParseWireMessage(byte[] rawMessage, out RtcMessage parsed)
     {
         try
         {

@@ -19,7 +19,9 @@
     </ItemGroup>
 
     <ItemGroup>
-        <Folder Include="SignalR\"/>
+      <Content Include="..\.dockerignore">
+        <Link>.dockerignore</Link>
+      </Content>
     </ItemGroup>
 
 </Project>

@@ -51,9 +51,7 @@ public sealed class AppStarter(
         await incomingConnectionsHandler.StartReadingAsync(backendMessagesChannel);
         
         await presenceAnnouncer.StartAsync();
-        await contactsDispatcher.StartAsync(
-            cancellationToken
-        );
+        contactsDispatcher.Start();
 
         _started = true;
     }

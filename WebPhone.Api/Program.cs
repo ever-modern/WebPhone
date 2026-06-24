@@ -13,7 +13,10 @@ public partial class Program
         builder.Services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy =>
-                policy.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()
+                policy.WithOrigins("https://web-phone.enjoyer-station.myvnc.com")
+                      .AllowAnyHeader()
+                      .AllowAnyMethod()
+                      .AllowCredentials()
             );
         });
 
@@ -23,6 +26,8 @@ public partial class Program
         {
             app.MapOpenApi();
         }
+
+        app.UseRouting();
         
         app.UseCors();
 

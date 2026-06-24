@@ -172,7 +172,7 @@ public class PeerConnectorIntegrationTests(
         var connectionTasks = Enumerable.Range(0, 20)
             .SelectMany(i =>
                 {
-                    return new Task[]
+                    return new[]
                     {
                         firstConnector.ConnectAsync(secondUserId).ContinueWith(t => firstPeerConnections.Add(t.Result)),
                         secondConnector.ConnectAsync(firstUserId).ContinueWith(t => secondPeerConnections.Add(t.Result))
