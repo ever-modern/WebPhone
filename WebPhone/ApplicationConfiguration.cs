@@ -29,8 +29,6 @@ public static class ApplicationConfiguration
 
         services.AddSingleton<IRtcConnector>(sp => sp.GetRequiredService<JsRtcConnector>());
 
-        services.AddSingleton<VideoCallState>();
-
         services.AddSingleton<PeerConnectionsDispatcher>();
         services.AddSingleton<IncomingConnectionsHandler>();
         services.AddSingleton<ContactsDispatcher>();
