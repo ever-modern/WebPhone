@@ -1,7 +1,4 @@
-﻿@using WebPhone.Background
-@using WebPhone.Data
-
-@inherits LayoutComponentBase
+﻿@inherits LayoutComponentBase
 @implements IDisposable
 
 @inject AppStarter AppStarter
@@ -16,7 +13,7 @@
     @if (ready && !string.IsNullOrWhiteSpace(Profile.User.Name))
     {
         <div class="webphone-shell">
-            <ContactsSidebar Cards="_contactCards"
+            <ContactsSidebar Managers="Dispatcher.State.Value.Contacts"
                              IsDocked="!_isMobile"
                              SelectedId="@_selectedId"
                              OnContactSelected="HandleContactSelected" />
@@ -59,6 +56,49 @@
     }
 </div>
 
-<VideoCallScreen />
+@* Incoming call modal (WhatsApp-style) *@
+@if (IncomingCallContact is not null)
+{
+    <div class="call-modal-backdrop"></div>
+    <div class="call-modal">
+        <div class="call-modal-avatar">@IncomingCallContact.Contact.Name[0].ToString().ToUpperInvariant()</div>
+        <h3 class="call-modal-name">
+            @(string.IsNullOrWhiteSpace(IncomingCallContact.Contact.Nickname)
+                ? IncomingCallContact.Contact.Name
+                : IncomingCallContact.Contact.Nickname)
+        </h3>
+        <p class="call-modal-status">Incoming call…</p>
+        <div class="call-modal-actions">
+            <button class="call-modal-btn call-modal-btn--decline" @onclick="HandleDeclineCall">
+                <span>✕</span>
+                <span>Decline</span>
+            </button>
+            <button class="call-modal-btn call-modal-btn--accept" @onclick="HandleAcceptCall">
+                <span>📞</span>
+                <span>Accept</span>
+            </button>
+        </div>
+    </div>
+}
 
-
+@* Active call fullscreen overlay *@
+@if (ActiveCallContact is not null)
+{
+    <div class="active-call-overlay">
+        <div class="active-call-info">
+            <div class="active-call-avatar">@ActiveCallContact.Contact.Name[0].ToString().ToUpperInvariant()</div>
+            <h2 class="active-call-name">
+                @(string.IsNullOrWhiteSpace(ActiveCallContact.Contact.Nickname)
+                    ? ActiveCallContact.Contact.Name
+                    : ActiveCallContact.Contact.Nickname)
+            </h2>
+            <p class="active-call-status">On call</p>
+        </div>
+        <div class="active-call-controls">
+            <button class="call-modal-btn call-modal-btn--hangup" @onclick="HandleHangup">
+                <span>📞</span>
+                <span>Hang up</span>
+            </button>
+        </div>
+    </div>
+}

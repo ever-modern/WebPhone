@@ -91,7 +91,7 @@ public class ChannelsJunction<TIn, TOut> : IBroadcastChannel<TIn, TOut>, IDispos
 
                         var subSnapshot = subscribers.ToArray();
 
-                        lockHolder.Exit();
+                        lockHolder.Finish();
 
                         foreach (var subscriber in subSnapshot)
                         {

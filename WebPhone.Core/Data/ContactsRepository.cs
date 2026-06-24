@@ -8,7 +8,7 @@ namespace WebPhone.Data;
 
 public class ContactsRepository(
     IMessagesChannel messagesChannel,
-        IBackendClient backendClient,
+    IBackendClient backendClient,
     IProfile profile
 ) : IAsyncDisposable
 {
@@ -35,7 +35,13 @@ public class ContactsRepository(
         // Ensure user settings exist server-side (at least defaults) and keep name in sync.
         var user = await backendClient.GetUserSettingsAsync(cancellationToken);
         if (!string.Equals(user.Name, profile.User.Name, StringComparison.Ordinal))
-            await backendClient.UpsertUserSettingsAsync(user with { Name = profile.User.Name }, cancellationToken);
+            await backendClient.UpsertUserSettingsAsync(
+                user with
+                {
+                    Name = profile.User.Name,
+                },
+                cancellationToken
+            );
 
         RebuildContacts();
     }
@@ -48,7 +54,6 @@ public class ContactsRepository(
 
     public async Task ToggleFavoriteAsync(
         string userId,
-        string userName,
         CancellationToken cancellationToken = default
     )
     {
@@ -56,11 +61,13 @@ public class ContactsRepository(
             ? existing
             : new ContactSettingsDto(profile.User.Id, userId, false, true, true, null);
 
+        var name = _presences.TryGetValue(userId, out var presence) ? presence.Name : userId;
+
         var updated = current with
         {
             IsFavourite = !current.IsFavourite,
             // Keep a friendly display fallback so offline favourites don't render raw IDs.
-            Nickname = string.IsNullOrWhiteSpace(current.Nickname) ? userName : current.Nickname
+            Nickname = string.IsNullOrWhiteSpace(current.Nickname) ? name : current.Nickname,
         };
         _contactSettings[userId] = updated;
         await backendClient.UpsertContactSettingsAsync(updated, cancellationToken);
@@ -74,7 +81,10 @@ public class ContactsRepository(
             ? existing
             : new ContactSettingsDto(profile.User.Id, userId, false, true, true, null);
 
-        var updated = current with { Nickname = string.IsNullOrWhiteSpace(nickname) ? null : nickname.Trim() };
+        var updated = current with
+        {
+            Nickname = string.IsNullOrWhiteSpace(nickname) ? null : nickname.Trim(),
+        };
         _contactSettings[userId] = updated;
         await backendClient.UpsertContactSettingsAsync(updated);
         RebuildContacts();
@@ -131,10 +141,16 @@ public class ContactsRepository(
         foreach (var (id, contact) in _presences)
         {
             _contactSettings.TryGetValue(id, out var setting);
-            merged[id] = contact with { IsFavorite = setting?.IsFavourite ?? false, Nickname = setting?.Nickname };
+            merged[id] = contact with
+            {
+                IsFavorite = setting?.IsFavourite ?? false,
+                Nickname = setting?.Nickname,
+            };
         }
 
-        foreach (var (id, setting) in _contactSettings.Where(f => merged.ContainsKey(f.Key) is false))
+        foreach (
+            var (id, setting) in _contactSettings.Where(f => merged.ContainsKey(f.Key) is false)
+        )
         {
             if (!setting.IsFavourite && string.IsNullOrWhiteSpace(setting.Nickname))
                 continue;

@@ -1506,3 +1506,180 @@ code {
         width: calc(100vw - 1rem);
     }
 }
+
+/* ── Incoming call modal (WhatsApp-style) ──────────────────────────── */
+
+.call-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 2500;
+    background: rgba(15, 23, 42, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.call-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2600;
+    width: min(360px, calc(100vw - 2rem));
+    background: #fff;
+    border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.3);
+    padding: 2rem 1.5rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+    animation: call-modal-in 0.3s ease;
+}
+
+@keyframes call-modal-in {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.call-modal-avatar {
+    width: 4.5rem;
+    height: 4.5rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff;
+    font-size: 2rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.3);
+}
+
+.call-modal-name {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #0f172a;
+    text-align: center;
+}
+
+.call-modal-status {
+    margin: 0;
+    font-size: 0.88rem;
+    color: #64748b;
+    text-align: center;
+}
+
+.call-modal-actions {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 0.75rem;
+}
+
+.call-modal-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 0.5rem 1.2rem;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #fff;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.call-modal-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+}
+
+.call-modal-btn span:first-child {
+    font-size: 1.6rem;
+    line-height: 1;
+}
+
+.call-modal-btn--accept {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+}
+
+.call-modal-btn--decline {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.call-modal-btn--hangup {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    padding: 0.7rem 1.5rem;
+    border-radius: 999px;
+    flex-direction: row;
+    gap: 0.5rem;
+}
+
+/* ── Active call fullscreen overlay ───────────────────────────────── */
+
+.active-call-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    padding: 2rem;
+}
+
+.active-call-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    color: #fff;
+}
+
+.active-call-avatar {
+    width: 6rem;
+    height: 6rem;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2563eb, #7c3aed);
+    color: #fff;
+    font-size: 2.8rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 30px rgba(37, 99, 235, 0.4);
+}
+
+.active-call-name {
+    margin: 0;
+    font-size: 1.8rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+.active-call-status {
+    margin: 0;
+    font-size: 1rem;
+    color: #94a3b8;
+    text-align: center;
+}
+
+.active-call-controls {
+    position: absolute;
+    bottom: 4rem;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 1rem;
+}
+
+@media (max-width: 767px) {
+    .call-modal { width: calc(100vw - 1.5rem); padding: 1.5rem 1rem; }
+    .active-call-avatar { width: 4.5rem; height: 4.5rem; font-size: 2rem; }
+    .active-call-name { font-size: 1.3rem; }
+}

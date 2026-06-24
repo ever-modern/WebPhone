@@ -1,9 +1,7 @@
-using EverModern.Events;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.JSInterop;
 using WebPhone.Components;
 using WebPhone.Domain;
-using WebPhone.Services;
 
 namespace WebPhone.UI.Layout;
 
@@ -15,11 +13,20 @@ public partial class MainLayout
     bool _profileMenuOpen;
     string _registerName = "";
     DotNetObjectReference<MainLayout>? _mobileRef;
-    IReadOnlyList<ContactCardModel> _contactCards = [];
     string? _selectedId;
 
-    Subscription? _dispatcherSub;
-    Subscription? _profileSub;
+    IDisposable? _dispatcherSub;
+    IDisposable? _profileSub;
+
+    // ── Call state ────────────────────────────────────────────────────────
+
+    ContactManager? ActiveCallContact => Dispatcher.State.Value.Contacts.FirstOrDefault(
+        c => c.Interaction is InteractionState.OnCall);
+
+    ContactManager? IncomingCallContact => Dispatcher.State.Value.Contacts.FirstOrDefault(
+        c => c.Interaction is InteractionState.ReceivingCall);
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -41,7 +48,6 @@ public partial class MainLayout
         await JS.InvokeVoidAsync("appInterop.startMobileWatcher", _mobileRef);
 
         SyncSelectedId();
-        SyncCards();
 
         ready = true;
         await InvokeAsync(StateHasChanged);
@@ -69,7 +75,6 @@ public partial class MainLayout
 
     void OnDispatcherChanged()
     {
-        SyncCards();
         InvokeAsync(StateHasChanged);
     }
 
@@ -80,18 +85,6 @@ public partial class MainLayout
         _selectedId = path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             ? Uri.UnescapeDataString(path[prefix.Length..])
             : null;
-    }
-
-    void SyncCards()
-    {
-        _contactCards = Dispatcher
-            .State.Contacts.Select(s => new ContactCardModel(
-                Contact: s.Contact,
-                InteractionState: s.InteractionState,
-                Actions: s.AvailableActions,
-                OnRemoteAudioElementReady: null
-            ))
-            .ToList();
     }
 
     void HandleContactSelected(string id) => Nav.NavigateTo($"/contact/{Uri.EscapeDataString(id)}");
@@ -124,6 +117,12 @@ public partial class MainLayout
         if (e.Key == "Enter")
             await RegisterAsync();
     }
+
+    // ── Call handlers ─────────────────────────────────────────────────────
+
+    void HandleAcceptCall() => IncomingCallContact?.AcceptCall?.Invoke();
+    void HandleDeclineCall() => IncomingCallContact?.DeclineCall?.Invoke();
+    void HandleHangup() => ActiveCallContact?.Hangup?.Invoke();
 
     public void Dispose()
     {

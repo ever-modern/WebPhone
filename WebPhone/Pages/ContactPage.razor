@@ -1,16 +1,15 @@
 @page "/contact/{ContactId}"
 @using WebPhone.Components
-@using WebPhone.Services
 @inherits DisposableComponent
 
 @inject ContactsDispatcher Dispatcher
 
-<PageTitle>@(_card?.Contact.Name ?? ContactId)</PageTitle>
+<PageTitle>@(Manager?.Contact.Name ?? ContactId)</PageTitle>
 
-@if (_card is not null)
+@if (Manager is not null)
 {
     <div class="contact-panel">
-        <ContactCard Model="_card" />
+        <ContactCard Manager="Manager" />
         <PersistentChatPanel PeerId="@ContactId" />
     </div>
 }

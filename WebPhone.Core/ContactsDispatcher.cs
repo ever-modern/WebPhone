@@ -31,7 +31,7 @@ public sealed class ContactsDispatcher(
             return this;
         _started = true;
 
-        var sub1 = peerConnectionsDispatcher.ConnectionsChange.Subscribe(_ => ResetState());
+        var sub1 = peerConnectionsDispatcher.ConnectionsChange.Subscribe(ResetState);
         var sub2 = contactsRepository.StateChanged.Subscribe(ResetState);
         _toDispose.AddRange(sub1, sub2);
         return this;
@@ -45,19 +45,14 @@ public sealed class ContactsDispatcher(
         {
             entry.Dispose();
         }
-        var newPhoneState = new PhoneState(
-            _state
-                .Select(kv =>
-                {
-                    ContactManager manager = new(
-                        kv.Value.MediaConnection,
-                        kv.Key,
-                        peerConnectionsDispatcher
-                    );
-                    return manager;
-                })
-                .ToArray()
-        );
+        var newPhoneState = new PhoneState([
+            .. _state.Select(kv => new ContactManager(
+                kv.Value.ContactInfo,
+                kv.Value.MediaConnection,
+                peerConnectionsDispatcher,
+                contactsRepository
+            )),
+        ]);
 
         _exposedState.Change(newPhoneState);
     }
@@ -93,7 +88,13 @@ public sealed class ContactsDispatcher(
                         ? InteractionState.Offline.Instance
                         : InteractionState.Disconnected.Instance;
 
-                var newEntry = Entry.Create(contact.Id, connection!, loggerFactory, initialState);
+                var newEntry = Entry.Create(
+                    contact.Id,
+                    connection!,
+                    loggerFactory,
+                    initialState,
+                    contact
+                );
 
                 return newEntry;
             })
@@ -108,7 +109,8 @@ public sealed class ContactsDispatcher(
         string PeerId,
         IRtcConnection Connection,
         RtcConnectionMessageChannel Channel,
-        MediaConnection MediaConnection
+        MediaConnection MediaConnection,
+        Contact ContactInfo
     ) : IDisposable
     {
         internal required ObservedValue<InteractionState> State { get; init; }
@@ -118,14 +120,18 @@ public sealed class ContactsDispatcher(
             string peerId,
             IRtcConnection connection,
             ILoggerFactory loggerFactory,
-            InteractionState initialState
+            InteractionState initialState,
+            Contact contactInfo
         )
         {
             var logger = loggerFactory.CreateLogger($"MediaConnection-{peerId}");
             var channel = new RtcConnectionMessageChannel(connection);
             var state = new ObservedValue<InteractionState>(initialState);
             var mediaConnection = new MediaConnection(channel, logger, state);
-            Entry result = new(peerId, connection, channel, mediaConnection) { State = state };
+            Entry result = new(peerId, connection, channel, mediaConnection, contactInfo)
+            {
+                State = state,
+            };
 
             return result;
         }

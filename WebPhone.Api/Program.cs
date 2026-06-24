@@ -13,7 +13,7 @@ public partial class Program
         builder.Services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy =>
-                policy.WithOrigins("https://web-phone.enjoyer-station.myvnc.com")
+                policy.WithOrigins("https://web-phone.enjoyer-station.myvnc.com", "https://localhost:7087")
                       .AllowAnyHeader()
                       .AllowAnyMethod()
                       .AllowCredentials()

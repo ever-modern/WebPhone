@@ -1,16 +1,21 @@
+using WebPhone.Data;
+
 namespace WebPhone;
 
 public class ContactManager(
+    Contact contact,
     MediaConnection mediaConnection,
-    string contactId,
-    PeerConnectionsDispatcher peerConnectionsDispatcher
+    PeerConnectionsDispatcher peerConnectionsDispatcher,
+    ContactsRepository contactsRepository
 )
 {
-    public InteractionState Interaction => mediaConnection.State.Value;
+    public Contact Contact => contact;
 
+    public InteractionState Interaction => mediaConnection.State.Value;
+    
     public Action? Disconnect =>
         Interaction is InteractionState.Connected
-            ? () => _ = peerConnectionsDispatcher.ClosePeerConnectionAsync(contactId)
+            ? () => _ = peerConnectionsDispatcher.ClosePeerConnectionAsync(contact.Id)
             : null;
 
     public Action? AudioCall =>
@@ -31,7 +36,7 @@ public class ContactManager(
 
     public Action? Connect =>
         Interaction is InteractionState.Disconnected
-            ? () => _ = peerConnectionsDispatcher.ConnectAsync(contactId)
+            ? () => _ = peerConnectionsDispatcher.ConnectAsync(contact.Id)
             : null;
 
     public Action? StopCalling =>
@@ -41,8 +46,20 @@ public class ContactManager(
         Interaction is InteractionState.ReceivingCall
             ? () => _ = mediaConnection.RejectCall()
             : null;
+
+    public Action? AcceptCall =>
+        Interaction is InteractionState.ReceivingCall
+            ? () => _ = mediaConnection.AcceptCall()
+            : null;
+
     public Action? Hangup =>
         Interaction is InteractionState.OnCall ? () => _ = mediaConnection.StopCall() : null;
+
+    public Action? ToggleFavorite =>
+        () => _ = contactsRepository.ToggleFavoriteAsync(contact.Id);
+
+    public Action<string?> SetNickname =>
+        (nickname) => _ = contactsRepository.SetNicknameAsync(contact.Id, nickname);
 
     public Func<IReadOnlyList<string>>? GetChat =>
         Interaction is InteractionState.Offline ? null : () => [];

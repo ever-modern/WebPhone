@@ -1,11 +1,8 @@
-@using WebPhone.Services
-
 @inject PeerConnectionsDispatcher PeerConnectionsDispatcher
 
 @{
-    var (contact, interaction, actions, onRemoteAudioElementReady) = Model;
-    var (isConnected, connectionState, isConnecting, chatReady, isCallActive, isCalling, hasIncomingCall, chat) = interaction;
-    var (toggleFavorite, setNickname, notify, connect, cancelConnect, disconnect, startCall, startVideoCall, acceptCall, declineCall, endCall, cancelCall, sendMessage) = actions;
+    var contact = Manager.Contact;
+    var interaction = Manager.Interaction;
 }
 
 <div class="contact-detail">
@@ -26,57 +23,46 @@
                 {
                     <span class="webrtc-contact-real-name">(@contact.Name)</span>
                 }
-                @if (setNickname is not null)
+                @if (Manager.SetNickname is not null)
                 {
                     <button class="webrtc-icon-btn webrtc-nickname-edit-btn" @onclick="StartNicknameEdit" title="@(string.IsNullOrWhiteSpace(contact.Nickname) ? "Set nickname" : "Edit nickname")">&#9998;</button>
                 }
             </div>
         }
 
-        @if (!string.IsNullOrWhiteSpace(connectionState) && connectionState != "None")
+        @if (interaction is not InteractionState.Offline and not InteractionState.Disconnected)
         {
-            <span class="webrtc-contact-status @(isConnected ? "is-connected" : isConnecting ? "is-connecting" : string.Empty)">
+            var isConnecting = interaction is InteractionState.Connecting;
+            var connected = interaction is InteractionState.Connected;
+            <span class="webrtc-contact-status @(connected ? "is-connected" : isConnecting ? "is-connecting" : string.Empty)">
                 @if (isConnecting)
                 {
                     <span>Connecting<span class="webrtc-dots-animation"></span></span>
                 }
                 else
                 {
-                    @connectionState
+                    @GetStatusText(interaction)
                 }
             </span>
         }
 
         <div class="contact-detail-actions">
             <ContactSettingsSection ContactId="@contact.Id" />
-            @if (notify is not null)
+            @if (interaction is InteractionState.ReceivingCall)
             {
-                <button class="webrtc-button" @onclick="Notify">Notify</button>
+                <button class="webrtc-button" @onclick="AcceptCall">Accept call</button>
+                <button class="webrtc-button webrtc-button--danger" @onclick="DeclineCall">Decline</button>
             }
-            @if (hasIncomingCall)
-            {
-                @if (acceptCall is not null)
-                {
-                    <button class="webrtc-button" @onclick="AcceptCall">Accept call</button>
-                }
-                @if (declineCall is not null)
-                {
-                    <button class="webrtc-button webrtc-button--danger" @onclick="DeclineCall">Decline</button>
-                }
-            }
-            @if (startCall is not null)
+            else if (interaction is InteractionState.Connected and not InteractionState.Calling and not InteractionState.ReceivingCall and not InteractionState.OnCall)
             {
                 <button class="webrtc-button" @onclick="StartCall">Call</button>
-            }
-            @if (startVideoCall is not null)
-            {
                 <button class="webrtc-button" @onclick="StartVideoCall">&#127909; Video call</button>
             }
-            @if (endCall is not null)
+            @if (interaction is InteractionState.OnCall)
             {
                 <button class="webrtc-button webrtc-button--danger" @onclick="EndCall">Hang up</button>
             }
-            @if (cancelCall is not null)
+            @if (interaction is InteractionState.Calling)
             {
                 <button class="webrtc-button webrtc-button--danger" @onclick="CancelCall">Cancel call</button>
             }
@@ -87,33 +73,22 @@
 
 @code {
     [Parameter, EditorRequired]
-    public ContactCardModel Model { get; set; } = default!;
+    public ContactManager Manager { get; set; } = default!;
 
     private bool _editingNickname;
     private string _nicknameEdit = string.Empty;
     private ElementReference _remoteAudio;
 
-    protected override void OnAfterRender(bool firstRender)
-    {
-        if (firstRender)
-            Model.OnRemoteAudioElementReady?.Invoke(_remoteAudio);
-    }
-
-    private void ToggleFavorite() => Model.Actions.ToggleFavorite?.Invoke();
-    private void Notify() => Model.Actions.Notify?.Invoke();
-    private void Connect() => Model.Actions.Connect?.Invoke();
-    private void CancelConnect() => Model.Actions.CancelConnect?.Invoke();
-    private void Disconnect() => Model.Actions.Disconnect?.Invoke();
-    private void StartCall() => Model.Actions.StartCall?.Invoke();
-    private void StartVideoCall() => Model.Actions.StartVideoCall?.Invoke();
-    private void AcceptCall() => Model.Actions.AcceptCall?.Invoke();
-    private void DeclineCall() => Model.Actions.DeclineCall?.Invoke();
-    private void EndCall() => Model.Actions.EndCall?.Invoke();
-    private void CancelCall() => Model.Actions.CancelCall?.Invoke();
+    private void StartCall() => Manager.AudioCall?.Invoke();
+    private void StartVideoCall() => Manager.VideoCall?.Invoke();
+    private void AcceptCall() => Manager.AcceptCall?.Invoke();
+    private void DeclineCall() => Manager.DeclineCall?.Invoke();
+    private void EndCall() => Manager.Hangup?.Invoke();
+    private void CancelCall() => Manager.StopCalling?.Invoke();
 
     private void StartNicknameEdit()
     {
-        _nicknameEdit = Model.Contact.Nickname ?? string.Empty;
+        _nicknameEdit = Manager.Contact.Nickname ?? string.Empty;
         _editingNickname = true;
     }
 
@@ -121,7 +96,7 @@
 
     private async Task SaveNicknameAsync()
     {
-        Model.Actions.SetNickname?.Invoke(_nicknameEdit);
+        Manager.SetNickname?.Invoke(_nicknameEdit);
         _editingNickname = false;
     }
 
@@ -130,4 +105,15 @@
         if (e.Key == "Enter") await SaveNicknameAsync();
         else if (e.Key == "Escape") CancelNicknameEdit();
     }
+
+    static string GetStatusText(InteractionState state) => state switch
+    {
+        InteractionState.Connecting => "Connecting",
+        InteractionState.Calling => "Calling",
+        InteractionState.ReceivingCall => "Incoming call",
+        InteractionState.OnCall => "On call",
+        InteractionState.Connected => "Connected",
+        _ => ""
+    };
+}
 }

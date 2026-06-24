@@ -1,5 +1,3 @@
-@using WebPhone.Services
-@using WebPhone.Services.Data
 @implements IDisposable
 
 @inject ILocalStore Store
@@ -20,15 +18,15 @@
     </div>
 
     <div class="sidebar-list">
-        @foreach (var card in FilteredCards)
+        @foreach (var mgr in FilteredManagers)
         {
-            <ContactListItem @key="card.Contact.Id"
-                             Card="card"
-                             IsSelected="SelectedId == card.Contact.Id"
-                             OnSelect="() => HandleSelect(card.Contact.Id)" />
+            <ContactListItem @key="mgr.Contact.Id"
+                             Manager="mgr"
+                             IsSelected="SelectedId == mgr.Contact.Id"
+                             OnSelect="() => HandleSelect(mgr.Contact.Id)" />
         }
 
-        @if (!FilteredCards.Any())
+        @if (!FilteredManagers.Any())
         {
             <p class="sidebar-empty">No contacts match.</p>
         }
@@ -40,7 +38,7 @@
 }
 
 @code {
-    [Parameter, EditorRequired] public IReadOnlyList<ContactCardModel> Cards { get; set; } = [];
+    [Parameter, EditorRequired] public IReadOnlyList<ContactManager> Managers { get; set; } = [];
     [Parameter] public string? SelectedId { get; set; }
     [Parameter] public EventCallback<string> OnContactSelected { get; set; }
     [Parameter] public bool IsDocked { get; set; }
@@ -62,12 +60,12 @@
         }
     }
 
-    IEnumerable<ContactCardModel> FilteredCards =>
+    IEnumerable<ContactManager> FilteredManagers =>
         string.IsNullOrWhiteSpace(_filter)
-            ? Cards
-            : Cards.Where(c =>
-                (c.Contact.Nickname ?? string.Empty).Contains(_filter, StringComparison.OrdinalIgnoreCase)
-                || c.Contact.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase));
+            ? Managers
+            : Managers.Where(m =>
+                (m.Contact.Nickname ?? string.Empty).Contains(_filter, StringComparison.OrdinalIgnoreCase)
+                || m.Contact.Name.Contains(_filter, StringComparison.OrdinalIgnoreCase));
 
     async Task HandleSelect(string id)
     {

@@ -1,5 +1,3 @@
-@using WebPhone.Services
-
 <button class="contact-list-item @(IsSelected ? "contact-list-item--selected" : string.Empty) @StatusClass"
         @onclick="() => OnSelect.InvokeAsync()">
     <span class="contact-list-avatar">@Initials</span>
@@ -8,7 +6,7 @@
         @if (Status is not null)
         {
             <span class="contact-list-status">
-                @if (Card.InteractionState.IsConnecting)
+                @if (Manager.Interaction is InteractionState.Connecting)
                 {
                     <span>@Status<span class="webrtc-dots-animation"></span></span>
                 }
@@ -19,25 +17,25 @@
             </span>
         }
     </span>
-    @if (Card.InteractionState.HasIncomingCall)
+    @if (Manager.Interaction is InteractionState.ReceivingCall)
     {
         <span class="contact-list-badge contact-list-badge--call" title="Incoming call">📞</span>
     }
-    else if (Card.InteractionState.IsCalling)
+    else if (Manager.Interaction is InteractionState.Calling)
     {
         <span class="contact-list-badge" title="Calling">📱</span>
     }
-    @if (Card.Actions.ToggleFavorite is not null)
+    @if (Manager.ToggleFavorite is not null)
     {
-        <button class="contact-list-fav @(Card.Contact.IsFavorite ? "contact-list-fav--active" : string.Empty)"
+        <button class="contact-list-fav @(Manager.Contact.IsFavorite ? "contact-list-fav--active" : string.Empty)"
                 @onclick="ToggleFavorite"
                 @onclick:stopPropagation="true"
-                title="@(Card.Contact.IsFavorite ? "Remove favourite" : "Add favourite")">★</button>
+                title="@(Manager.Contact.IsFavorite ? "Remove favourite" : "Add favourite")">★</button>
     }
 </button>
 
 @code {
-    [Parameter, EditorRequired] public ContactCardModel Card { get; set; } = default!;
+    [Parameter, EditorRequired] public ContactManager Manager { get; set; } = default!;
     [Parameter] public bool IsSelected { get; set; }
     [Parameter] public EventCallback OnSelect { get; set; }
 
@@ -45,29 +43,36 @@
     {
         get
         {
-            var src = string.IsNullOrWhiteSpace(Card.Contact.Nickname)
-                ? Card.Contact.Name
-                : Card.Contact.Nickname;
+            var src = string.IsNullOrWhiteSpace(Manager.Contact.Nickname)
+                ? Manager.Contact.Name
+                : Manager.Contact.Nickname;
             return src.Length > 0 ? src[0].ToString().ToUpperInvariant() : "?";
         }
     }
 
-    string DisplayName => string.IsNullOrWhiteSpace(Card.Contact.Nickname)
-        ? Card.Contact.Name
-        : Card.Contact.Nickname;
+    string DisplayName => string.IsNullOrWhiteSpace(Manager.Contact.Nickname)
+        ? Manager.Contact.Name
+        : Manager.Contact.Nickname;
 
-    string? Status => Card.InteractionState.ConnectionState is "None" or ""
-        ? null
-        : Card.InteractionState.ConnectionState;
-
-    string StatusClass => Card.InteractionState switch {
-        { HasIncomingCall: true }             => "contact-list-item--incoming",
-        { IsCallActive: true }                => "contact-list-item--in-call",
-        { IsCalling: true }                   => "contact-list-item--calling",
-        { IsConnected: true }                 => "contact-list-item--online",
-        { IsConnecting: true }                => "contact-list-item--connecting",
-        _                                     => string.Empty
+    string? Status => Manager.Interaction switch
+    {
+        InteractionState.Offline or InteractionState.Disconnected => null,
+        InteractionState.Connecting => "Connecting",
+        InteractionState.Calling => "Calling",
+        InteractionState.ReceivingCall => "Incoming call",
+        InteractionState.OnCall => "On call",
+        InteractionState.Connected => "Connected",
+        _ => null
     };
 
-    void ToggleFavorite() => Card.Actions.ToggleFavorite?.Invoke();
+    string StatusClass => Manager.Interaction switch {
+        InteractionState.ReceivingCall => "contact-list-item--incoming",
+        InteractionState.OnCall        => "contact-list-item--in-call",
+        InteractionState.Calling       => "contact-list-item--calling",
+        InteractionState.Connected     => "contact-list-item--online",
+        InteractionState.Connecting    => "contact-list-item--connecting",
+        _                              => string.Empty
+    };
+
+    void ToggleFavorite() => Manager.ToggleFavorite?.Invoke();
 }
