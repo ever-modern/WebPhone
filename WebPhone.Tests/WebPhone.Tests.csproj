@@ -9,7 +9,6 @@
 
 	<ItemGroup>
 		<PackageReference Include="coverlet.collector" Version="6.0.4" />
-		<PackageReference Include="EverModern.Threading" Version="0.0.38" />
 		<PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.9" />
 		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
 		<PackageReference Include="xunit" Version="2.9.3" />
@@ -19,7 +18,8 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\WebPhone.Api\WebPhone.Api.csproj" />
-		<ProjectReference Include="..\WebPhone\WebPhone.UI.csproj" />
+		<ProjectReference Include="..\WebPhone.Core\WebPhone.csproj" />
+		
 	</ItemGroup>
 
 	<ItemGroup>
