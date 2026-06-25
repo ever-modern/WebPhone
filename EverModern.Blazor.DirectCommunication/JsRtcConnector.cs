@@ -65,6 +65,9 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
             ]
         );
 
+        if (managerReference is null)
+            return null;
+
         var onDispose = () =>
         {
             _ = managerReference.InvokeVoidAsync("close", []);
@@ -114,7 +117,7 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
                     JsFunction.Create((byte[] bytes) => channelMessageReceived.Invoke(bytes))
                 ),
             ]
-        );
+        ) ?? throw new RtcConnectionException("Failed to create RTC connection.");
 
         var onDispose = () =>
         {

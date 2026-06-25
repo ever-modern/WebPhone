@@ -68,14 +68,13 @@ public sealed class BrowserRtcConnection(
         if (_disposed)
         {
             return;
-        }
-
+        }        
+        
         _disposed = true;
-
         dispose();
     }
 
-    private void ThrowIfDisposed()
+    void ThrowIfDisposed()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
     }

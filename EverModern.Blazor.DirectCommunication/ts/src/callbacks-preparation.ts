@@ -52,6 +52,8 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
             console.log("[RTC] data channel closed, readyState:", channel.readyState);
             if (channel.readyState !== "open") {
                 failOpening();
+                if (onStateChanged)
+                    onStateChanged("closed");
             }
         };
     }

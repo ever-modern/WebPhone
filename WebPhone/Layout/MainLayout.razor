@@ -1,4 +1,5 @@
-﻿@inherits LayoutComponentBase
+﻿@using WebPhone.UI.Components
+@inherits LayoutComponentBase
 @implements IDisposable
 
 @inject AppStarter AppStarter
@@ -13,8 +14,8 @@
     @if (ready && !string.IsNullOrWhiteSpace(Profile.User.Name))
     {
         <div class="webphone-shell">
-            <ContactsSidebar Managers="Dispatcher.State.Value.Contacts"
-                             IsDocked="!_isMobile"
+            <ContactsSidebar Managers="@Contacts"
+                             IsDocked="@(!_isMobile)"
                              SelectedId="@_selectedId"
                              OnContactSelected="HandleContactSelected" />
             <main class="webphone-main">

@@ -1,0 +1,47 @@
+@page "/test-rtc"
+@using System.Diagnostics
+
+<button @onclick="RunCheck" disabled="@_isChecking">Check</button>
+
+@if (Success.HasValue && !_isChecking)
+{
+    if (Success is true)
+    {
+        <p style="color: green;">Check succeeded!</p>
+    }
+    else
+    {
+        <p style="color: red;">Check failed.</p>
+    }
+}
+
+@code {
+    bool? Success;
+    bool _isChecking;
+    async Task CheckAsync()
+    {
+        const string peerId1 = "peer1";
+        const string peerId2 = "peer2";
+
+        var (peer1, d1) = await CreateDispatcher(peerId1);
+        var (peer2, d2) = await CreateDispatcher(peerId2);
+
+        using var _ = d1;
+        using var __ = d2;
+
+        var connection1 = await peer1.ConnectAsync(peerId2);
+        var connection2 = peer2.FindReadyConnection(peerId1);
+
+        Debug.Assert(connection1 is not null);
+        Debug.Assert(connection2 is not null);
+    }
+
+    async Task RunCheck()
+    {
+        _isChecking = true;
+        StateHasChanged();
+        Success = await CheckAsync().ContinueWith(t => t.IsCompletedSuccessfully);
+        _isChecking = false;
+        StateHasChanged();
+    }
+}

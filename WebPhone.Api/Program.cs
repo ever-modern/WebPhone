@@ -13,10 +13,15 @@ public partial class Program
         builder.Services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy =>
-                policy.WithOrigins("https://web-phone.enjoyer-station.myvnc.com", "https://localhost:7087")
-                      .AllowAnyHeader()
-                      .AllowAnyMethod()
-                      .AllowCredentials()
+                policy
+                    .WithOrigins(
+                        "https://web-phone.enjoyer-station.myvnc.com",
+                        "https://localhost:7087",
+                        "http://localhost:5108"
+                    )
+                    .AllowAnyHeader()
+                    .AllowAnyMethod()
+                    .AllowCredentials()
             );
         });
 
@@ -28,13 +33,13 @@ public partial class Program
         }
 
         app.UseRouting();
-        
+
         app.UseCors();
 
         app.UseExceptionMapper();
         app.MapRestEndpoints();
         app.MapSignalRHubEndpoints();
-        
+
         await app.RunAsync();
     }
 }

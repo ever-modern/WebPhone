@@ -20,10 +20,12 @@ public partial class MainLayout
 
     // ── Call state ────────────────────────────────────────────────────────
 
-    ContactManager? ActiveCallContact => Dispatcher.State.Value.Contacts.FirstOrDefault(
+    IReadOnlyList<ContactManager> Contacts => Dispatcher.State.Value.Contacts;
+
+    ContactManager? ActiveCallContact => Contacts.FirstOrDefault(
         c => c.Interaction is InteractionState.OnCall);
 
-    ContactManager? IncomingCallContact => Dispatcher.State.Value.Contacts.FirstOrDefault(
+    ContactManager? IncomingCallContact => Contacts.FirstOrDefault(
         c => c.Interaction is InteractionState.ReceivingCall);
 
     // ── Lifecycle ─────────────────────────────────────────────────────────

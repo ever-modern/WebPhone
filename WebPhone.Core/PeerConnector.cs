@@ -100,11 +100,13 @@ public class PeerConnector(
         connection.StateChanged.Subscribe(
             (newState, sub) =>
             {
-                if (newState is "closed")
+                if (newState is "closed" or "failed" or "disconnected")
                 {
                     using var _ = _locker.LockScope();
                     _connecting = null;
                     sub.Dispose();
+                    connection.Dispose();
+                    _connectionEventSource.Change(InteractionState.Disconnected.Instance);
                 }
             }
         );
@@ -137,6 +139,13 @@ public class PeerConnector(
 
         if (connection is not null)
         {
+            var state = await connection.GetStateAsync();
+            if (state != "connected")
+            {
+                throw new RtcConnectionException(
+                    $"Connection established but has an unhealthy state - {state}"
+                );
+            }
             logger.LogInformation("Connected successfully.");
             return connection;
         }
@@ -261,8 +270,8 @@ public class PeerConnector(
 
                 logger.LogInformation(
                     "ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
-                    responseOffer,
-                    responseAnswer
+                    responseOffer is not null,
+                    responseAnswer is not null
                 );
 
                 if (responseAnswer is null)
@@ -305,5 +314,3 @@ record struct NegotiationResult(IRtcConnection? Connection, WebRtcOffer? Counter
     public NegotiationResult(WebRtcOffer offer)
         : this(null, offer) { }
 }
-
-public class RtcConnectionException(string message) : InvalidOperationException(message);

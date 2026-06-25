@@ -24,7 +24,7 @@ public class MediaConnection(
 
     public IValueNotifier<InteractionState> State => state;
 
-    public MediaConnection Start()
+    public MediaConnection Started()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         
