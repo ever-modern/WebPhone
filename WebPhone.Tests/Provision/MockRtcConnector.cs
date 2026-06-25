@@ -29,7 +29,7 @@ class MockRtcConnector : IRtcConnector
             return null;
         }
 
-        return new MockRtcConnection(offer, answer);
+        return new MockRtcConnection(this, offer, answer);
     }
 
     public async Task<IRtcConnection?> InitiateConnectionAsync(
@@ -43,6 +43,6 @@ class MockRtcConnector : IRtcConnector
         {
             return null;
         }
-        return new MockRtcConnection(offer, answer);
+        return new MockRtcConnection(this, offer, answer);
     }
 }

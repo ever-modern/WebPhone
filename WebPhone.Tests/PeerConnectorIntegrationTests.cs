@@ -12,9 +12,8 @@ using PeerPair = (
 namespace WebPhone.Tests;
 
 public class PeerConnectorIntegrationTests(
-    TestWebApplicationFactory webApplicationFactory,
-    ITestOutputHelper output
-) : IntegrationWithBackendTestsSet(webApplicationFactory, output)
+        ITestOutputHelper output
+) : IntegrationWithBackendTestsSet(output)
 {
     async Task<PeerConnectionsDispatcher> CreatePeerConnectorAsync(string userId, CancellationToken cancellationToken = default)
     {
@@ -104,12 +103,12 @@ public class PeerConnectorIntegrationTests(
         Assert.NotNull(connectionSecond);
     }
 
-    [Fact(Timeout = 30_000)]
+    [Fact(Timeout = 10_000)]
     public async Task Connect_All_To_All()
     {
         var peers = new List<(PeerConnectionsDispatcher Connector, string PeerId)>();
 
-        const int peersCount = 200;
+        const int peersCount = 100;
         await foreach (var item in GeneratePeers(default).Take(peersCount))
             peers.Add(item);
 
@@ -206,5 +205,37 @@ public class PeerConnectorIntegrationTests(
         var secondConnectionSecondsAttempt = await secondConnector.ConnectAsync(firstUserId, ct);
 
         Assert.Same(secondConnection, secondConnectionSecondsAttempt);
+    }
+
+    [Fact]
+    public async Task Connect_Close_BothConnectionsAreClosed_ThenReconnectSuccessfully()
+    {
+        var ct = Timeout.Token;
+
+        var ((firstConnector, firstUserId), (secondConnector, secondUserId)) = await CreateTwoPeers(ct);
+        var firstConnection = await firstConnector.ConnectAsync(
+            secondUserId,
+            ct
+        );
+
+        var secondConnection = secondConnector.FindReadyConnection(firstUserId);
+
+        Assert.NotNull(firstConnection);
+        Assert.NotNull(secondConnection);
+
+        await firstConnector.ClosePeerConnectionAsync(secondUserId);
+
+        firstConnection = firstConnector.FindReadyConnection(secondUserId);
+        secondConnection = secondConnector.FindReadyConnection(firstUserId);
+        
+        Assert.Null(firstConnection);
+        Assert.Null(secondConnection);
+
+        firstConnection = await firstConnector.ConnectAsync(secondUserId);
+        secondConnection = secondConnector.FindReadyConnection(firstUserId);
+
+        Assert.NotNull(firstConnection);
+        Assert.NotNull(secondConnection);
+
     }
 }

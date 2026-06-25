@@ -37,7 +37,7 @@ public static class ServicesConfiguration
         services.AddSingleton<DbMessagesWriter>();
         services.AddSingleton<ConnectedUsersStorage>();
 
-        services.AddScoped<RtcMatchMaker>();
+        services.AddSingleton<RtcMatchMaker>();
 
         services.AddScoped<NotifyApiAction>();
         services.AddScoped<SubscriptionApiAction>();

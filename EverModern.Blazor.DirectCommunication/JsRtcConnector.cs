@@ -3,19 +3,25 @@ using WebPhone.Domain;
 
 namespace EverModern.Blazor.DirectCommunication;
 
-public class JsInvokableFunc<Tout>(Func<Tout> func)
+public class JsInvokableFunc<Tout>(
+    Func<Tout> func
+)
 {
     [JSInvokable("invoke")]
     public Tout Invoke() => func();
 }
 
-public class JsInvokableFunc<TIn, TOut>(Func<TIn, TOut> func)
+public class JsInvokableFunc<TIn, TOut>(
+    Func<TIn, TOut> func
+)
 {
     [JSInvokable("invoke")]
     public TOut Invoke(TIn p) => func(p);
 }
 
-public class JsInvokableAction<TIn>(Action<TIn> func)
+public class JsInvokableAction<TIn>(
+    Action<TIn> func
+)
 {
     [JSInvokable("invoke")]
     public void Invoke(TIn p1) => func(p1);
@@ -35,7 +41,10 @@ public record struct ConnectionInitiationResult(
     WebRtcOffer? CounterOffer
 );
 
-public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceServer> iceServers)
+public sealed class JsRtcConnector(
+    IJSRuntime jsRuntime,
+    IEnumerable<WebRtcIceServer> iceServers
+)
     : IRtcConnector
 {
     public async Task<IRtcConnection?> InitiateConnectionAsync(
@@ -56,12 +65,8 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
             [
                 iceServers,
                 getAnswerLink,
-                DotNetObjectReference.Create(
-                    JsFunction.Create((string state) => stateChanged.Invoke(state))
-                ),
-                DotNetObjectReference.Create(
-                    JsFunction.Create((byte[] bytes) => channelMessageReceived.Invoke(bytes))
-                ),
+                DotNetObjectReference.Create(JsFunction.Create((string state) => stateChanged.Invoke(state))),
+                DotNetObjectReference.Create(JsFunction.Create((byte[] bytes) => channelMessageReceived.Invoke(bytes))),
             ]
         );
 
@@ -88,6 +93,8 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
                 await managerReference.InvokeVoidAsync("setLocalVideoTarget", videoElement)
         );
 
+        await WhenOpen(result);
+
         return result;
     }
 
@@ -110,12 +117,8 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
                 iceServers,
                 offer,
                 DotNetObjectReference.Create(JsFunction.Create(sendAnswerBack)),
-                DotNetObjectReference.Create(
-                    JsFunction.Create((string state) => stateChanged.Invoke(state))
-                ),
-                DotNetObjectReference.Create(
-                    JsFunction.Create((byte[] bytes) => channelMessageReceived.Invoke(bytes))
-                ),
+                DotNetObjectReference.Create(JsFunction.Create((string state) => stateChanged.Invoke(state))),
+                DotNetObjectReference.Create(JsFunction.Create((byte[] bytes) => channelMessageReceived.Invoke(bytes))),
             ]
         ) ?? throw new RtcConnectionException("Failed to create RTC connection.");
 
@@ -139,6 +142,37 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
                 await managerReference.InvokeVoidAsync("setLocalVideoTarget", videoElement)
         );
 
+        await WhenOpen(result);
+
         return result;
+    }
+
+    async Task WhenOpen(IRtcConnection connection)
+    {
+        var tcs = new TaskCompletionSource();
+
+        using var _ = connection.StateChanged.Subscribe(newState =>
+            {
+                if (newState is "connected")
+                {
+                    tcs.TrySetResult();
+                    return;
+                }
+
+                if (newState is "closed")
+                {
+                    tcs.TrySetException(new RtcConnectionException("Could not connect."));
+                }
+            }
+        );
+
+        var currentState = await connection.GetStateAsync();
+
+        if (currentState is "connected")
+        {
+            tcs.TrySetResult();
+        }
+
+        await tcs.Task;
     }
 }

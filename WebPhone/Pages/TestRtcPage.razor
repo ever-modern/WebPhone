@@ -3,20 +3,20 @@
 
 <button @onclick="RunCheck" disabled="@_isChecking">Check</button>
 
-@if (Success.HasValue && !_isChecking)
+@if (Success is not null && !_isChecking)
 {
-    if (Success is true)
+    if (Success.IsCompletedSuccessfully)
     {
         <p style="color: green;">Check succeeded!</p>
     }
     else
     {
-        <p style="color: red;">Check failed.</p>
+        <p style="color: red;">Check failed. @Success.Exception?.ToString()</p>
     }
 }
 
 @code {
-    bool? Success;
+    Task? Success;
     bool _isChecking;
     async Task CheckAsync()
     {
@@ -32,16 +32,34 @@
         var connection1 = await peer1.ConnectAsync(peerId2);
         var connection2 = peer2.FindReadyConnection(peerId1);
 
-        Debug.Assert(connection1 is not null);
-        Debug.Assert(connection2 is not null);
+        Assert(connection1 is not null, $"{peerId1} could not connect to {peerId2}");
+        Assert(connection2 is not null, $"{peerId2} could not connect to {peerId1}");
+
+        const string messageText = "Hello, Peer!";
+
+        using var channel1 = new RtcConnectionMessageChannel(connection1);
+        using var channel2 = new RtcConnectionMessageChannel(connection2);
+
+        using var reader = channel2.Subscribe();
+        await channel1.Writer.WriteAsync(new(RtcMessageType.Ping, messageText));
+        var channel2Message = await reader.ReadAllAsync().FirstAsync();
+
+        Assert(channel2Message.Payload == messageText, "Message payload does not match");
     }
 
-    async Task RunCheck()
+    void RunCheck()
     {
+        Success = null;
         _isChecking = true;
         StateHasChanged();
-        Success = await CheckAsync().ContinueWith(t => t.IsCompletedSuccessfully);
-        _isChecking = false;
-        StateHasChanged();
+        CheckAsync().ContinueWith(t => { Success = t; _isChecking = false; StateHasChanged(); });
+    }
+
+    void Assert(bool condition, string? message = null)
+    {
+        if (!condition)
+        {
+            throw new Exception(message);
+        }
     }
 }

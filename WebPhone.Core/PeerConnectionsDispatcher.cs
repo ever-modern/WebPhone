@@ -8,7 +8,7 @@ namespace WebPhone;
 
 public class MediaEnabler
 {
-    public async Task SetMediaAsync(MediaState mediaState) { }
+    public async Task SetMediaAsync(MediaState mediaState) {}
 }
 
 public class PeerConnectionsDispatcher(
@@ -38,15 +38,10 @@ public class PeerConnectionsDispatcher(
 
         var connector = _connectors.GetOrAdd(
             peerId,
-            id =>
-            {
-                var newConnector = NewConnector(peerId);
-                _ = newConnector.ConnectAsync(cancellationToken, offer);
-                return newConnector;
-            }
+            NewConnector
         );
 
-        var connectionTask = connector.Connecting;
+        var connectionTask = connector.ConnectAsync(cancellationToken, offer);
 
         return connectionTask!;
     }
@@ -93,14 +88,20 @@ public class PeerConnectionsDispatcher(
     PeerConnector NewConnector(string peerId)
     {
         var logger = loggerFactory.CreateLogger($"[PeerConnector][User:{peerId}]");
-        var connector = new PeerConnector(peerId, logger, backendClient, rtcConnector);
+        var connector = new PeerConnector(
+            peerId,
+            logger,
+            backendClient,
+            rtcConnector
+        );
 
         connector.ConnectionChanged.Subscribe(newConnectionState =>
-        {
-            var newConnectionsState = _connectionEventSource.Value.ToDictionary();
-            newConnectionsState[peerId] = newConnectionState;
-            _connectionEventSource.Change(newConnectionsState);
-        });
+            {
+                var newConnectionsState = _connectionEventSource.Value.ToDictionary();
+                newConnectionsState[peerId] = newConnectionState;
+                _connectionEventSource.Change(newConnectionsState);
+            }
+        );
 
         return connector;
     }

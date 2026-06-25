@@ -3,11 +3,12 @@ using Xunit.Sdk;
 
 namespace WebPhone.Tests;
 
-public class BackendCommunicationTests : IntegrationWithBackendTestsSet
+public class BackendCommunicationTests(
+    ITestOutputHelper output
+) : IntegrationWithBackendTestsSet(output)
 {
     const string _userId = "Single-User";
 
-    public BackendCommunicationTests(TestWebApplicationFactory webApplicationFactory, ITestOutputHelper output) : base(webApplicationFactory, output) {}
     [Fact(Timeout = 1000)]
     public async Task SendRequestAsync()
     {

@@ -14,7 +14,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<WebPhone.Api.Prog
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureLogging(logging =>
-            {                
+            {
                 logging.ClearProviders();
                 logging.AddProvider(new TestLoggerProvider(log => OnLog.Invoke(log)));
                 logging.SetMinimumLevel(LogLevel.Trace);
@@ -24,12 +24,10 @@ public class TestWebApplicationFactory : WebApplicationFactory<WebPhone.Api.Prog
     }
 }
 
-public abstract class IntegrationWithBackendTestsSet : IClassFixture<TestWebApplicationFactory>
+public abstract class IntegrationWithBackendTestsSet : IAsyncDisposable
 {
     readonly TestWebApplicationFactory _webApplicationFactory;
     readonly string _virtualBaseUrl;
-    protected IEnumerable<string> ServerLogs => Logs.Where(l => l.IsServer).Select(l => l.Message);
-    protected IEnumerable<string> ClientLogs => Logs.Where(l => l.IsServer == false).Select(l => l.Message);
 
     readonly List<(string Message, bool IsServer)> _logs = [];
 
@@ -39,9 +37,9 @@ public abstract class IntegrationWithBackendTestsSet : IClassFixture<TestWebAppl
 
     protected static CancellationTokenSource Timeout => new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(2));
 
-    protected IntegrationWithBackendTestsSet(TestWebApplicationFactory webApplicationFactory, ITestOutputHelper output)
+    protected IntegrationWithBackendTestsSet(ITestOutputHelper output)
     {
-        _webApplicationFactory = webApplicationFactory;
+        _webApplicationFactory = new();
         var client = _webApplicationFactory.CreateClient();
         _virtualBaseUrl = client.BaseAddress!.ToString();
         _webApplicationFactory.OnLog += log =>
@@ -76,4 +74,6 @@ public abstract class IntegrationWithBackendTestsSet : IClassFixture<TestWebAppl
         var client = new BackendClient($"http://localhost:{port}", new TestProfile(userId));
         return client;
     }
+    
+    public ValueTask DisposeAsync() => _webApplicationFactory.DisposeAsync();
 }

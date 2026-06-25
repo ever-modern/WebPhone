@@ -28,9 +28,8 @@ public class InMemoryMessagesChannel : IMessagesWriter
 }
 
 public class MatchMakerTests(
-    TestWebApplicationFactory webApplicationFactory,
     ITestOutputHelper output
-) : IntegrationWithBackendTestsSet(webApplicationFactory, output)
+) : IntegrationWithBackendTestsSet(output)
 {
     public async Task Bombard()
     {
@@ -71,17 +70,16 @@ public class MatchMakerTests(
         await Task.Delay(50);
 
         var tasks = peers.SelectMany(peer => peers.Where(otherPeer => otherPeer != peer)
-            .Select(otherPeer => matchMaker.MatchAsync(
-                    peer,
-                    otherPeer,
-                    new(new WebRtcOffer("offer", $"offer from {peer} to {otherPeer}"), null),
-                    default
+                .Select(otherPeer => matchMaker.MatchAsync(
+                        peer,
+                        otherPeer,
+                        new(new WebRtcOffer("offer", $"offer from {peer} to {otherPeer}"), null),
+                        default
+                    )
                 )
             )
-        ).ToArray();
+            .ToArray();
 
         await Task.WhenAll(tasks);
-        
-        
     }
 }

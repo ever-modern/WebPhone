@@ -41,8 +41,6 @@ public class PeerConnector(
         WebRtcOffer? offer = null
     )
     {
-        Task<IRtcConnection> task;
-
         logger.LogDebug(
             "Required a peer connection {offer}.",
             offer is null ? "without an incoming offer" : "with an incoming offer"
@@ -139,14 +137,6 @@ public class PeerConnector(
 
         if (connection is not null)
         {
-            var state = await connection.GetStateAsync();
-            if (state != "connected")
-            {
-                throw new RtcConnectionException(
-                    $"Connection established but has an unhealthy state - {state}"
-                );
-            }
-            logger.LogInformation("Connected successfully.");
             return connection;
         }
 

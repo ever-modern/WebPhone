@@ -7,9 +7,8 @@ using Xunit.Abstractions;
 namespace WebPhone.Tests;
 
 public class MessagesChannelTestsSet(
-    TestWebApplicationFactory webApplicationFactory,
     ITestOutputHelper output
-) : IntegrationWithBackendTestsSet(webApplicationFactory, output)
+) : IntegrationWithBackendTestsSet(output)
 {
     const string _userId = "Single-User";
 

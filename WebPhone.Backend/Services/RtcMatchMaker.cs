@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using EverModern.Threading.Locks;
 using Microsoft.Extensions.Logging;
 using WebPhone.Backend.Storage;
 using WebPhone.Domain;
@@ -12,7 +13,7 @@ public class RtcMatchMaker(
 )
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
-
+    
     public async Task<RtcMatchParameter> MatchAsync(
         string initiatorId,
         string targetId,
@@ -43,7 +44,7 @@ public class RtcMatchMaker(
         );
 
         logger.LogInformation("{initiatorId} trying to connect to {targetId}", initiatorId, targetId);
-        
+
         if (isNew == false)
         {
             logger.LogInformation("There is already proceeding negotiation for pair {pair}", pair);
@@ -77,7 +78,9 @@ public class RtcMatchMaker(
             );
 
             var task = negotiationEntry.Value.WhenCompleted;
-            negotiationEntry.Dispose();            
+
+            negotiationEntry.Dispose();
+
             var answerFromPeer = await task;
 
             return answerFromPeer;
@@ -90,7 +93,7 @@ public class RtcMatchMaker(
         finally
         {
             logger.LogInformation("Removing pair {pair} negotiation from store.", pair);
-            negotiationEntry.Remove();
+            currentNegotiations.Acquire(pair, _ => throw new InvalidOperationException()).Remove();
         }
     }
 

@@ -1,29 +1,27 @@
 import { RtcConnectionCallbacks } from "./rtc-connection";
 
+const PromiseResolutionSource = <T>(timeoutMs: number = 0) => {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    let resolved = false;
+    const promise = new Promise<T>((res, rej) => { resolve = (value) => { if (!resolved) { resolved = true; res(value); } }; reject = (reason) => { if (!resolved) { resolved = true; rej(reason); } }; });
+
+    if (timeoutMs > 0) {
+        setTimeout(() => {
+            reject(new Error("Promise hasn't been resolved within deadline."));
+        }, timeoutMs);
+    }
+
+    const result = { ...promise, resolve, reject };
+    return result;
+};
+
 export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, onDataChannelMessage }: RtcConnectionCallbacks) {
 
     let dataChannel: RTCDataChannel | null = null;
 
-    let finishWaitingForOpening!: () => void;
-    let failOpening!: (reason?: unknown) => void;
-    let resolved = false;
-
-    const timeout = setTimeout(() => {
-        failOpening(new Error("Connection timed out after 30 s"));
-    }, 30000);
-
-    const whenOpen = new Promise<void>((resolve, reject) => {
-        finishWaitingForOpening = resolve;
-        failOpening = (reason?: unknown) =>
-            reject(reason instanceof Error ? reason : new Error(reason !== undefined ? String(reason) : "Connection failed to open"));
-    });
-
-    const safeResolve = () => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(timeout);
-        finishWaitingForOpening();
-    };
+    const connectionOpened = PromiseResolutionSource<void>(300_000);
+    const channelOpened = PromiseResolutionSource<void>(300_000);
 
     const handleDataChannel = (channel: RTCDataChannel) => {
         dataChannel = channel;
@@ -41,17 +39,17 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
         };
         channel.onopen = () => {
             console.log("[RTC] data channel opened");
-            safeResolve();
+            channelOpened.resolve();
         };
         if (channel.readyState === "open") {
             console.log("[RTC] data channel already open at handleDataChannel time");
-            safeResolve();
+            channelOpened.resolve();
         }
-        channel.onerror = (e) => { console.warn("[RTC] data channel error:", e); failOpening(); };
+        channel.onerror = (e) => { console.warn("[RTC] data channel error:", e); connectionOpened.reject(e); };
         channel.onclose = () => {
             console.log("[RTC] data channel closed, readyState:", channel.readyState);
             if (channel.readyState !== "open") {
-                failOpening();
+                channelOpened.reject(new Error("Channel is closed. Connection has not been established."));
                 if (onStateChanged)
                     onStateChanged("closed");
             }
@@ -64,9 +62,10 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
         }
     }
 
-    const writeBytes = (input: Uint8Array | ArrayBuffer | string): boolean => {
+    const writeBytes = async (input: Uint8Array | ArrayBuffer | string): Promise<void> => {
+        await channelOpened;
         if (!dataChannel || dataChannel.readyState !== "open") {
-            return false;
+            throw new Error("RTC data channel is not open.");
         }
 
         let payload: Uint8Array;
@@ -78,21 +77,25 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
             payload = input instanceof Uint8Array ? input : new Uint8Array(input);
         }
         dataChannel.send(payload as unknown as ArrayBufferView<ArrayBuffer>);
-
-        return true;
     };
 
-    connection.onconnectionstatechange = () => {
+    const reactToState = () => {
         console.log("[RTC] peer connection state:", connection.connectionState);
         onStateChanged?.(connection.connectionState);
         if (connection.connectionState === "connected") {
             console.log("[RTC] whenOpen resolving (connected)");
-            finishWaitingForOpening();
+            connectionOpened.resolve();
         } else if (connection.connectionState === "disconnected" || connection.connectionState === "failed" || connection.connectionState === "closed") {
             console.warn("[RTC] whenOpen rejecting, state:", connection.connectionState);
-            failOpening();
+            connectionOpened.reject(new Error(`Connection state is ${connection.connectionState}`));
         }
+    }
+
+    connection.onconnectionstatechange = () => {
+        reactToState();
     };
 
-    return { unbind: () => { connection.ondatachannel = null, connection.onconnectionstatechange = null; }, handleDataChannel, writeToChannel: writeBytes, whenOpen };
+    reactToState();
+
+    return { unbind: () => { connection.ondatachannel = null, connection.onconnectionstatechange = null; }, handleDataChannel, writeToChannel: writeBytes, whenOpen: connectionOpened };
 }

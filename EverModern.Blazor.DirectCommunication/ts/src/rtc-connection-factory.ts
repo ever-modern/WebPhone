@@ -27,13 +27,11 @@ async function createRtcConnection(
     iceServers: RTCIceServer[],
     callbacks: RtcConnectionCallbacks
 ) {
-    if (!iceServers?.length) throw new Error("At least one ICE server must be provided.");
-
     const isInitator = typeof exchangeInfo === "function";
     const role = isInitator ? "initiator" : "acceptor";
     console.log(`[RTC] starting connection as ${role}. iceServers=${iceServers.length}`);
 
-    const peerConnection = new RTCPeerConnection({ iceServers });
+    const peerConnection = iceServers?.length ? new RTCPeerConnection({ iceServers }) : new RTCPeerConnection();
 
     peerConnection.onconnectionstatechange = () => console.log(`[RTC][${role}] connection state:`, peerConnection.connectionState);
     peerConnection.oniceconnectionstatechange = () => console.log(`[RTC][${role}] ICE connection state:`, peerConnection.iceConnectionState);
