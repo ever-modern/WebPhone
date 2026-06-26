@@ -158,7 +158,7 @@ public class PeerConnector(
             {
                 logger.LogInformation("Sending offer to peer {peerId}", peerId);
 
-                var (responseOffer, responseAnswer, connectionId) = await backendClient
+                var rtcMatchResponse = await backendClient
                     .ConnectRtcAsync(
                         new RtcConnectionRequest(peerId, offer, null),
                         cancellationToken
@@ -174,6 +174,10 @@ public class PeerConnector(
                         },
                         cancellationToken
                     );
+
+                var responseOffer = rtcMatchResponse.Offer;
+                var responseAnswer = rtcMatchResponse.Answer;
+                var connectionId = rtcMatchResponse.Id;
 
                 logger.LogInformation(
                     "Initiator backend response. PeerId={PeerId}, ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
@@ -238,7 +242,9 @@ public class PeerConnector(
                         cancellationToken
                     );
 
-                var (responseOffer, responseAnswer, connectionId) = rtcMatchParameter;
+                var responseOffer = rtcMatchParameter.Offer;
+                var responseAnswer = rtcMatchParameter.Answer;
+                var connectionId = rtcMatchParameter.Id;
 
                 logger.LogInformation(
                     "ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",

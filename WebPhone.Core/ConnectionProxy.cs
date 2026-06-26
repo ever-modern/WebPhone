@@ -28,7 +28,7 @@ public class ConnectionProxy(
 {
 }
 
-public static class ActiveConnectionExtensions
+public static class ConnectionProxyExtensions
 {
     static readonly MediaState _defaultMediaState = new(new(false, false), new(false, false));
     public static ConnectionProxy GetActiveConnection(this PeerConnectionsDispatcher dispatcher, string peerId)

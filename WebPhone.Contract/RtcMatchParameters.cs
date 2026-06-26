@@ -1,14 +1,13 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace WebPhone.Domain;
 
-public record RtcMatchParameters(
-    WebRtcOffer? Offer,
-    WebRtcAnswer? Answer
-)
+public record RtcMatchParameters(WebRtcOffer? Offer, WebRtcAnswer? Answer)
 {
-    public RtcMatchParameters(WebRtcOffer offer) : this(offer, null) {}
+    public RtcMatchParameters(WebRtcOffer offer)
+        : this(offer, null) { }
 
     public static long ComputeNegotiationId(WebRtcOffer offer, WebRtcAnswer answer)
     {
@@ -22,14 +21,11 @@ public record RtcMatchParameters(
     }
 }
 
-public record RtcMatchResponse(
-    WebRtcOffer? Offer,
-    WebRtcAnswer? Answer,
-    string? Id
-) : RtcMatchParameters(Offer, Answer)
+public record RtcMatchResponse(WebRtcOffer? Offer, WebRtcAnswer? Answer)
+    : RtcMatchParameters(Offer, Answer)
 {
-    public RtcMatchResponse(
-        WebRtcOffer? Offer,
-        WebRtcAnswer? Answer
-    ) : this(Offer, Answer, ComputeNegotiationId(Offer, Answer).ToString()) {}
+    public string Id { get; } =
+        Offer is not null && Answer is not null
+            ? ComputeNegotiationId(Offer, Answer).ToString()
+            : "";
 }
