@@ -103,12 +103,12 @@ public sealed class ContactsDispatcher(
                         entriesToRemove.Add(existingEntry);
                     }
 
-                    var newEntry = connection is not null ?
-                        CreateEntry(
-                            connection!,
-                            contact
-                        ) :
-                        new(contact, new MediaConnection(null, null, new(TellInteractivity(contact.LastSeen))), () => {});
+                    var activeConnection = peerConnectionsDispatcher.GetActiveConnection(contact.Id);
+
+                    var newEntry = CreateEntry(
+                        activeConnection,
+                        contact
+                    );
 
                     return newEntry;
                 }

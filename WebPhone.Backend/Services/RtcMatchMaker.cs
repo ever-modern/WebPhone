@@ -14,10 +14,10 @@ public class RtcMatchMaker(
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
     
-    public async Task<RtcMatchParameter> MatchAsync(
+    public async Task<RtcMatchParameters> MatchAsync(
         string initiatorId,
         string targetId,
-        RtcMatchParameter parameters,
+        RtcMatchParameters parameters,
         CancellationToken cancellationToken
     )
     {
@@ -129,7 +129,7 @@ public class RtcMatchMaker(
 
     static OngoingNegotiation StartNegotiation(WebRtcOffer offer, TimeSpan timeout)
     {
-        var tcs = new TaskCompletionSource<RtcMatchParameter>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<RtcMatchParameters>(TaskCreationOptions.RunContinuationsAsynchronously);
         var cts = new CancellationTokenSource(timeout);
         cts.Token.Register(() => tcs.TrySetCanceled());
         OngoingNegotiation result = new(tcs, offer);

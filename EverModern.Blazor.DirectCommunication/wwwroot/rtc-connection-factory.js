@@ -17,6 +17,7 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         const dataChannel = peerConnection.createDataChannel("data");
         handleDataChannel(dataChannel);
     }
+    let id;
     const connectionManager = {
         close: () => {
             unbind();
@@ -27,14 +28,15 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         setMediaState,
         setVideoTarget,
         setLocalVideoTarget,
-        peerConnection
+        peerConnection,
+        getId: () => id
     };
     if (isInitator) {
         const offer = await peerConnection.createOffer();
         console.log(`[RTC][${role}] local offer created. type=${offer.type}, hasSdp=${Boolean(offer.sdp)}`);
         await peerConnection.setLocalDescription(offer);
         await waitForIceGatheringComplete(peerConnection);
-        const answer = await exchangeInfo(peerConnection.localDescription);
+        const { answer, connectionId } = await exchangeInfo(peerConnection.localDescription);
         console.log(`[RTC][${role}] remote answer received. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
         if (!answer?.type || !answer?.sdp) {
             console.log(`[RTC][${role}] no direct answer returned; likely switching to counter-offer flow.`);
@@ -43,6 +45,7 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
             return null;
         }
         await peerConnection.setRemoteDescription(answer);
+        id = connectionId;
     }
     else {
         const { offer, sendAnswerBack } = exchangeInfo;
@@ -61,13 +64,14 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         console.log(`[RTC][${role}] local answer created. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
         await peerConnection.setLocalDescription(answer);
         await waitForIceGatheringComplete(peerConnection);
-        const answerAccepted = await sendAnswerBack(peerConnection.localDescription);
-        if (!answerAccepted) {
+        const connectionId = await sendAnswerBack(peerConnection.localDescription);
+        if (!connectionId) {
             console.log(`[RTC][${role}] local answer has not been accepted by the remote peer.`);
             unbind();
             peerConnection.close();
             return null;
         }
+        id = connectionId;
         console.log(`[RTC][${role}] local answer sent back.`);
     }
     try {

@@ -15,19 +15,22 @@ class MockRtcConnection : IRtcConnection
 {
     static readonly List<MockRtcConnection> _existingConnections = new();
 
-    readonly EventSource<string> _stateChanged = new();
+    readonly ObservedValue<RtcConnectionState> _state = new(RtcConnectionState.New);
     public MockRtcConnection(MockRtcConnector owner, WebRtcOffer offer, WebRtcAnswer answer)
     {
         Owner = owner;
         Offer = offer;
         Answer = answer;
 
+        Id = RtcMatchParameters.ComputeNegotiationId(Offer, Answer).ToString();
         _existingConnections.Add(this);
     }
 
+    public string Id { get; }
+
     public INotifier<byte[]> BytesReceived => new EmptyNotifier<byte[]>();
 
-    public INotifier<string> StateChanged => _stateChanged;
+    public IValueNotifier<RtcConnectionState> State => _state;
     private MockRtcConnector Owner { get; init; }
     public WebRtcOffer Offer { get; init; }
     public WebRtcAnswer Answer { get; init; }
@@ -37,7 +40,7 @@ class MockRtcConnection : IRtcConnection
         var otherConnections = _existingConnections.Where(con => con.Offer == Offer && con.Answer == Answer && con.Owner != Owner).ToArray();
         foreach (var otherConnection in otherConnections)
         {
-            otherConnection._stateChanged.Invoke("closed");
+            otherConnection._state.Change(RtcConnectionState.Closed);
         }
     }
 
@@ -57,5 +60,5 @@ class MockRtcConnection : IRtcConnection
 
     public Task SetVideoTargetAsync(ElementReference videoElement) { throw new NotImplementedException(); }
 
-    public Task<bool> WriteBytesAsync(byte[] bytes) { throw new NotImplementedException(); }
+    public ValueTask<bool> WriteBytesAsync(byte[] bytes) { throw new NotImplementedException(); }
 }

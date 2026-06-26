@@ -15,17 +15,17 @@ public enum RtcConnectionState
 
 public interface IRtcConnection
 {
+    string Id { get; }
+
     INotifier<byte[]> BytesReceived { get; }
     IValueNotifier<RtcConnectionState> State { get; }
 
-    void Dispose();
-    ValueTask DisposeAsync();
     Task<MediaState> GetMediaStateAsync();
 
     Task SetLocalVideoTargetAsync(ElementReference videoElement);
     Task SetMediaStateAsync(MediaState mediaState);
     Task SetVideoTargetAsync(ElementReference videoElement);
-    Task<bool> WriteBytesAsync(byte[] bytes);
+    ValueTask<bool> WriteBytesAsync(byte[] bytes);
 
     public static RtcConnectionState StateFromString(string stateString)
         => stateString.ToLowerInvariant() switch

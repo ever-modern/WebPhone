@@ -4,44 +4,6 @@ using WebPhone.Domain;
 
 namespace EverModern.Blazor.DirectCommunication;
 
-public class JsInvokableFunc<Tout>(
-    Func<Tout> func
-)
-{
-    [JSInvokable("invoke")]
-    public Tout Invoke() => func();
-}
-
-public class JsInvokableFunc<TIn, TOut>(
-    Func<TIn, TOut> func
-)
-{
-    [JSInvokable("invoke")]
-    public TOut Invoke(TIn p) => func(p);
-}
-
-public class JsInvokableAction<TIn>(
-    Action<TIn> func
-)
-{
-    [JSInvokable("invoke")]
-    public void Invoke(TIn p1) => func(p1);
-}
-
-public static class JsFunction
-{
-    public static JsInvokableFunc<TOut> Create<TOut>(Func<TOut> func) => new(func);
-
-    public static JsInvokableFunc<TIn, TOut> Create<TIn, TOut>(Func<TIn, TOut> func) => new(func);
-
-    public static JsInvokableAction<TIn> Create<TIn>(Action<TIn> func) => new(func);
-}
-
-public record struct ConnectionInitiationResult(
-    BrowserRtcConnection? Connection,
-    WebRtcOffer? CounterOffer
-);
-
 public sealed class JsRtcConnector(
     IJSRuntime jsRuntime,
     IEnumerable<WebRtcIceServer> iceServers
@@ -49,7 +11,7 @@ public sealed class JsRtcConnector(
     : IRtcConnector
 {
     public async Task<IRtcConnection?> InitiateConnectionAsync(
-        Func<WebRtcOffer, Task<WebRtcAnswer?>> getAnswer,
+        Func<WebRtcOffer, Task<(WebRtcAnswer? Answer, RtcConnectionId? ConnectionId)>> getAnswer,
         CancellationToken cancellationToken
     )
     {
@@ -57,7 +19,19 @@ public sealed class JsRtcConnector(
 
         var channelMessageReceived = new Events.EventSource<byte[]>();
 
-        var getAnswerLink = DotNetObjectReference.Create(value: JsFunction.Create(func: getAnswer));
+        var getAnswerLink = DotNetObjectReference.Create(
+            value: JsFunction.Create<WebRtcOffer, Task<object>>(
+                func: async offer =>
+                {
+                    var (answer, connectionId) = await getAnswer(offer);
+                    return new
+                    {
+                        answer,
+                        connectionId
+                    };
+                }
+            )
+        );
 
         var state = new ObservedValue<RtcConnectionState>(RtcConnectionState.New);
 
@@ -76,14 +50,14 @@ public sealed class JsRtcConnector(
         if (managerReference is null)
             return null;
 
-        var onDispose = () =>
-        {
-            _ = managerReference.InvokeVoidAsync(identifier: "close", args: []);
-        };
+        var onDispose = () => managerReference.InvokeVoidAsync(identifier: "close", args: []);
+
+        var id = await managerReference.InvokeAsync<string>(identifier: "getId");
 
         var result = new BrowserRtcConnection(
+            () => id,
             dispose: onDispose,
-            stateChanged: state,
+            state: state,
             bytesReceived: channelMessageReceived,
             writeBytes: async bytes => await managerReference.InvokeAsync<bool>(identifier: "writeToChannel", args: bytes),
             getMediaState: async () => await managerReference.InvokeAsync<MediaState>(identifier: "getMediaState", args: []),
@@ -99,10 +73,16 @@ public sealed class JsRtcConnector(
 
         return result;
     }
+    public ValueTask CloseConnectionAsync(IRtcConnection connection)
+    {
+        var browserConnection = connection as BrowserRtcConnection
+                                ?? throw new InvalidOperationException($"Passed connection is not a {nameof(BrowserRtcConnection)}.");
+        return browserConnection.DisposeAsync();
+    }
 
     public async Task<IRtcConnection?> AcceptConnectionAsync(
         WebRtcOffer offer,
-        Func<WebRtcAnswer, Task<bool>> sendAnswerBack,
+        Func<WebRtcAnswer, Task<RtcConnectionId>> sendAnswerBack,
         CancellationToken cancellationToken
     )
     {
@@ -124,13 +104,13 @@ public sealed class JsRtcConnector(
             ]
         ) ?? throw new RtcConnectionException("Failed to create RTC connection.");
 
-        var onDispose = () =>
-        {
-            _ = managerReference.InvokeVoidAsync("close", []).AsTask();
-        };
+        var dispose = () => managerReference.InvokeVoidAsync("close", []);
+
+        var id = await managerReference.InvokeAsync<string>(identifier: "getId");
 
         var result = new BrowserRtcConnection(
-            onDispose,
+            () => id,
+            dispose,
             state,
             channelMessageReceived,
             async bytes => await managerReference.InvokeAsync<bool>("writeToChannel", bytes),

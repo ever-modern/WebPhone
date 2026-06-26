@@ -9,11 +9,11 @@ public class RtcConnectAction(
     RequestSupplements requestSupplements,
     ILogger<RtcConnectAction> logger
 )
-    : ApiActionConcrete<RtcConnectionRequest, RtcMatchParameter>
+    : ApiActionConcrete<RtcConnectionRequest, RtcMatchParameters>
 {
     public override string Route => "rtc-connect";
 
-    public override Task<RtcMatchParameter> ExecuteAsync(
+    public override Task<RtcMatchParameters> ExecuteAsync(
         RtcConnectionRequest input,
         CancellationToken cancellationToken = default
     )

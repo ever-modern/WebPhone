@@ -16,14 +16,10 @@ class MockRtcConnector : IRtcConnector
             $"answer-to-{offer.Sdp}-from-{nameof(MockRtcConnector)}-#{_id}-timestamp-{DateTime.UtcNow.Ticks}"
         );
 
-    public async Task<IRtcConnection?> AcceptConnectionAsync(
-        WebRtcOffer offer,
-        Func<WebRtcAnswer, Task<bool>> sendAnswerBack,
-        CancellationToken cancellationToken
-    )
+    public async Task<IRtcConnection?> AcceptConnectionAsync(WebRtcOffer offer, Func<WebRtcAnswer, Task<String>> sendAnswerBack, CancellationToken cancellationToken)
     {
         var answer = GenerateAnswer(offer);
-        var couldSendAnswer = await sendAnswerBack(answer); 
+        var couldSendAnswer = await sendAnswerBack(answer) is not null or "";
         if (couldSendAnswer is false)
         {
             return null;
@@ -32,17 +28,16 @@ class MockRtcConnector : IRtcConnector
         return new MockRtcConnection(this, offer, answer);
     }
 
-    public async Task<IRtcConnection?> InitiateConnectionAsync(
-        Func<WebRtcOffer, Task<WebRtcAnswer?>> getAnswer,
-        CancellationToken cancellationToken
-    )
+    public async Task<IRtcConnection?> InitiateConnectionAsync(Func<WebRtcOffer, Task<(WebRtcAnswer? Answer, String? ConnectionId)>> getAnswer, CancellationToken cancellationToken)
     {
         var offer = GenerateOffer();
-        var answer = await getAnswer(offer);
+        var (answer, connectionId) = await getAnswer(offer);
         if (answer is null)
         {
             return null;
         }
         return new MockRtcConnection(this, offer, answer);
     }
+
+    public ValueTask CloseConnectionAsync(IRtcConnection connection) => throw new NotImplementedException();
 }

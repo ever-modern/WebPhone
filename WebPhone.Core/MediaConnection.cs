@@ -27,7 +27,7 @@ public class MediaConnection(
     public MediaConnection Started()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        
+
         _ = Task.Run(ReceiveLoop);
         _ = Task.Run(SenderLoop);
 
@@ -104,7 +104,7 @@ public class MediaConnection(
                     state.Change(InteractionState.Disconnected.Instance);
 
                     await _cts.CancelAsync();
-                    
+
                     return;
                 }
 

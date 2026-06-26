@@ -225,7 +225,7 @@ public class BackendClient(
         response.EnsureSuccessStatusCode();
     }
 
-    public async Task<RtcMatchParameter> ConnectRtcAsync(
+    public async Task<RtcMatchResponse> ConnectRtcAsync(
         RtcConnectionRequest connectionRequest,
         CancellationToken cancellationToken
     )
@@ -248,7 +248,7 @@ public class BackendClient(
         using var response = await _httpClient.SendAsync(request, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var result = await response.Content.ReadFromJsonAsync<RtcMatchParameter>(
+        var result = await response.Content.ReadFromJsonAsync<RtcMatchResponse>(
             JsonOptions,
             cancellationToken
         );

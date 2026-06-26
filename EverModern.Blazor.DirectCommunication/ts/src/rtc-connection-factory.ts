@@ -9,16 +9,23 @@ type IceServerParameters = {
     credential?: string;
 };
 
+type RtcConnectionId = string | number;
+
 type DotNetObjectReference = {
     invokeMethodAsync<T = unknown>(methodName: string, ...args: unknown[]): Promise<T>;
 };
 
 type OfferAnswerExchange = {
     offer: RTCSessionDescriptionInit;
-    sendAnswerBack: (answer: RTCSessionDescriptionInit) => Promise<boolean>;
+    sendAnswerBack: (answer: RTCSessionDescriptionInit) => Promise<RtcConnectionId>;
 }
 
-type ConnectionDescriptionExchangeInfo = ((offer: RTCSessionDescriptionInit) => Promise<RTCSessionDescriptionInit>) | OfferAnswerExchange;
+type RtcNegotiationAnswer = {
+    answer: RTCSessionDescriptionInit;
+    connectionId: RtcConnectionId;
+}
+
+type ConnectionDescriptionExchangeInfo = ((offer: RTCSessionDescriptionInit) => Promise<RtcNegotiationAnswer>) | OfferAnswerExchange;
 
 async function createRtcConnection(
     exchangeInfo: ConnectionDescriptionExchangeInfo,
@@ -45,6 +52,8 @@ async function createRtcConnection(
         handleDataChannel(dataChannel);
     }
 
+    let id: RtcConnectionId;
+
     const connectionManager = {
         close: () => {
             unbind();
@@ -55,7 +64,8 @@ async function createRtcConnection(
         setMediaState,
         setVideoTarget,
         setLocalVideoTarget,
-        peerConnection
+        peerConnection,
+        getId: () => id
     };
 
     if (isInitator) {
@@ -65,7 +75,7 @@ async function createRtcConnection(
 
         await waitForIceGatheringComplete(peerConnection);
 
-        const answer = await exchangeInfo(peerConnection.localDescription!);
+        const { answer, connectionId } = await exchangeInfo(peerConnection.localDescription!);
         console.log(`[RTC][${role}] remote answer received. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
 
         if (!answer?.type || !answer?.sdp) {
@@ -76,6 +86,8 @@ async function createRtcConnection(
         }
 
         await peerConnection.setRemoteDescription(answer);
+
+        id = connectionId;
     }
     else {
         const { offer, sendAnswerBack } = exchangeInfo;
@@ -99,14 +111,16 @@ async function createRtcConnection(
 
         await waitForIceGatheringComplete(peerConnection);
 
-        const answerAccepted = await sendAnswerBack(peerConnection.localDescription!);
+        const connectionId = await sendAnswerBack(peerConnection.localDescription!);
 
-        if (!answerAccepted) {
+        if (!connectionId) {
             console.log(`[RTC][${role}] local answer has not been accepted by the remote peer.`);
             unbind();
             peerConnection.close();
             return null;
         }
+
+        id = connectionId;
 
         console.log(`[RTC][${role}] local answer sent back.`);
     }
@@ -136,7 +150,7 @@ async function initiateConnectionAsync(
     onStateChangedAsync: DotNetObjectReference,
     onDataChannelMessageAsync: DotNetObjectReference
 ) {
-    const getAnswer = (offer: RTCSessionDescriptionInit) => getAnswerAsync.invokeMethodAsync<RTCSessionDescriptionInit>("invoke", offer);
+    const getAnswer = (offer: RTCSessionDescriptionInit) => getAnswerAsync.invokeMethodAsync<RtcNegotiationAnswer>("invoke", offer);
     const onStateChanged = (state: RTCPeerConnectionState) => onStateChangedAsync.invokeMethodAsync("invoke", state) as Promise<void>;
     const onDataChannelMessage = (message: string) => onDataChannelMessageAsync.invokeMethodAsync("invoke", message) as Promise<void>;
 
@@ -154,7 +168,7 @@ async function acceptConnectionAsync(
 ) {
     const onStateChanged = (state: RTCPeerConnectionState) => onStateChangedAsync.invokeMethodAsync("invoke", state) as Promise<void>;
     const onDataChannelMessage = (message: string) => onDataChannelMessageAsync.invokeMethodAsync("invoke", message) as Promise<void>;
-    const sendAnswerBack = (answer: RTCSessionDescriptionInit) => sendAnswerBackAsync.invokeMethodAsync("invoke", answer) as Promise<boolean>;
+    const sendAnswerBack = (answer: RTCSessionDescriptionInit) => sendAnswerBackAsync.invokeMethodAsync("invoke", answer) as Promise<RtcConnectionId>;
     const connectionManager = await createRtcConnection({ offer, sendAnswerBack }, iceServers, { onStateChanged, onDataChannelMessage });
 
     return connectionManager;

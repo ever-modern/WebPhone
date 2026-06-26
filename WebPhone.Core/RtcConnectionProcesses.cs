@@ -9,13 +9,13 @@ public class RtcConnectionProcesses
     readonly Lock _locker = new();
     readonly List<RtcConnectionProcess> _connectionProcesses = [];
 
-    public RtcConnectionProcess[] Processes
+    public RtcConnectionProcess[] RelevantProcesses
     {
         get
         {
             using var _ = _locker.LockScope();
             _connectionProcesses.RemoveAll(p => p is { IsUnderway: false, IsConnected: false });
-            return [.._connectionProcesses];
+            return [.._connectionProcesses.OrderBy(p => p.IsConnected).ThenBy(p => p.IsConnected ? p.Result.Id : "")];
         }
     }
 
@@ -25,7 +25,7 @@ public class RtcConnectionProcesses
             if (processes.Length == 0)
                 return null;
             await Task.WhenAny(processes.Select(p => (Task<IRtcConnection>)p).ToArray());
-            var ready = Processes.FirstOrDefault(p => p.IsConnected);
+            var ready = RelevantProcesses.FirstOrDefault(p => p.IsConnected);
             try
             {
                 return await ready;
@@ -37,7 +37,7 @@ public class RtcConnectionProcesses
         }
     );
 
-    public IRtcConnection? AnyReady() => Processes.FirstOrDefault(p => p.IsConnected)?.Result;
+    public IRtcConnection? AnyReady() => RelevantProcesses.FirstOrDefault(p => p.IsConnected)?.Result;
 
     public void Add(Task<IRtcConnection> task, CancellationTokenSource cancellation, WebRtcOffer? offer)
     {
@@ -48,19 +48,19 @@ public class RtcConnectionProcesses
         _connectionProcesses.Add(new(task, cancellation, offer));
     }
 
-    public void CloseAll()
+    public IRtcConnection[] DrainAll()
     {
         using var _ = _locker.LockScope();
-
-        _connectionProcesses.RemoveAll(p =>
-            {
-                p.Stop();
-                if (p.IsConnected)
-                    p.Result.Dispose();
-
-                return true;
-            }
-        );
+        var result = _connectionProcesses.Select(p =>
+                {
+                    p.Stop();
+                    return p.IsConnected ? p.Result : null;
+                }
+            )
+            .Where(p => p is not null)
+            .ToArray();
+        _connectionProcesses.Clear();
+        return result;
     }
 
     public InteractionState State
@@ -72,7 +72,7 @@ public class RtcConnectionProcesses
             if (isConnected is not null)
                 return InteractionState.Connected.Instance;
 
-            if (Processes.Any(p => p.IsUnderway))
+            if (RelevantProcesses.Any(p => p.IsUnderway))
                 return InteractionState.Connecting.Instance;
 
             return InteractionState.Disconnected.Instance;

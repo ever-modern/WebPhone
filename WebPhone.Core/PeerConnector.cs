@@ -75,7 +75,13 @@ public class PeerConnector(
         return _connecting.WhenAny();
     }
 
-    public void CloseAllConnections() { _connecting.CloseAll(); }
+    public async ValueTask CloseAllConnections()
+    {
+        foreach (var connection in _connecting.DrainAll())
+        {
+            await rtcConnector.CloseConnectionAsync(connection);
+        }
+    }
 
     IRtcConnection WithSubscription(IRtcConnection connection)
     {
@@ -85,7 +91,7 @@ public class PeerConnector(
                 {
                     using var _ = _locker.LockScope();
                     sub.Dispose();
-                    connection.Dispose();
+                    rtcConnector.CloseConnectionAsync(connection);
                     _connectionEventSource.Change(_connecting.State);
                 }
             }
@@ -152,7 +158,7 @@ public class PeerConnector(
             {
                 logger.LogInformation("Sending offer to peer {peerId}", peerId);
 
-                var (responseOffer, responseAnswer) = await backendClient
+                var (responseOffer, responseAnswer, connectionId) = await backendClient
                     .ConnectRtcAsync(
                         new RtcConnectionRequest(peerId, offer, null),
                         cancellationToken
@@ -187,10 +193,10 @@ public class PeerConnector(
                         );
 
                     counterOffer = responseOffer;
-                    return null;
+                    return (null, null);
                 }
 
-                return responseAnswer;
+                return (responseAnswer, connectionId);
             },
             cancellationToken
         );
@@ -232,7 +238,7 @@ public class PeerConnector(
                         cancellationToken
                     );
 
-                var (responseOffer, responseAnswer) = rtcMatchParameter;
+                var (responseOffer, responseAnswer, connectionId) = rtcMatchParameter;
 
                 logger.LogInformation(
                     "ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
@@ -254,11 +260,12 @@ public class PeerConnector(
                         logger.LogDebug("Received no answer and no counter offer");
                     }
 
-                    return false;
+                    return connectionId;
                 }
 
                 logger.LogInformation("Successfully sent answer.");
-                return true;
+
+                return connectionId;
             },
             cancellationToken
         );

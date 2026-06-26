@@ -6,7 +6,8 @@ public abstract record WebRtcSessionDescription(string? Type, string? Sdp);
 
 public record WebRtcOffer(
     string? Type,
-    string? Sdp
+    string? Sdp,
+    long? Id = 0
 ) : WebRtcSessionDescription(Type, Sdp);
 
 public record WebRtcAnswer(
@@ -52,3 +53,4 @@ public sealed record WebRtcDataChannelOptions
     [JsonPropertyName("maxRetransmits")]
     public int? MaxRetransmits { get; init; }
 }
+
