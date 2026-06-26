@@ -8,9 +8,8 @@ public record MediaState(MediaPartState Audio, MediaPartState Video);
 
 public sealed class BrowserRtcConnection(
     Action dispose,
-    INotifier<string> stateChanged,
+    IValueNotifier<RtcConnectionState> stateChanged,
     INotifier<byte[]> bytesReceived,
-    Func<Task<string>> getState,
     Func<byte[], ValueTask<bool>> writeBytes,
     Func<Task<MediaState>> getMediaState,
     Func<MediaState, Task> setMediaState,
@@ -20,11 +19,9 @@ public sealed class BrowserRtcConnection(
 {
     private bool _disposed;
 
-    public INotifier<string> StateChanged => stateChanged;
+    public IValueNotifier<RtcConnectionState> State => stateChanged;
 
     public INotifier<byte[]> BytesReceived => bytesReceived;
-
-    public Task<string> GetStateAsync() => getState();
 
     public async Task<MediaState> GetMediaStateAsync()
     {

@@ -53,7 +53,7 @@ public class PeerConnectionsDispatcher(
     {
         if (_connectors.TryGetValue(peerId, out var connector))
         {
-            return Task.FromResult(connector.CloseConnection());
+            connector.CloseAllConnections();
         }
 
         return Task.CompletedTask;
@@ -81,7 +81,7 @@ public class PeerConnectionsDispatcher(
 
         foreach (var (_, connector) in _connectors)
         {
-            connector.CloseConnection();
+            connector.CloseAllConnections();
         }
     }
 

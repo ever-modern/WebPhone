@@ -20,8 +20,6 @@ type OfferAnswerExchange = {
 
 type ConnectionDescriptionExchangeInfo = ((offer: RTCSessionDescriptionInit) => Promise<RTCSessionDescriptionInit>) | OfferAnswerExchange;
 
-
-
 async function createRtcConnection(
     exchangeInfo: ConnectionDescriptionExchangeInfo,
     iceServers: RTCIceServer[],
@@ -56,7 +54,8 @@ async function createRtcConnection(
         getMediaState,
         setMediaState,
         setVideoTarget,
-        setLocalVideoTarget
+        setLocalVideoTarget,
+        peerConnection
     };
 
     if (isInitator) {
@@ -122,6 +121,12 @@ async function createRtcConnection(
         throw e;
     }
 
+    if (!(window as any).rtcConnectionManagers) {
+        (window as any).rtcConnectionManagers = [connectionManager];
+    } else {
+        (window as any).rtcConnectionManagers.push(connectionManager);
+    }
+
     return connectionManager;
 }
 
@@ -151,7 +156,7 @@ async function acceptConnectionAsync(
     const onDataChannelMessage = (message: string) => onDataChannelMessageAsync.invokeMethodAsync("invoke", message) as Promise<void>;
     const sendAnswerBack = (answer: RTCSessionDescriptionInit) => sendAnswerBackAsync.invokeMethodAsync("invoke", answer) as Promise<boolean>;
     const connectionManager = await createRtcConnection({ offer, sendAnswerBack }, iceServers, { onStateChanged, onDataChannelMessage });
-    
+
     return connectionManager;
 }
 

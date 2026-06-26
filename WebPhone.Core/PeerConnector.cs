@@ -15,26 +15,18 @@ public class PeerConnector(
 {
     const int _maxCounterOfferAttempts = 3;
     readonly Lock _locker = new();
-    readonly ObservedValue<InteractionState> _connectionEventSource = new(
-        InteractionState.Disconnected.Instance
-    );
+    readonly ObservedValue<InteractionState> _connectionEventSource = new(InteractionState.Disconnected.Instance);
     readonly CancellationTokenSource _cts = new();
 
     public IValueNotifier<InteractionState> ConnectionChanged => _connectionEventSource;
 
-    public Task<IRtcConnection>? Connecting => _connecting;
+    public Task<IRtcConnection?> Connecting =>
+        _connecting.WhenAny();
 
-    Task<IRtcConnection>? _connecting;
+    readonly RtcConnectionProcesses _connecting = new();
 
     public IRtcConnection? GetReadyConnection()
-    {
-        using var _ = _locker.LockScope();
-
-        if (_connecting?.IsCompletedSuccessfully is not true)
-            return null;
-
-        return _connecting.Result;
-    }
+        => _connecting.AnyReady();
 
     public Task<IRtcConnection> ConnectAsync(
         CancellationToken cancellationToken = default,
@@ -46,65 +38,55 @@ public class PeerConnector(
             offer is null ? "without an incoming offer" : "with an incoming offer"
         );
 
-        using (var _ = _locker.LockScope())
+        var ready = _connecting.AnyReady();
+        if (ready is not null)
         {
-            if (_connecting is not null && !_connecting.IsFaulted)
-                return _connecting;
-
-            if (_connecting is null)
-            {
-                logger.LogInformation(
-                    "No connection yet or the previous has been closed. Starting new negotiation."
-                );
-            }
-            else if (_connecting.IsFaulted)
-            {
-                logger.LogInformation("Previous connection attempt failed. Starting new attempt.");
-            }
-
-            _connectionEventSource.Change(InteractionState.Connecting.Instance);
-            _connecting = StartConnectingAsync(cancellationToken, offer)
-                .ContinueWith(
-                    t =>
-                    {
-                        if (t.IsFaulted)
-                        {
-                            logger.LogError(t.Exception, "Could not establish connection.");
-                            _connectionEventSource.Change(InteractionState.Disconnected.Instance);
-                            throw t.Exception;
-                        }
-                        _connectionEventSource.Change(InteractionState.Connected.Instance);
-                        return WithSubscription(t.Result);
-                    },
-                    CancellationToken.None
-                );
+            logger.LogInformation("A connection is already established. Returning the ready result.");
+            return Task.FromResult(ready);
         }
 
-        return _connecting;
+        using (var _ = _locker.LockScope())
+        {
+            logger.LogInformation("No ready connection yet.");
+
+            _connectionEventSource.Change(InteractionState.Connecting.Instance);
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _connecting.Add(
+                StartConnectingAsync(cancellationToken, offer)
+                    .ContinueWith(
+                        t =>
+                        {
+                            if (t.IsFaulted)
+                            {
+                                logger.LogError(t.Exception, "Could not establish connection.");
+                                _connectionEventSource.Change(InteractionState.Disconnected.Instance);
+                                throw t.Exception;
+                            }
+                            _connectionEventSource.Change(InteractionState.Connected.Instance);
+                            return WithSubscription(t.Result);
+                        },
+                        CancellationToken.None
+                    ),
+                cts,
+                offer
+            );
+        }
+
+        return _connecting.WhenAny();
     }
 
-    public bool CloseConnection()
-    {
-        using var _ = _locker.LockScope();
-        if (_connecting?.IsCompletedSuccessfully != true)
-            return false;
-
-        _connecting.Result.Dispose();
-        return true;
-    }
+    public void CloseAllConnections() { _connecting.CloseAll(); }
 
     IRtcConnection WithSubscription(IRtcConnection connection)
     {
-        connection.StateChanged.Subscribe(
-            (newState, sub) =>
+        connection.State.Subscribe((newState, sub) =>
             {
-                if (newState is "closed" or "failed" or "disconnected")
+                if (newState is RtcConnectionState.Closed or RtcConnectionState.Failed or RtcConnectionState.Disconnected)
                 {
                     using var _ = _locker.LockScope();
-                    _connecting = null;
                     sub.Dispose();
                     connection.Dispose();
-                    _connectionEventSource.Change(InteractionState.Disconnected.Instance);
+                    _connectionEventSource.Change(_connecting.State);
                 }
             }
         );
@@ -146,9 +128,7 @@ public class PeerConnector(
             logger.LogInformation("Attempt to connect encountered a counter-offer.");
             if (attempts++ >= _maxCounterOfferAttempts)
             {
-                throw new RtcConnectionException(
-                    "Too many failed attempts to act on a counter offer."
-                );
+                throw new RtcConnectionException("Too many failed attempts to act on a counter offer.");
             }
 
             (connection, counterOffer) = await AcceptOfferAsync(counterOffer, cancellationToken);
@@ -199,9 +179,7 @@ public class PeerConnector(
                 if (responseAnswer is null)
                 {
                     if (responseOffer is null)
-                        logger.LogWarning(
-                            "Server returned neither a response, nor a counter offer."
-                        );
+                        logger.LogWarning("Server returned neither a response, nor a counter offer.");
                     else
                         logger.LogInformation(
                             "Received counter offer from server. PeerId={PeerId}",
@@ -248,9 +226,7 @@ public class PeerConnector(
                             if (t.Exception is null)
                                 return t.Result;
 
-                            logger.LogError(
-                                $"Error sending connection request with incoming offer = {incomingOffer}:\n {t.Exception}"
-                            );
+                            logger.LogError($"Error sending connection request with incoming offer = {incomingOffer}:\n {t.Exception}");
                             throw t.Exception;
                         },
                         cancellationToken
@@ -281,7 +257,7 @@ public class PeerConnector(
                     return false;
                 }
 
-                logger.LogInformation("Successfully sent answer {answer}", answer);
+                logger.LogInformation("Successfully sent answer.");
                 return true;
             },
             cancellationToken
@@ -296,11 +272,14 @@ public class PeerConnector(
     }
 }
 
-record struct NegotiationResult(IRtcConnection? Connection, WebRtcOffer? CounterOffer)
+record struct NegotiationResult(
+    IRtcConnection? Connection,
+    WebRtcOffer? CounterOffer
+)
 {
     public NegotiationResult(IRtcConnection connection)
-        : this(connection, null) { }
+        : this(connection, null) {}
 
     public NegotiationResult(WebRtcOffer offer)
-        : this(null, offer) { }
+        : this(null, offer) {}
 }

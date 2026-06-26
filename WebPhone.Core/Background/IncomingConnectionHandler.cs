@@ -41,7 +41,7 @@ public sealed class IncomingConnectionsHandler(
                         continue;
 
                     logger.LogInformation(
-                        "Received incoming connection attempt from {SenderClientId}. OfferType={OfferType}, HasSdp={HasSdp}",
+                        "Received incoming connection attempt from {SenderClientId}.",
                         message.SenderClientId,
                         concreteMessage.Payload.Type,
                         !string.IsNullOrWhiteSpace(concreteMessage.Payload.Sdp)

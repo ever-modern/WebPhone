@@ -40,4 +40,6 @@ public abstract class InteractionState
     {
         public required MediaState MediaState { get; init; }
     }
+
+    public override string ToString() => this.GetType().Name;
 }

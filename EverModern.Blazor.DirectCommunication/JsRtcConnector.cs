@@ -1,3 +1,4 @@
+using EverModern.Events;
 using Microsoft.JSInterop;
 using WebPhone.Domain;
 
@@ -52,21 +53,23 @@ public sealed class JsRtcConnector(
         CancellationToken cancellationToken
     )
     {
-        ArgumentNullException.ThrowIfNull(getAnswer);
+        ArgumentNullException.ThrowIfNull(argument: getAnswer);
 
-        var stateChanged = new Events.EventSource<string>();
         var channelMessageReceived = new Events.EventSource<byte[]>();
 
-        var getAnswerLink = DotNetObjectReference.Create(JsFunction.Create(getAnswer));
+        var getAnswerLink = DotNetObjectReference.Create(value: JsFunction.Create(func: getAnswer));
+
+        var state = new ObservedValue<RtcConnectionState>(RtcConnectionState.New);
 
         var managerReference = await jsRuntime.InvokeAsync<IJSObjectReference>(
-            "rtcConnectionFactory.initiateConnectionAsync",
-            cancellationToken,
+            identifier: "rtcConnectionFactory.initiateConnectionAsync",
+            cancellationToken: cancellationToken,
+            args:
             [
                 iceServers,
                 getAnswerLink,
-                DotNetObjectReference.Create(JsFunction.Create((string state) => stateChanged.Invoke(state))),
-                DotNetObjectReference.Create(JsFunction.Create((byte[] bytes) => channelMessageReceived.Invoke(bytes))),
+                DotNetObjectReference.Create(value: JsFunction.Create(func: (string newState) => state.Change(newValue: IRtcConnection.StateFromString(newState)))),
+                DotNetObjectReference.Create(value: JsFunction.Create(func: (byte[] bytes) => channelMessageReceived.Invoke(newValue: bytes))),
             ]
         );
 
@@ -75,25 +78,24 @@ public sealed class JsRtcConnector(
 
         var onDispose = () =>
         {
-            _ = managerReference.InvokeVoidAsync("close", []);
+            _ = managerReference.InvokeVoidAsync(identifier: "close", args: []);
         };
 
         var result = new BrowserRtcConnection(
-            onDispose,
-            stateChanged,
-            channelMessageReceived,
-            async () => await managerReference.InvokeAsync<string>("getState"),
-            async bytes => await managerReference.InvokeAsync<bool>("writeToChannel", bytes),
-            async () => await managerReference.InvokeAsync<MediaState>("getMediaState", []),
-            async (mediaState) =>
-                await managerReference.InvokeVoidAsync("setMediaState", mediaState),
-            async (videoElement) =>
-                await managerReference.InvokeVoidAsync("setVideoTarget", videoElement),
-            async (videoElement) =>
-                await managerReference.InvokeVoidAsync("setLocalVideoTarget", videoElement)
+            dispose: onDispose,
+            stateChanged: state,
+            bytesReceived: channelMessageReceived,
+            writeBytes: async bytes => await managerReference.InvokeAsync<bool>(identifier: "writeToChannel", args: bytes),
+            getMediaState: async () => await managerReference.InvokeAsync<MediaState>(identifier: "getMediaState", args: []),
+            setMediaState: async (mediaState) =>
+                await managerReference.InvokeVoidAsync(identifier: "setMediaState", args: mediaState),
+            setVideoTarget: async (videoElement) =>
+                await managerReference.InvokeVoidAsync(identifier: "setVideoTarget", args: videoElement),
+            setLocalVideoTarget: async (videoElement) =>
+                await managerReference.InvokeVoidAsync(identifier: "setLocalVideoTarget", args: videoElement)
         );
 
-        await WhenOpen(result);
+        await WhenOpen(connection: result);
 
         return result;
     }
@@ -107,7 +109,7 @@ public sealed class JsRtcConnector(
         ArgumentNullException.ThrowIfNull(offer);
         ArgumentNullException.ThrowIfNull(sendAnswerBack);
 
-        var stateChanged = new Events.EventSource<string>();
+        var state = new ObservedValue<RtcConnectionState>(RtcConnectionState.New);
         var channelMessageReceived = new Events.EventSource<byte[]>();
 
         var managerReference = await jsRuntime.InvokeAsync<IJSObjectReference>(
@@ -117,7 +119,7 @@ public sealed class JsRtcConnector(
                 iceServers,
                 offer,
                 DotNetObjectReference.Create(JsFunction.Create(sendAnswerBack)),
-                DotNetObjectReference.Create(JsFunction.Create((string state) => stateChanged.Invoke(state))),
+                DotNetObjectReference.Create(value: JsFunction.Create(func: (string newState) => state.Change(newValue: IRtcConnection.StateFromString(newState)))),
                 DotNetObjectReference.Create(JsFunction.Create((byte[] bytes) => channelMessageReceived.Invoke(bytes))),
             ]
         ) ?? throw new RtcConnectionException("Failed to create RTC connection.");
@@ -129,9 +131,8 @@ public sealed class JsRtcConnector(
 
         var result = new BrowserRtcConnection(
             onDispose,
-            stateChanged,
+            state,
             channelMessageReceived,
-            async () => await managerReference.InvokeAsync<string>("getState"),
             async bytes => await managerReference.InvokeAsync<bool>("writeToChannel", bytes),
             async () => await managerReference.InvokeAsync<MediaState>("getMediaState", []),
             async (mediaState) =>
@@ -151,24 +152,24 @@ public sealed class JsRtcConnector(
     {
         var tcs = new TaskCompletionSource();
 
-        using var _ = connection.StateChanged.Subscribe(newState =>
+        using var _ = connection.State.Subscribe(newState =>
             {
-                if (newState is "connected")
+                if (newState is RtcConnectionState.Connected)
                 {
                     tcs.TrySetResult();
                     return;
                 }
 
-                if (newState is "closed")
+                if (newState is RtcConnectionState.Closed)
                 {
                     tcs.TrySetException(new RtcConnectionException("Could not connect."));
                 }
             }
         );
 
-        var currentState = await connection.GetStateAsync();
+        var currentState = connection.State.Value;
 
-        if (currentState is "connected")
+        if (currentState is RtcConnectionState.Connected)
         {
             tcs.TrySetResult();
         }

@@ -26,7 +26,8 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         getMediaState,
         setMediaState,
         setVideoTarget,
-        setLocalVideoTarget
+        setLocalVideoTarget,
+        peerConnection
     };
     if (isInitator) {
         const offer = await peerConnection.createOffer();
@@ -78,6 +79,12 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         unbind();
         peerConnection.close();
         throw e;
+    }
+    if (!window.rtcConnectionManagers) {
+        window.rtcConnectionManagers = [connectionManager];
+    }
+    else {
+        window.rtcConnectionManagers.push(connectionManager);
     }
     return connectionManager;
 }
