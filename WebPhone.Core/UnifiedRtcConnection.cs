@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Components;
 
 namespace WebPhone;
 
-public class ConnectionProxy(
+public class UnifiedRtcConnection(
     Func<string> getId,
     Func<ValueTask> dispose,
     IValueNotifier<RtcConnectionState> state,
@@ -31,7 +31,7 @@ public class ConnectionProxy(
 public static class ConnectionProxyExtensions
 {
     static readonly MediaState _defaultMediaState = new(new(false, false), new(false, false));
-    public static ConnectionProxy GetActiveConnection(this PeerConnectionsDispatcher dispatcher, string peerId)
+    public static UnifiedRtcConnection GetUnifiedConnection(this PeerConnectionsDispatcher dispatcher, string peerId)
     {
         ElementReference? videoRemoteTarget = null;
         ElementReference? localVideoTarget = null;
@@ -48,23 +48,24 @@ public static class ConnectionProxyExtensions
                 var newConnection = dispatcher.FindReadyConnection(peerId);
                 if (newConnection?.State.Value != state.Value)
                     state.Change(newConnection?.State.Value ?? RtcConnectionState.Disconnected);
-                if (newConnection != connection.Value)
+                
+                if (newConnection == connection.Value)
+                    return;
+                
+                bytesSub?.Dispose();
+                bytesSub = newConnection?.BytesReceived.Subscribe(bytesReceived.Invoke);
+
+                if (connection.Value is not null)
                 {
-                    bytesSub?.Dispose();
-                    bytesSub = newConnection?.BytesReceived.Subscribe(bytesReceived.Invoke);
+                    if (videoRemoteTarget is not null)
+                        connection.Value.SetVideoTargetAsync(videoRemoteTarget.Value);
+                    if (localVideoTarget is not null)
+                        connection.Value.SetLocalVideoTargetAsync(localVideoTarget.Value);
 
-                    if (connection.Value is not null)
-                    {
-                        if (videoRemoteTarget is not null)
-                            connection.Value.SetVideoTargetAsync(videoRemoteTarget.Value);
-                        if (localVideoTarget is not null)
-                            connection.Value.SetLocalVideoTargetAsync(localVideoTarget.Value);
-
-                        connection.Value.SetMediaStateAsync(mediaState);
-                    }
-
-                    connection.Change(newConnection);
+                    connection.Value.SetMediaStateAsync(mediaState);
                 }
+
+                connection.Change(newConnection);
             }
         );
 
@@ -77,8 +78,7 @@ public static class ConnectionProxyExtensions
             state.Dispose();
         };
 
-
-        ConnectionProxy result = new(
+        UnifiedRtcConnection result = new(
             () => connection.Value?.Id ?? "undefined",
             () =>
             {

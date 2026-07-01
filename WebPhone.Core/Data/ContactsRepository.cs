@@ -70,7 +70,7 @@ public class ContactsRepository(
             Nickname = string.IsNullOrWhiteSpace(current.Nickname) ? name : current.Nickname,
         };
         _contactSettings[userId] = updated;
-        await backendClient.UpsertContactSettingsAsync(updated, cancellationToken);
+        await backendClient.SaveContactSettingsAsync(updated, cancellationToken);
         RebuildContacts();
         _stateChanged.Invoke();
     }
@@ -86,7 +86,7 @@ public class ContactsRepository(
             Nickname = string.IsNullOrWhiteSpace(nickname) ? null : nickname.Trim(),
         };
         _contactSettings[userId] = updated;
-        await backendClient.UpsertContactSettingsAsync(updated);
+        await backendClient.SaveContactSettingsAsync(updated);
         RebuildContacts();
         _stateChanged.Invoke();
     }

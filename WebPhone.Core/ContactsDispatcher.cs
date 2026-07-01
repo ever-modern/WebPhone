@@ -1,10 +1,6 @@
-using System.Threading.Channels;
-using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
-using EverModern.Threading.Channels;
 using EverModern.Threading.Locks;
 using Microsoft.Extensions.Logging;
-using WebPhone.Channels;
 using WebPhone.Data;
 
 namespace WebPhone;
@@ -31,7 +27,7 @@ public sealed class ContactsDispatcher(
 
     volatile bool _started;
 
-    public ContactsDispatcher Start()
+    public ContactsDispatcher Started()
     {
         if (_started)
             return this;
@@ -103,7 +99,7 @@ public sealed class ContactsDispatcher(
                         entriesToRemove.Add(existingEntry);
                     }
 
-                    var activeConnection = peerConnectionsDispatcher.GetActiveConnection(contact.Id);
+                    var activeConnection = peerConnectionsDispatcher.GetUnifiedConnection(contact.Id);
 
                     var newEntry = CreateEntry(
                         activeConnection,
@@ -116,20 +112,22 @@ public sealed class ContactsDispatcher(
             .Where(entry => entry is not null)
             .ToDictionary(entry => entry!.Contact.Id, entry => entry!);
 
+        if (state.Values.Any(v => v.MediaConnection.State.Value is InteractionState.Connected))
+        {
+            var a = 99;
+        }
+
         irrelevantEntries = entriesToRemove;
         return state;
     }
 
     Entry CreateEntry(
-        IRtcConnection connection,
+        UnifiedRtcConnection connection,
         Contact contact
     )
     {
-        InteractionState initialState = TellInteractivity(contact.LastSeen);
-        ObservedValue<InteractionState> state = new(initialState);
         var logger = loggerFactory.CreateLogger($"MediaConnection-{contact.Id}");
-        var channel = new RtcConnectionMessageChannel(connection);
-        var mediaConnection = new MediaConnection(channel, logger, state).Started();
+        var mediaConnection = new MediaConnection(connection, logger).Started();
         var sub = mediaConnection.State.Subscribe(() => _oneConnectionChanged.Invoke(contact.Id));
 
         return new(
@@ -138,8 +136,6 @@ public sealed class ContactsDispatcher(
             sub.Dispose
         );
     }
-
-    static InteractionState TellInteractivity(DateTimeOffset lastSeen) => DateTimeOffset.UtcNow - lastSeen > TimeSpan.FromSeconds(10) ? InteractionState.Offline.Instance : InteractionState.Disconnected.Instance;
 
     record Entry(
         Contact Contact,
@@ -156,11 +152,5 @@ public sealed class ContactsDispatcher(
         {
             item.Dispose();
         }
-    }
-
-    class EmptyBroadcastChannel : IBroadcastChannel<RtcMessage, RtcMessage>
-    {
-        public IChannelSubscription<RtcMessage> Subscribe(Func<RtcMessage, bool> filter) => throw new NotImplementedException();
-        public ChannelWriter<RtcMessage> Writer { get; }
     }
 }

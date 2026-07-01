@@ -203,7 +203,7 @@ public class BackendClient(
         );
     }
 
-    public async Task UpsertContactSettingsAsync(
+    public async Task SaveContactSettingsAsync(
         ContactSettingsDto dto,
         CancellationToken cancellationToken = default
     )

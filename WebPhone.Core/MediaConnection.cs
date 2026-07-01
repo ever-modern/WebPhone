@@ -10,9 +10,8 @@ using WebPhone.Domain;
 namespace WebPhone;
 
 public class MediaConnection(
-    IBroadcastChannel<RtcMessage, RtcMessage> channel,
-    ILogger logger,
-    ObservedValue<InteractionState> state
+    UnifiedRtcConnection connection,
+    ILogger logger
 ) : IDisposable
 {
     readonly CancellationTokenSource _cts = new();
@@ -22,7 +21,10 @@ public class MediaConnection(
 
     bool _disposed;
 
-    public IValueNotifier<InteractionState> State => state;
+    readonly ObservedValue<InteractionState> _innerState = new(connection.State.Value == RtcConnectionState.Connected ? InteractionState.Connected.Instance : InteractionState.Disconnected.Instance);
+    public IValueNotifier<InteractionState> State => _innerState;
+
+    readonly IBroadcastChannel<RtcMessage, RtcMessage> channel = new RtcConnectionMessageChannel(connection);
 
     public MediaConnection Started()
     {
@@ -38,7 +40,7 @@ public class MediaConnection(
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
-        if (state.Value is not InteractionState.ReceivingCall receivingCall)
+        if (_innerState.Value is not InteractionState.ReceivingCall receivingCall)
             return;
         _callDecision = receivingCall.Id;
     }
@@ -47,7 +49,7 @@ public class MediaConnection(
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
-        if (state.Value is not InteractionState.ReceivingCall receivingCall)
+        if (_innerState.Value is not InteractionState.ReceivingCall receivingCall)
             return;
         _callDecision = -receivingCall.Id;
     }
@@ -56,7 +58,7 @@ public class MediaConnection(
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
-        if (state.Value.GetType() != typeof(InteractionState.Connected)) return;
+        if (_innerState.Value.GetType() != typeof(InteractionState.Connected)) return;
         _callDecision = null;
         _calling = CommonIdsGenerator.NewId();
     }
@@ -65,7 +67,7 @@ public class MediaConnection(
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
-        if (state.Value is not InteractionState.Calling) return;
+        if (_innerState.Value is not InteractionState.Calling) return;
         _calling = null;
         _callDecision = null;
     }
@@ -74,7 +76,7 @@ public class MediaConnection(
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
-        if (state.Value is not InteractionState.OnCall) return;
+        if (_innerState.Value is not InteractionState.OnCall) return;
         _calling = null;
         _callDecision = -_callDecision;
     }
@@ -101,7 +103,7 @@ public class MediaConnection(
 
                     channel.Writer.TryWrite(new RtcMessage(RtcMessageType.Disconnect));
 
-                    state.Change(InteractionState.Disconnected.Instance);
+                    _innerState.Change(InteractionState.Disconnected.Instance);
 
                     await _cts.CancelAsync();
 
@@ -131,7 +133,7 @@ public class MediaConnection(
                         var video =
                             payload.Video ? new MediaPartState(true, true) : new MediaPartState(false, false);
 
-                        state.Change(
+                        _innerState.Change(
                             new InteractionState.OnCall
                             {
                                 MediaState = new(audio, video)
@@ -152,16 +154,16 @@ public class MediaConnection(
 
                         _callDecision = null;
 
-                        if (state.Value is not InteractionState.Connected)
+                        if (_innerState.Value is not InteractionState.Connected)
                         {
-                            state.Change(InteractionState.Connected.Instance);
+                            _innerState.Change(InteractionState.Connected.Instance);
                         }
                     }
                     else
                     {
-                        if (state.Value is not InteractionState.ReceivingCall)
+                        if (_innerState.Value is not InteractionState.ReceivingCall)
                         {
-                            state.Change(
+                            _innerState.Change(
                                 new InteractionState.ReceivingCall
                                 {
                                     Id = payload.Id,
@@ -181,9 +183,9 @@ public class MediaConnection(
                     {
                         _calling = null;
 
-                        if (state.Value is not InteractionState.Connected)
+                        if (_innerState.Value is not InteractionState.Connected)
                         {
-                            state.Change(InteractionState.Connected.Instance);
+                            _innerState.Change(InteractionState.Connected.Instance);
                         }
                     }
                 }
@@ -215,9 +217,9 @@ public class MediaConnection(
                         )
                     );
 
-                    if (state.Value is not InteractionState.Calling)
+                    if (_innerState.Value is not InteractionState.Calling)
                     {
-                        state.Change(new InteractionState.Calling());
+                        _innerState.Change(new InteractionState.Calling());
                     }
                 }
 

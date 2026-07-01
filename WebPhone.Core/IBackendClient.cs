@@ -13,7 +13,7 @@ public interface IBackendClient
     Task NotifyAsync(string? targetClientId, string? message, CancellationToken cancellationToken = default);
     Task RegisterPushSubscriptionAsync(string subscriptionPayload, CancellationToken cancellationToken = default);
     Task<ChatMessageDto> SendChatMessageAsync(string recipientId, string text, CancellationToken cancellationToken = default);
-    Task UpsertContactSettingsAsync(ContactSettingsDto dto, CancellationToken cancellationToken = default);
+    Task SaveContactSettingsAsync(ContactSettingsDto dto, CancellationToken cancellationToken = default);
     Task UpsertUserSettingsAsync(UserSettingsDto dto, CancellationToken cancellationToken = default);
     Task<HubConnection> OpenHubConnectionAsync(CancellationToken cancellationToken = default);
 }

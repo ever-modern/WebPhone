@@ -28,7 +28,7 @@ class MockRtcConnector : IRtcConnector
         return new MockRtcConnection(this, offer, answer);
     }
 
-    public async Task<IRtcConnection?> InitiateConnectionAsync(Func<WebRtcOffer, Task<(WebRtcAnswer? Answer, String? ConnectionId)>> getAnswer, CancellationToken cancellationToken)
+    public async Task<IRtcConnection?> InitiateConnectionAsync(Func<WebRtcOffer, Task<(WebRtcAnswer? Answer, string? ConnectionId)>> getAnswer, CancellationToken cancellationToken)
     {
         var offer = GenerateOffer();
         var (answer, connectionId) = await getAnswer(offer);

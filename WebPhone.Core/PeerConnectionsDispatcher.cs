@@ -6,10 +6,6 @@ using WebPhone.Domain;
 
 namespace WebPhone;
 
-public class MediaEnabler
-{
-    public async Task SetMediaAsync(MediaState mediaState) {}
-}
 
 public class PeerConnectionsDispatcher(
     IRtcConnector rtcConnector,
@@ -46,7 +42,7 @@ public class PeerConnectionsDispatcher(
         return connectionTask!;
     }
 
-    public Task ClosePeerConnectionAsync(
+    public Task DisconnectFromPeerAsync(
         string peerId,
         CancellationToken cancellationToken = default
     )

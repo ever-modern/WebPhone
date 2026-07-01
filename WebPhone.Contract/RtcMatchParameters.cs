@@ -24,8 +24,8 @@ public record RtcMatchParameters(WebRtcOffer? Offer, WebRtcAnswer? Answer)
 public record RtcMatchResponse(WebRtcOffer? Offer, WebRtcAnswer? Answer)
     : RtcMatchParameters(Offer, Answer)
 {
-    public string Id { get; } =
+    public string? Id { get; } =
         Offer is not null && Answer is not null
             ? ComputeNegotiationId(Offer, Answer).ToString()
-            : "";
+            : null;
 }

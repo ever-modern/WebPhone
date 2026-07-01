@@ -10,7 +10,8 @@
         @if (_editingNickname)
         {
             <div class="webrtc-contact-name-row">
-                <input class="webrtc-input webrtc-nickname-input" @bind="_nicknameEdit" @bind:event="oninput" @onkeydown="HandleNicknameKeyDownAsync" placeholder="Nickname..." />
+                <input class="webrtc-input webrtc-nickname-input" @bind="_nicknameEdit" @bind:event="oninput"
+                       @onkeydown="HandleNicknameKeyDownAsync" placeholder="Nickname..."/>
                 <button class="webrtc-icon-btn" @onclick="SaveNicknameAsync" title="Save">&#10003;</button>
                 <button class="webrtc-icon-btn" @onclick="CancelNicknameEdit" title="Cancel">&#10005;</button>
             </div>
@@ -18,14 +19,18 @@
         else
         {
             <div class="webrtc-contact-name-row">
-                <strong class="contact-detail-name">@(string.IsNullOrWhiteSpace(contact.Nickname) ? contact.Name : contact.Nickname)</strong>
+                <strong
+                    class="contact-detail-name">@(string.IsNullOrWhiteSpace(contact.Nickname) ? contact.Name : contact.Nickname)</strong>
                 @if (!string.IsNullOrWhiteSpace(contact.Nickname))
                 {
                     <span class="webrtc-contact-real-name">(@contact.Name)</span>
                 }
                 @if (Manager.SetNickname is not null)
                 {
-                    <button class="webrtc-icon-btn webrtc-nickname-edit-btn" @onclick="StartNicknameEdit" title="@(string.IsNullOrWhiteSpace(contact.Nickname) ? "Set nickname" : "Edit nickname")">&#9998;</button>
+                    <button class="webrtc-icon-btn webrtc-nickname-edit-btn" @onclick="StartNicknameEdit"
+                            title="@(string.IsNullOrWhiteSpace(contact.Nickname) ? "Set nickname" : "Edit nickname")">
+                        &#9998;
+                    </button>
                 }
             </div>
         }
@@ -34,7 +39,8 @@
         {
             var isConnecting = interaction is InteractionState.Connecting;
             var connected = interaction is InteractionState.Connected;
-            <span class="webrtc-contact-status @(connected ? "is-connected" : isConnecting ? "is-connecting" : string.Empty)">
+            <span
+                class="webrtc-contact-status @(connected ? "is-connected" : isConnecting ? "is-connecting" : string.Empty)">
                 @if (isConnecting)
                 {
                     <span>Connecting<span class="webrtc-dots-animation"></span></span>
@@ -47,7 +53,7 @@
         }
 
         <div class="contact-detail-actions">
-            <ContactSettingsSection ContactId="@contact.Id" />
+            <ContactSettingsSection ContactId="@contact.Id"/>
             @if (Manager.AcceptCall is not null)
             {
                 <button class="webrtc-button" @onclick="AcceptCall">Accept call</button>
@@ -114,6 +120,8 @@
 
     static string GetStatusText(InteractionState state) => state switch
     {
+        InteractionState.Offline => "Offline",
+        InteractionState.Disconnected => "Disconnected",
         InteractionState.Connecting => "Connecting",
         InteractionState.Calling => "Calling",
         InteractionState.ReceivingCall => "Incoming call",

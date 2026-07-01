@@ -51,6 +51,6 @@
         await SaveAsync();
     }
 
-    Task SaveAsync() => BackendClient.UpsertContactSettingsAsync(
+    Task SaveAsync() => BackendClient.SaveContactSettingsAsync(
         new ContactSettingsDto(Profile.User.Id, ContactId, IsFavourite, NotifyCalls, NotifyMessages, Nickname));
 }

@@ -223,7 +223,7 @@ public class PeerConnectorIntegrationTests(
         Assert.NotNull(firstConnection);
         Assert.NotNull(secondConnection);
 
-        await firstConnector.ClosePeerConnectionAsync(secondUserId);
+        await firstConnector.DisconnectFromPeerAsync(secondUserId);
 
         firstConnection = firstConnector.FindReadyConnection(secondUserId);
         secondConnection = secondConnector.FindReadyConnection(firstUserId);
