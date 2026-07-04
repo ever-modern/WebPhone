@@ -10,7 +10,7 @@ public class ContactsRepository(
     IMessagesChannel messagesChannel,
     IBackendClient backendClient,
     IProfile profile
-) : IAsyncDisposable
+) : IAsyncDisposable, IContactsRepository
 {
     private readonly ConcurrentDictionary<string, Contact> _presences = [];
     private readonly ConcurrentDictionary<string, ContactSettingsDto> _contactSettings = [];

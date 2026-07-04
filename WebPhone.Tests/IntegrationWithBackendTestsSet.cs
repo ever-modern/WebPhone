@@ -1,7 +1,10 @@
-﻿using System.Diagnostics;
-using Microsoft.AspNetCore.Hosting;
+﻿using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using WebPhone.Background;
+using WebPhone.Channels;
 using WebPhone.Tests.Provision;
 using Xunit.Abstractions;
 
@@ -76,4 +79,34 @@ public abstract class IntegrationWithBackendTestsSet : IAsyncDisposable
     }
     
     public ValueTask DisposeAsync() => _webApplicationFactory.DisposeAsync();
+
+    protected async Task<PeerConnectionsDispatcher> CreatePeerConnectorAsync(string userId, CancellationToken cancellationToken = default)
+    {
+        var client = CreateVirtualBackendClient(userId);
+        var result = new PeerConnectionsDispatcher(
+            new MockRtcConnector(),
+            CreateLoggerFactory($"PeerConnector-user-{userId}"),
+            client
+        );
+
+        var hub = await client.OpenHubConnectionAsync(cancellationToken);
+
+        var channel = await BackendMessagesChannel.BindAsync(hub);
+
+        var handlerLogger = CreateLoggerFactory($"[{userId}]").CreateLogger<IncomingConnectionsHandler>($"IncomingConnectionsHandler-{userId}");
+        IncomingConnectionsHandler connectionsHandler =
+            await new IncomingConnectionsHandler(peerConnectionsDispatcher: result, logger: handlerLogger)
+                .StartReadingAsync(channel, default);
+
+        return result;
+    }
+
+    protected async IAsyncEnumerable<(PeerConnectionsDispatcher Connector, string PeerId)> GeneratePeers([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        for (int i = 0; i < int.MaxValue / 2; i++)
+        {
+            var user = $"User-{i}";
+            yield return (await CreatePeerConnectorAsync(user, cancellationToken), user);
+        }
+    }
 }

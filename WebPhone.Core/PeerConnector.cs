@@ -45,31 +45,41 @@ public class PeerConnector(
             return Task.FromResult(ready);
         }
 
-        using (var _ = _locker.LockScope())
+        using (_locker.LockScope())
         {
             logger.LogInformation("No ready connection yet.");
 
             _connectionEventSource.Change(InteractionState.Connecting.Instance);
             var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _connecting.Add(
-                StartConnectingAsync(cancellationToken, offer)
-                    .ContinueWith(
-                        t =>
+            var connectionTask = StartConnectingAsync(cancellationToken, offer)
+                .ContinueWith(
+                    t =>
+                    {
+                        if (t.IsFaulted)
                         {
-                            if (t.IsFaulted)
-                            {
-                                logger.LogError(t.Exception, "Could not establish connection.");
-                                _connectionEventSource.Change(InteractionState.Disconnected.Instance);
-                                throw t.Exception;
-                            }
-                            _connectionEventSource.Change(InteractionState.Connected.Instance);
-                            return WithSubscription(t.Result);
-                        },
-                        CancellationToken.None
-                    ),
-                cts,
-                offer
+                            logger.LogError(t.Exception, "Could not establish connection.");
+                            _connectionEventSource.Change(InteractionState.Disconnected.Instance);
+                            throw t.Exception;
+                        }
+                        return WithSubscription(t.Result);
+                    },
+                    CancellationToken.None
+                );
+
+            // Fire Connected event AFTER the task is fully completed (IsCompletedSuccessfully = true),
+            // so FindReadyConnection returns a valid connection during event handler chains.
+            _ = connectionTask.ContinueWith(
+                t =>
+                {
+                    if (t.IsCompletedSuccessfully)
+                        _connectionEventSource.Change(InteractionState.Connected.Instance);
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnRanToCompletion,
+                TaskScheduler.Default
             );
+
+            _connecting.Add(connectionTask, cts, offer);
         }
 
         return _connecting.WhenAny();

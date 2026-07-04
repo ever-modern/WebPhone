@@ -28,6 +28,9 @@ public partial class MainLayout
     ContactManager? IncomingCallContact => Contacts.FirstOrDefault(
         c => c.Interaction is InteractionState.ReceivingCall);
 
+    ContactManager? CallingContact => Contacts.FirstOrDefault(
+        c => c.Interaction is InteractionState.Calling);
+
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -125,6 +128,7 @@ public partial class MainLayout
     void HandleAcceptCall() => IncomingCallContact?.AcceptCall?.Invoke();
     void HandleDeclineCall() => IncomingCallContact?.DeclineCall?.Invoke();
     void HandleHangup() => ActiveCallContact?.Hangup?.Invoke();
+    void HandleCancelCall() => CallingContact?.StopCalling?.Invoke();
 
     public void Dispose()
     {

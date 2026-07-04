@@ -5,13 +5,11 @@ using WebPhone.Data;
 
 namespace WebPhone;
 
-public record PhoneState(
-    IReadOnlyList<ContactManager> Contacts
-);
+public record PhoneState(IReadOnlyList<ContactManager> Contacts);
 
 public sealed class ContactsDispatcher(
     PeerConnectionsDispatcher peerConnectionsDispatcher,
-    ContactsRepository contactsRepository,
+    IContactsRepository contactsRepository,
     ILoggerFactory loggerFactory
 ) : IDisposable
 {
@@ -33,21 +31,20 @@ public sealed class ContactsDispatcher(
             return this;
         _started = true;
 
+        ResetState();
+
         var sub1 = peerConnectionsDispatcher.ConnectionsChange.Subscribe(() =>
-            {
-                ResetState();
-            }
-        );
+        {
+            ResetState();
+        });
         var sub2 = contactsRepository.StateChanged.Subscribe(() =>
-            {
-                ResetState();
-            }
-        );
+        {
+            ResetState();
+        });
         var sub3 = _oneConnectionChanged.Subscribe(_ =>
-            {
-                ResetState();
-            }
-        );
+        {
+            ResetState();
+        });
 
         _toDispose.AddRange(sub1, sub2, sub3);
 
@@ -62,17 +59,14 @@ public sealed class ContactsDispatcher(
         {
             entry.Dispose();
         }
-        var newPhoneState = new PhoneState(
-            [
-                .. _state.Select(kv => new ContactManager(
-                        kv.Value.Contact,
-                        kv.Value.MediaConnection,
-                        peerConnectionsDispatcher,
-                        contactsRepository
-                    )
-                ),
-            ]
-        );
+        var newPhoneState = new PhoneState([
+            .. _state.Select(kv => new ContactManager(
+                kv.Value.Contact,
+                kv.Value.MediaConnection,
+                peerConnectionsDispatcher,
+                contactsRepository
+            )),
+        ]);
 
         _exposedState.Change(newPhoneState);
     }
@@ -83,67 +77,59 @@ public sealed class ContactsDispatcher(
 
         var state = contactsRepository
             .Contacts.Select(contact =>
-                {
-                    var connection = peerConnectionsDispatcher.FindReadyConnection(contact.Id);
+            {
+                var connection = peerConnectionsDispatcher.FindReadyConnection(contact.Id);
 
-                    if (
-                        _state.TryGetValue(contact.Id, out var existingEntry)
-                        && (connection is not null && existingEntry.MediaConnection.State.Value is InteractionState.Connected || (connection is null && existingEntry.MediaConnection.State.Value is not InteractionState.Connected))
+                if (
+                    _state.TryGetValue(contact.Id, out var existingEntry)
+                    && (
+                        connection is not null
+                            && existingEntry.MediaConnection.State.Value
+                                is InteractionState.Connected
+                        || (
+                            connection is null
+                            && existingEntry.MediaConnection.State.Value
+                                is not InteractionState.Connected
+                        )
                     )
-                    {
-                        return existingEntry;
-                    }
-
-                    if (existingEntry is not null)
-                    {
-                        entriesToRemove.Add(existingEntry);
-                    }
-
-                    var activeConnection = peerConnectionsDispatcher.GetUnifiedConnection(contact.Id);
-
-                    var newEntry = CreateEntry(
-                        activeConnection,
-                        contact
-                    );
-
-                    return newEntry;
+                )
+                {
+                    return existingEntry;
                 }
-            )
+
+                if (existingEntry is not null)
+                {
+                    entriesToRemove.Add(existingEntry);
+                }
+
+                var activeConnection = peerConnectionsDispatcher.GetUnifiedConnection(contact.Id);
+
+                var newEntry = CreateEntry(activeConnection, contact);
+
+                return newEntry;
+            })
             .Where(entry => entry is not null)
             .ToDictionary(entry => entry!.Contact.Id, entry => entry!);
-
-        if (state.Values.Any(v => v.MediaConnection.State.Value is InteractionState.Connected))
-        {
-            var a = 99;
-        }
 
         irrelevantEntries = entriesToRemove;
         return state;
     }
 
-    Entry CreateEntry(
-        UnifiedRtcConnection connection,
-        Contact contact
-    )
+    Entry CreateEntry(UnifiedRtcConnection connection, Contact contact)
     {
         var logger = loggerFactory.CreateLogger($"MediaConnection-{contact.Id}");
         var mediaConnection = new MediaConnection(connection, logger).Started();
         var sub = mediaConnection.State.Subscribe(() => _oneConnectionChanged.Invoke(contact.Id));
 
-        return new(
-            contact,
-            mediaConnection,
-            sub.Dispose
-        );
+        return new(contact, mediaConnection, sub.Dispose);
     }
 
-    record Entry(
-        Contact Contact,
-        MediaConnection MediaConnection,
-        Action OnDisposed
-    ) : IDisposable
+    record Entry(Contact Contact, MediaConnection MediaConnection, Action OnDisposed) : IDisposable
     {
-        public void Dispose() { OnDisposed(); }
+        public void Dispose()
+        {
+            OnDisposed();
+        }
     }
 
     public void Dispose()

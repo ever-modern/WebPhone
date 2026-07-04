@@ -42,17 +42,15 @@ public class PeerConnectionsDispatcher(
         return connectionTask!;
     }
 
-    public Task DisconnectFromPeerAsync(
+    public async Task DisconnectFromPeerAsync(
         string peerId,
         CancellationToken cancellationToken = default
     )
     {
         if (_connectors.TryGetValue(peerId, out var connector))
         {
-            connector.CloseAllConnections();
+            await connector.CloseAllConnections();
         }
-
-        return Task.CompletedTask;
     }
 
     public INotifier StateChanged => _connectionEventSource;

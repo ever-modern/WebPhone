@@ -6,4 +6,5 @@ public sealed record ContactSettingsDto(
     bool IsFavourite,
     bool NotifyCalls,
     bool NotifyMessages,
-    string? Nickname);
+    string? Nickname
+);

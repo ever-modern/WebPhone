@@ -38,84 +38,92 @@ public static class ConnectionProxyExtensions
 
         MediaState mediaState = _defaultMediaState;
 
-        ObservedValue<IRtcConnection?> connection = new(null);
-        ObservedValue<RtcConnectionState> state = new(connection.Value?.State.Value ?? RtcConnectionState.Disconnected);
+        ObservedValue<IRtcConnection?> connection = new(value: null);
+        ObservedValue<RtcConnectionState> state = new(value: connection.Value?.State.Value ?? RtcConnectionState.Disconnected);
         EventSource<byte[]> bytesReceived = new();
         Subscription? bytesSub = null;
-        Func<byte[], ValueTask<bool>> writeBytes = (bytes) => connection.Value?.WriteBytesAsync(bytes) ?? ValueTask.FromResult(false);
-        var connectionChangedSub = dispatcher.StateChanged.Subscribe(() =>
+        Func<byte[], ValueTask<bool>> writeBytes = (bytes) => connection.Value?.WriteBytesAsync(bytes: bytes) ?? ValueTask.FromResult(result: false);
+        var connectionChangedSub = dispatcher.StateChanged.Subscribe(handler: () =>
             {
-                var newConnection = dispatcher.FindReadyConnection(peerId);
+                var newConnection = dispatcher.FindReadyConnection(peerId: peerId);
                 if (newConnection?.State.Value != state.Value)
-                    state.Change(newConnection?.State.Value ?? RtcConnectionState.Disconnected);
+                    state.Change(newValue: newConnection?.State.Value ?? RtcConnectionState.Disconnected);
                 
                 if (newConnection == connection.Value)
                     return;
                 
                 bytesSub?.Dispose();
-                bytesSub = newConnection?.BytesReceived.Subscribe(bytesReceived.Invoke);
+                bytesSub = newConnection?.BytesReceived.Subscribe(handler: bytesReceived.Invoke);
 
                 if (connection.Value is not null)
                 {
                     if (videoRemoteTarget is not null)
-                        connection.Value.SetVideoTargetAsync(videoRemoteTarget.Value);
+                        connection.Value.SetVideoTargetAsync(videoElement: videoRemoteTarget.Value);
                     if (localVideoTarget is not null)
-                        connection.Value.SetLocalVideoTargetAsync(localVideoTarget.Value);
+                        connection.Value.SetLocalVideoTargetAsync(videoElement: localVideoTarget.Value);
 
-                    connection.Value.SetMediaStateAsync(mediaState);
+                    connection.Value.SetMediaStateAsync(mediaState: mediaState);
                 }
 
-                connection.Change(newConnection);
+                connection.Change(newValue: newConnection);
             }
         );
 
-        connection.Change(dispatcher.FindReadyConnection(peerId));
+        connection.Change(newValue: dispatcher.FindReadyConnection(peerId: peerId));
+
+        var initialConnection = connection.Value;
+        if (initialConnection is not null)
+        {
+            state.Change(newValue: initialConnection.State.Value);
+            bytesSub = initialConnection.BytesReceived.Subscribe(handler: bytesReceived.Invoke);
+        }
 
         Action dispose = () =>
         {
             connection.Dispose();
+            bytesSub?.Dispose();
             connectionChangedSub.Dispose();
             state.Dispose();
         };
 
         UnifiedRtcConnection result = new(
-            () => connection.Value?.Id ?? "undefined",
-            () =>
+            getId: () => connection.Value?.Id ?? "undefined",
+            dispose: () =>
             {
                 dispose();
                 return ValueTask.CompletedTask;
             },
-            state,
-            bytesReceived,
-            writeBytes,
-            async () =>
+            state: state,
+            bytesReceived: bytesReceived,
+            writeBytes: writeBytes,
+            getMediaState: async () =>
             {
-                if (connection.Value is null) return new(new(false, false), new(false, false));
+                if (connection.Value is null) return new(Audio: new(InputEnabled: false, OutputEnabled: false), Video: new(InputEnabled: false, OutputEnabled: false));
                 return await connection.Value.GetMediaStateAsync();
             },
-            async newMediaState =>
+            setMediaState: async newMediaState =>
             {
                 if (connection.Value is null)
                     return;
 
                 mediaState = newMediaState;
-                await connection.Value.SetMediaStateAsync(newMediaState);
+                await connection.Value.SetMediaStateAsync(mediaState: newMediaState);
             },
-            async newRemoteVideoTarget =>
+            setVideoTarget: async newRemoteVideoTarget =>
             {
                 if (connection.Value is null)
                     return;
 
                 videoRemoteTarget = newRemoteVideoTarget;
-                await connection.Value.SetVideoTargetAsync(newRemoteVideoTarget);
+                await connection.Value.SetVideoTargetAsync(videoElement: newRemoteVideoTarget);
             },
-            async newLocalVideoTarget =>
+            setLocalVideoTarget: async newLocalVideoTarget =>
             {
                 if (connection.Value is null)
                     return;
 
                 localVideoTarget = newLocalVideoTarget;
-                await connection.Value.SetLocalVideoTargetAsync(newLocalVideoTarget);
+                await connection.Value.SetLocalVideoTargetAsync(videoElement: newLocalVideoTarget);
             }
         );
 

@@ -6,12 +6,25 @@ public class ContactManager(
     Contact contact,
     MediaConnection mediaConnection,
     PeerConnectionsDispatcher peerConnectionsDispatcher,
-    ContactsRepository contactsRepository
+    IContactsRepository contactsRepository
 )
 {
     public Contact Contact => contact;
 
-    public InteractionState Interaction => mediaConnection.State.Value is InteractionState.Disconnected ? TellInteractivity(Contact.LastSeen) : mediaConnection.State.Value;
+    public InteractionState Interaction
+    {
+        get
+        {
+            if (mediaConnection.State.Value is InteractionState.Disconnected)
+            {
+                var dispatcherState = peerConnectionsDispatcher.ConnectionsChange.Value.GetValueOrDefault(contact.Id);
+                if (dispatcherState is InteractionState.Connecting or InteractionState.Connected)
+                    return dispatcherState;
+                return TellInteractivity(Contact.LastSeen);
+            }
+            return mediaConnection.State.Value;
+        }
+    }
 
     public Action? Disconnect =>
         Interaction is InteractionState.Connected ? () => _ = peerConnectionsDispatcher.DisconnectFromPeerAsync(contact.Id) : null;

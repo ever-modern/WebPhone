@@ -32,6 +32,7 @@ public static class ApplicationConfiguration
         services.AddSingleton<IncomingConnectionsHandler>();
         services.AddSingleton<ContactsDispatcher>();
         services.AddSingleton<ContactsRepository>();
+        services.AddSingleton<IContactsRepository>(sp => sp.GetRequiredService<ContactsRepository>());
         services.AddSingleton<PresenceAnnouncer>();
         services.AddSingleton<AppStarter>();
         services.AddScoped<IWebRtcConfigurator, AzureWebRtcChannelsRegistrator>();

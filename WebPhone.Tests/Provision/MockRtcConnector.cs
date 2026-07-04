@@ -39,5 +39,10 @@ class MockRtcConnector : IRtcConnector
         return new MockRtcConnection(this, offer, answer);
     }
 
-    public ValueTask CloseConnectionAsync(IRtcConnection connection) => throw new NotImplementedException();
+    public ValueTask CloseConnectionAsync(IRtcConnection connection)
+    {
+        if (connection is MockRtcConnection mock)
+            mock.Close();
+        return ValueTask.CompletedTask;
+    }
 }

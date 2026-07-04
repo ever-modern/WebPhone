@@ -16,8 +16,6 @@ public class MediaConnection(
 {
     readonly CancellationTokenSource _cts = new();
     readonly SemaphoreSlim _locker = new(1, 1);
-    long? _callDecision;
-    long? _calling;
 
     bool _disposed;
 
@@ -42,7 +40,12 @@ public class MediaConnection(
         using var _ = await _locker.LockScopeAsync();
         if (_innerState.Value is not InteractionState.ReceivingCall receivingCall)
             return;
-        _callDecision = receivingCall.Id;
+        _innerState.Change(new InteractionState.Calling
+        {
+            Id = receivingCall.Id,
+            Audio = receivingCall.Audio,
+            Video = receivingCall.Video
+        });
     }
 
     public async ValueTask RejectCall()
@@ -51,7 +54,8 @@ public class MediaConnection(
         using var _ = await _locker.LockScopeAsync();
         if (_innerState.Value is not InteractionState.ReceivingCall receivingCall)
             return;
-        _callDecision = -receivingCall.Id;
+        channel.Writer.TryWrite(RtcMessage.Create(RtcMessageType.RejectCall, receivingCall.Id));
+        _innerState.Change(InteractionState.Connected.Instance);
     }
 
     public async ValueTask Call(bool audio = true, bool video = false)
@@ -59,17 +63,16 @@ public class MediaConnection(
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
         if (_innerState.Value.GetType() != typeof(InteractionState.Connected)) return;
-        _callDecision = null;
-        _calling = CommonIdsGenerator.NewId();
+        _innerState.Change(new InteractionState.Calling { Audio = audio, Video = video });
     }
 
     public async ValueTask StopCalling()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
-        if (_innerState.Value is not InteractionState.Calling) return;
-        _calling = null;
-        _callDecision = null;
+        if (_innerState.Value is not InteractionState.Calling calling) return;
+        channel.Writer.TryWrite(RtcMessage.Create(RtcMessageType.RejectCall, calling.Id));
+        _innerState.Change(InteractionState.Connected.Instance);
     }
 
     public async ValueTask StopCall()
@@ -77,8 +80,8 @@ public class MediaConnection(
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
         if (_innerState.Value is not InteractionState.OnCall) return;
-        _calling = null;
-        _callDecision = -_callDecision;
+        channel.Writer.TryWrite(new RtcMessage(RtcMessageType.StopCall));
+        _innerState.Change(InteractionState.Connected.Instance);
     }
 
     public void Dispose()
@@ -118,15 +121,8 @@ public class MediaConnection(
                     if (payload is null)
                         continue;
 
-                    if (_callDecision == payload.Id || _calling == payload.Id)
+                    if (_innerState.Value is InteractionState.Calling calling && calling.Id == payload.Id)
                     {
-                        channel.Writer.TryWrite(
-                            RtcMessage.Create(
-                                RtcMessageType.WantCall,
-                                _callDecision
-                            )
-                        );
-
                         var audio =
                             payload.Audio ? new MediaPartState(true, true) : new MediaPartState(false, false);
 
@@ -139,54 +135,37 @@ public class MediaConnection(
                                 MediaState = new(audio, video)
                             }
                         );
-
-                        _callDecision = null;
-                        _calling = null;
                     }
-                    else if (_callDecision == -payload.Id)
+                    else if (_innerState.Value is InteractionState.Calling)
                     {
-                        channel.Writer.TryWrite(
-                            RtcMessage.Create(
-                                RtcMessageType.RejectCall,
-                                _callDecision
-                            )
+                        // Already sent ack, ignore further WantCall from caller
+                    }
+                    else if (_innerState.Value is not InteractionState.ReceivingCall)
+                    {
+                        _innerState.Change(
+                            new InteractionState.ReceivingCall
+                            {
+                                Id = payload.Id,
+                                Audio = payload.Audio,
+                                Video = payload.Video
+                            }
                         );
-
-                        _callDecision = null;
-
-                        if (_innerState.Value is not InteractionState.Connected)
-                        {
-                            _innerState.Change(InteractionState.Connected.Instance);
-                        }
-                    }
-                    else
-                    {
-                        if (_innerState.Value is not InteractionState.ReceivingCall)
-                        {
-                            _innerState.Change(
-                                new InteractionState.ReceivingCall
-                                {
-                                    Id = payload.Id,
-                                    Audio = payload.Audio,
-                                    Video = payload.Video
-                                }
-                            );
-                        }
                     }
                 }
                 else if (message.Type is RtcMessageType.RejectCall)
                 {
-                    var payload =
-                        JsonSerializer.Deserialize<long>(message.Payload);
-
-                    if (payload == _calling)
+                    var rejectId = JsonSerializer.Deserialize<long>(message.Payload);
+                    if ((_innerState.Value is InteractionState.Calling calling && calling.Id == rejectId)
+                        || (_innerState.Value is InteractionState.ReceivingCall receivingCall && receivingCall.Id == rejectId))
                     {
-                        _calling = null;
-
-                        if (_innerState.Value is not InteractionState.Connected)
-                        {
-                            _innerState.Change(InteractionState.Connected.Instance);
-                        }
+                        _innerState.Change(InteractionState.Connected.Instance);
+                    }
+                }
+                else if (message.Type is RtcMessageType.StopCall)
+                {
+                    if (_innerState.Value is InteractionState.OnCall)
+                    {
+                        _innerState.Change(InteractionState.Connected.Instance);
                     }
                 }
             }
@@ -208,19 +187,11 @@ public class MediaConnection(
 
                 using var _ = await _locker.LockScopeAsync(_cts.Token);
 
-                if (_calling is not null)
+                if (_innerState.Value is InteractionState.Calling calling)
                 {
                     channel.Writer.TryWrite(
-                        RtcMessage.Create(
-                            RtcMessageType.WantCall,
-                            _calling
-                        )
+                        RtcMessage.Create(RtcMessageType.WantCall, calling)
                     );
-
-                    if (_innerState.Value is not InteractionState.Calling)
-                    {
-                        _innerState.Change(new InteractionState.Calling());
-                    }
                 }
 
                 channel.Writer.TryWrite(new RtcMessage(RtcMessageType.Ping));
