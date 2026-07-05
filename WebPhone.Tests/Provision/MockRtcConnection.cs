@@ -68,27 +68,27 @@ class MockRtcConnection : IRtcConnection
 
     public Task<MediaState> GetMediaStateAsync()
     {
-        throw new NotImplementedException();
+      return Task.FromResult(new MediaState(new(false, false), new(false, false)));
     }
 
     public Task<string> GetStateAsync()
     {
-        throw new NotImplementedException();
+        return Task.FromResult("connected");
     }
 
     public Task SetLocalVideoTargetAsync(ElementReference videoElement)
     {
-        throw new NotImplementedException();
+        return Task.CompletedTask;
     }
 
     public Task SetMediaStateAsync(MediaState mediaState)
     {
-        throw new NotImplementedException();
+        return Task.CompletedTask;
     }
 
     public Task SetVideoTargetAsync(ElementReference videoElement)
     {
-        throw new NotImplementedException();
+        return Task.CompletedTask;
     }
 
     public ValueTask<bool> WriteBytesAsync(byte[] bytes)

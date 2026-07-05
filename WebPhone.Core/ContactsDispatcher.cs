@@ -119,7 +119,9 @@ public sealed class ContactsDispatcher(
     {
         var logger = loggerFactory.CreateLogger($"MediaConnection-{contact.Id}");
         var mediaConnection = new MediaConnection(connection, logger).Started();
-        var sub = mediaConnection.State.Subscribe(() => _oneConnectionChanged.Invoke(contact.Id));
+        var sub = mediaConnection.State.SubscribeAfter(() =>
+            _oneConnectionChanged.Invoke(contact.Id)
+        );
 
         return new(contact, mediaConnection, sub.Dispose);
     }

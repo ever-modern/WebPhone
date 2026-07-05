@@ -44,14 +44,22 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
         using var _ = await _locker.LockScopeAsync();
         if (_innerState.Value is not InteractionState.ReceivingCall receivingCall)
             return;
-        _innerState.Change(
-            new InteractionState.Calling
-            {
-                Id = receivingCall.Id,
-                Audio = receivingCall.Audio,
-                Video = receivingCall.Video,
-            }
-        );
+
+        var audio = receivingCall.Audio
+            ? new MediaPartState(true, true)
+            : new MediaPartState(false, false);
+        var video = receivingCall.Video
+            ? new MediaPartState(true, true)
+            : new MediaPartState(false, false);
+
+        channel.Writer.TryWrite(RtcMessage.Create(RtcMessageType.WantCall, new InteractionState.Calling
+        {
+            Id = receivingCall.Id,
+            Audio = receivingCall.Audio,
+            Video = receivingCall.Video,
+        }));
+
+        _innerState.Change(new InteractionState.OnCall { MediaState = new(audio, video) });
     }
 
     public async ValueTask RejectCall()
@@ -108,6 +116,8 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
             await foreach (var message in messages.ReadAllAsync(_cts.Token))
             {
                 using var _ = await _locker.LockScopeAsync(_cts.Token);
+
+                logger.LogInformation("Received message: {MessageType}", message.Type);
 
                 if (message.Type is RtcMessageType.Disconnect)
                 {
@@ -211,6 +221,7 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
 
                 if (_innerState.Value is InteractionState.Calling calling)
                 {
+                    logger.LogInformation("Sending WantCall message");
                     channel.Writer.TryWrite(RtcMessage.Create(RtcMessageType.WantCall, calling));
                 }
 

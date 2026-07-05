@@ -25,7 +25,7 @@ public abstract class InteractionState
         public static Connected Instance { get; } = new Connected();
     }
 
-    public class CallRequested : Connected
+    public abstract class CallRequested : Connected
     {
         public long Id { get; init; } = CommonIdsGenerator.NewId();
         public bool Video { get; init; }

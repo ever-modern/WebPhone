@@ -43,15 +43,15 @@ public static class ConnectionProxyExtensions
         EventSource<byte[]> bytesReceived = new();
         Subscription? bytesSub = null;
         Func<byte[], ValueTask<bool>> writeBytes = (bytes) => connection.Value?.WriteBytesAsync(bytes: bytes) ?? ValueTask.FromResult(result: false);
-        var connectionChangedSub = dispatcher.StateChanged.Subscribe(handler: () =>
+        var connectionChangedSub = dispatcher.ConnectionsChange.SubscribeAfter(() =>
             {
                 var newConnection = dispatcher.FindReadyConnection(peerId: peerId);
                 if (newConnection?.State.Value != state.Value)
                     state.Change(newValue: newConnection?.State.Value ?? RtcConnectionState.Disconnected);
-                
+
                 if (newConnection == connection.Value)
                     return;
-                
+
                 bytesSub?.Dispose();
                 bytesSub = newConnection?.BytesReceived.Subscribe(handler: bytesReceived.Invoke);
 

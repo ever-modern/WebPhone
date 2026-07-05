@@ -52,57 +52,48 @@ public class ContactsDispatcherIntegrationTests(ITestOutputHelper output)
 
     // ── Connect ───────────────────────────────────────────────────────────
 
-    [Fact]
+    [Fact(Timeout = 30_000)]
     public async Task ConnectStages()
     {
-        var ((dispatcher1, connector1, peer1), (dispatcher2, connector2, peer2)) = await CreatePairAsync();
-        List<InteractionState> statesFirst = [];
-        using var _ = dispatcher1.State.Subscribe(newState =>
-        {
-            var otherPeerManager = newState.Contacts.FirstOrDefault(c => c.Contact.Id == peer2);
-            if (otherPeerManager is not null)
-            {
-                statesFirst.Add(otherPeerManager.Interaction);
-            }
-        });
-        List<InteractionState> statesSecond = [];
-        using var __ = dispatcher2.State.Subscribe(newState =>
-        {
-            var otherPeerManager = newState.Contacts.FirstOrDefault(c => c.Contact.Id == peer1);
-            if (otherPeerManager is not null)
-            {
-                statesSecond.Add(otherPeerManager.Interaction);
-            }
-        });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var ct = cts.Token;
+        var (first, second) = await CreatePairAsync();
+        var (caller, callee) = (first, second);
 
-        var contactManager1 = () => dispatcher1.State.Value.Contacts.First(contact =>
-            contact.Contact.Id == peer2
+        // ── Connect ───────────────────────────────────────────────────
+        await caller.Connections.ConnectAsync(callee.UserId, ct);
+
+        await caller.Connections.DisconnectFromPeerAsync(callee.UserId, ct);
+
+        await caller.Connections.ConnectAsync(callee.UserId, ct);
+
+        await WaitForStateAsync(caller.ContactsDispatcher, callee.UserId, s => s is InteractionState.Connected, ct);
+        await WaitForStateAsync(callee.ContactsDispatcher, caller.UserId, s => s is InteractionState.Connected, ct);
+
+        // ── Call ──────────────────────────────────────────────────────
+        var callerContact = FindContact(caller.ContactsDispatcher.State.Value, callee.UserId);
+        Assert.NotNull(callerContact?.AudioCall);
+        callerContact!.AudioCall!.Invoke();
+
+        await WaitForStateAsync(caller.ContactsDispatcher, callee.UserId, s => s is InteractionState.Calling, ct);
+        await WaitForStateAsync(callee.ContactsDispatcher, caller.UserId, s => s is InteractionState.ReceivingCall, ct);
+
+        // ── Accept ────────────────────────────────────────────────────
+        var calleeContact = FindContact(callee.ContactsDispatcher.State.Value, caller.UserId);
+        Assert.NotNull(calleeContact?.AcceptCall);
+        calleeContact!.AcceptCall!.Invoke();
+
+        await Task.WhenAll(
+            WaitForStateAsync(caller.ContactsDispatcher, callee.UserId, s => s is InteractionState.OnCall, ct),
+            WaitForStateAsync(callee.ContactsDispatcher, caller.UserId, s => s is InteractionState.OnCall, ct)
         );
-        var contactManager2 = () => dispatcher2.State.Value.Contacts.First(contact =>
-            contact.Contact.Id == peer1
-        );
 
-        contactManager1().Connect!();        
+        // ── Final assertions ──────────────────────────────────────────
+        var firstFinal = FindContact(caller.ContactsDispatcher.State.Value, callee.UserId);
+        var secondFinal = FindContact(callee.ContactsDispatcher.State.Value, caller.UserId);
 
-        await Task.Delay(1000);
-
-        contactManager1().AudioCall();
-
-        await Task.Delay(1000);
-
-        contactManager2().AcceptCall();
-
-        await Task.Delay(1000);
-
-        Assert.Contains(statesFirst, s => s is InteractionState.Connecting);
-        Assert.Contains(statesFirst, s => s is InteractionState.Connected);
-        Assert.Contains(statesFirst, s => s is InteractionState.Calling);
-        Assert.Contains(statesFirst, s => s is InteractionState.OnCall);
-
-        Assert.Contains(statesSecond, s => s is InteractionState.Connecting);
-        Assert.Contains(statesSecond, s => s is InteractionState.Connected);
-        Assert.Contains(statesSecond, s => s is InteractionState.ReceivingCall);
-        Assert.Contains(statesSecond, s => s is InteractionState.OnCall);
+        Assert.IsType<InteractionState.OnCall>(firstFinal!.Interaction);
+        Assert.IsType<InteractionState.OnCall>(secondFinal!.Interaction);
     }
 
     [Fact(Timeout = 30_000)]
