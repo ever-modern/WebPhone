@@ -1,5 +1,6 @@
 using EverModern.Events;
 using Microsoft.Extensions.Logging;
+using WebPhone.Domain;
 using WebPhone.Tests.Provision;
 using Xunit.Abstractions;
 
@@ -24,15 +25,18 @@ public class ContactsDispatcherIntegrationTests(ITestOutputHelper output)
             var loggerFactory = LoggerFactory.Create(builder =>
                 builder.AddProvider(CreateLoggerFactory($"CD-{peerId}"))
             );
+            
             var dispatcher = new ContactsDispatcher(
                 connectionDispatcher,
                 contactsRepo,
                 loggerFactory
             ).Started();
+
             contacts.Change([
                 .. contacts.Value,
                 new Contact(peerId, peerId, DateTimeOffset.UtcNow),
             ]);
+
             yield return (dispatcher, connectionDispatcher, peerId);
         }
     }
@@ -51,7 +55,7 @@ public class ContactsDispatcherIntegrationTests(ITestOutputHelper output)
     [Fact]
     public async Task ConnectStages()
     {
-        var ((dispatcher1, _, peer1), (dispatcher2, _, peer2)) = await CreatePairAsync();
+        var ((dispatcher1, connector1, peer1), (dispatcher2, connector2, peer2)) = await CreatePairAsync();
         List<InteractionState> statesFirst = [];
         using var _ = dispatcher1.State.Subscribe(newState =>
         {
@@ -71,22 +75,34 @@ public class ContactsDispatcherIntegrationTests(ITestOutputHelper output)
             }
         });
 
-        var contactManager1 = dispatcher1.State.Value.Contacts.First(contact =>
+        var contactManager1 = () => dispatcher1.State.Value.Contacts.First(contact =>
             contact.Contact.Id == peer2
         );
-        var contactManager2 = dispatcher2.State.Value.Contacts.First(contact =>
+        var contactManager2 = () => dispatcher2.State.Value.Contacts.First(contact =>
             contact.Contact.Id == peer1
         );
 
-        contactManager1.Connect!();
+        contactManager1().Connect!();        
 
-        await Task.Delay(2000);
+        await Task.Delay(1000);
+
+        contactManager1().AudioCall();
+
+        await Task.Delay(1000);
+
+        contactManager2().AcceptCall();
+
+        await Task.Delay(1000);
 
         Assert.Contains(statesFirst, s => s is InteractionState.Connecting);
         Assert.Contains(statesFirst, s => s is InteractionState.Connected);
+        Assert.Contains(statesFirst, s => s is InteractionState.Calling);
+        Assert.Contains(statesFirst, s => s is InteractionState.OnCall);
 
         Assert.Contains(statesSecond, s => s is InteractionState.Connecting);
         Assert.Contains(statesSecond, s => s is InteractionState.Connected);
+        Assert.Contains(statesSecond, s => s is InteractionState.ReceivingCall);
+        Assert.Contains(statesSecond, s => s is InteractionState.OnCall);
     }
 
     [Fact(Timeout = 30_000)]

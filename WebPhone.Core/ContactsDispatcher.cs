@@ -33,11 +33,11 @@ public sealed class ContactsDispatcher(
 
         ResetState();
 
-        var sub1 = peerConnectionsDispatcher.ConnectionsChange.Subscribe(() =>
+        var sub1 = peerConnectionsDispatcher.ConnectionsChange.SubscribeAfter(() =>
         {
             ResetState();
         });
-        var sub2 = contactsRepository.StateChanged.Subscribe(() =>
+        var sub2 = contactsRepository.Contacts.SubscribeAfter(() =>
         {
             ResetState();
         });
@@ -76,7 +76,7 @@ public sealed class ContactsDispatcher(
         var entriesToRemove = new List<Entry>();
 
         var state = contactsRepository
-            .Contacts.Select(contact =>
+            .Contacts.Value.Select(contact =>
             {
                 var connection = peerConnectionsDispatcher.FindReadyConnection(contact.Id);
 

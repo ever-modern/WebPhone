@@ -6,10 +6,7 @@ public static class ValueNotifierExtensions
 {
     extension<T>(IValueNotifier<T> notifier)
     {
-        public Task WhenSatisfies(
-        Func<T, bool> predicate,
-        CancellationToken cancellationToken
-    )
+        public Task WhenSatisfies(Func<T, bool> predicate, CancellationToken cancellationToken)
         {
             var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
@@ -28,6 +25,19 @@ public static class ValueNotifierExtensions
                 return Task.CompletedTask;
 
             return tcs.Task;
+        }
+
+        public Task<T> Next(CancellationToken cancellationToken)
+        {
+            TaskCompletionSource<T> result = new();
+            notifier.Subscribe(
+                (newValue, sub) =>
+                {
+                    result.TrySetResult(newValue);
+                    sub.Dispose();
+                }
+            );
+            return result.Task;
         }
     }
 }

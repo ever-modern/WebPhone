@@ -17,10 +17,9 @@ public class ContactsRepository(
     private CancellationTokenSource? _cts;
     private Task? _readerTask;
 
-    public IReadOnlyList<Contact> Contacts { get; private set; } = [];
+    readonly ObservedValue<IReadOnlyList<Contact>> _contacts = new([]);
 
-    readonly EventSource _stateChanged = new();
-    public INotifier StateChanged => _stateChanged;
+    public IValueNotifier<IReadOnlyList<Contact>> Contacts => _contacts;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
@@ -43,7 +42,7 @@ public class ContactsRepository(
                 cancellationToken
             );
 
-        RebuildContacts();
+        CalculateContacts();
     }
 
     public void StartTracking()
@@ -71,8 +70,8 @@ public class ContactsRepository(
         };
         _contactSettings[userId] = updated;
         await backendClient.SaveContactSettingsAsync(updated, cancellationToken);
-        RebuildContacts();
-        _stateChanged.Invoke();
+        var newContacts = CalculateContacts();
+        _contacts.Change(newContacts);
     }
 
     public async Task SetNicknameAsync(string userId, string? nickname)
@@ -87,8 +86,8 @@ public class ContactsRepository(
         };
         _contactSettings[userId] = updated;
         await backendClient.SaveContactSettingsAsync(updated);
-        RebuildContacts();
-        _stateChanged.Invoke();
+        var newContacts = CalculateContacts();
+        _contacts.Change(newContacts);
     }
 
     private async Task ReadPresenceAsync(CancellationToken ct)
@@ -116,8 +115,8 @@ public class ContactsRepository(
             );
 
             PrunePresence();
-            RebuildContacts();
-            _stateChanged.Invoke();
+            var newContacts = CalculateContacts();
+            _contacts.Change(newContacts);
         }
     }
 
@@ -134,7 +133,7 @@ public class ContactsRepository(
         return result;
     }
 
-    private void RebuildContacts()
+    private Contact[] CalculateContacts()
     {
         var merged = new Dictionary<string, Contact>(_presences.Count + _contactSettings.Count);
 
@@ -164,7 +163,7 @@ public class ContactsRepository(
             );
         }
 
-        Contacts =
+        return
         [
             .. merged
                 .Values.OrderByDescending(v => v.IsFavorite)

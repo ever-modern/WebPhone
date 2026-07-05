@@ -15,14 +15,16 @@ public class ContactManager(
     {
         get
         {
-            if (mediaConnection.State.Value is InteractionState.Disconnected)
+            InteractionState mediaConnectionState = mediaConnection.State.Value;
+            if (mediaConnectionState is InteractionState.Disconnected)
             {
                 var dispatcherState = peerConnectionsDispatcher.ConnectionsChange.Value.GetValueOrDefault(contact.Id);
                 if (dispatcherState is InteractionState.Connecting or InteractionState.Connected)
                     return dispatcherState;
                 return TellInteractivity(Contact.LastSeen);
             }
-            return mediaConnection.State.Value;
+
+            return mediaConnectionState;
         }
     }
 

@@ -9,20 +9,24 @@ using WebPhone.Domain;
 
 namespace WebPhone;
 
-public class MediaConnection(
-    UnifiedRtcConnection connection,
-    ILogger logger
-) : IDisposable
+public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : IDisposable
 {
     readonly CancellationTokenSource _cts = new();
     readonly SemaphoreSlim _locker = new(1, 1);
 
     bool _disposed;
 
-    readonly ObservedValue<InteractionState> _innerState = new(connection.State.Value == RtcConnectionState.Connected ? InteractionState.Connected.Instance : InteractionState.Disconnected.Instance);
+    readonly ObservedValue<InteractionState> _innerState = new(
+        connection.State.Value == RtcConnectionState.Connected
+            ? InteractionState.Connected.Instance
+            : InteractionState.Disconnected.Instance
+    );
+
     public IValueNotifier<InteractionState> State => _innerState;
 
-    readonly IBroadcastChannel<RtcMessage, RtcMessage> channel = new RtcConnectionMessageChannel(connection);
+    readonly IBroadcastChannel<RtcMessage, RtcMessage> channel = new RtcConnectionMessageChannel(
+        connection
+    );
 
     public MediaConnection Started()
     {
@@ -40,12 +44,14 @@ public class MediaConnection(
         using var _ = await _locker.LockScopeAsync();
         if (_innerState.Value is not InteractionState.ReceivingCall receivingCall)
             return;
-        _innerState.Change(new InteractionState.Calling
-        {
-            Id = receivingCall.Id,
-            Audio = receivingCall.Audio,
-            Video = receivingCall.Video
-        });
+        _innerState.Change(
+            new InteractionState.Calling
+            {
+                Id = receivingCall.Id,
+                Audio = receivingCall.Audio,
+                Video = receivingCall.Video,
+            }
+        );
     }
 
     public async ValueTask RejectCall()
@@ -62,7 +68,8 @@ public class MediaConnection(
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
-        if (_innerState.Value.GetType() != typeof(InteractionState.Connected)) return;
+        if (_innerState.Value.GetType() != typeof(InteractionState.Connected))
+            return;
         _innerState.Change(new InteractionState.Calling { Audio = audio, Video = video });
     }
 
@@ -70,7 +77,8 @@ public class MediaConnection(
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
-        if (_innerState.Value is not InteractionState.Calling calling) return;
+        if (_innerState.Value is not InteractionState.Calling calling)
+            return;
         channel.Writer.TryWrite(RtcMessage.Create(RtcMessageType.RejectCall, calling.Id));
         _innerState.Change(InteractionState.Connected.Instance);
     }
@@ -79,7 +87,8 @@ public class MediaConnection(
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         using var _ = await _locker.LockScopeAsync();
-        if (_innerState.Value is not InteractionState.OnCall) return;
+        if (_innerState.Value is not InteractionState.OnCall)
+            return;
         channel.Writer.TryWrite(new RtcMessage(RtcMessageType.StopCall));
         _innerState.Change(InteractionState.Connected.Instance);
     }
@@ -102,7 +111,9 @@ public class MediaConnection(
 
                 if (message.Type is RtcMessageType.Disconnect)
                 {
-                    logger.LogInformation("Received disconnect ping from the other end. Closing connection.");
+                    logger.LogInformation(
+                        "Received disconnect ping from the other end. Closing connection."
+                    );
 
                     channel.Writer.TryWrite(new RtcMessage(RtcMessageType.Disconnect));
 
@@ -115,25 +126,28 @@ public class MediaConnection(
 
                 if (message.Type is RtcMessageType.WantCall)
                 {
-                    var payload =
-                        JsonSerializer.Deserialize<InteractionState.Calling>(message.Payload);
+                    var payload = JsonSerializer.Deserialize<InteractionState.Calling>(
+                        message.Payload
+                    );
 
                     if (payload is null)
                         continue;
 
-                    if (_innerState.Value is InteractionState.Calling calling && calling.Id == payload.Id)
+                    if (
+                        _innerState.Value is InteractionState.Calling calling
+                        && calling.Id == payload.Id
+                    )
                     {
-                        var audio =
-                            payload.Audio ? new MediaPartState(true, true) : new MediaPartState(false, false);
+                        var audio = payload.Audio
+                            ? new MediaPartState(true, true)
+                            : new MediaPartState(false, false);
 
-                        var video =
-                            payload.Video ? new MediaPartState(true, true) : new MediaPartState(false, false);
+                        var video = payload.Video
+                            ? new MediaPartState(true, true)
+                            : new MediaPartState(false, false);
 
                         _innerState.Change(
-                            new InteractionState.OnCall
-                            {
-                                MediaState = new(audio, video)
-                            }
+                            new InteractionState.OnCall { MediaState = new(audio, video) }
                         );
                     }
                     else if (_innerState.Value is InteractionState.Calling)
@@ -147,7 +161,7 @@ public class MediaConnection(
                             {
                                 Id = payload.Id,
                                 Audio = payload.Audio,
-                                Video = payload.Video
+                                Video = payload.Video,
                             }
                         );
                     }
@@ -155,8 +169,16 @@ public class MediaConnection(
                 else if (message.Type is RtcMessageType.RejectCall)
                 {
                     var rejectId = JsonSerializer.Deserialize<long>(message.Payload);
-                    if ((_innerState.Value is InteractionState.Calling calling && calling.Id == rejectId)
-                        || (_innerState.Value is InteractionState.ReceivingCall receivingCall && receivingCall.Id == rejectId))
+                    if (
+                        (
+                            _innerState.Value is InteractionState.Calling calling
+                            && calling.Id == rejectId
+                        )
+                        || (
+                            _innerState.Value is InteractionState.ReceivingCall receivingCall
+                            && receivingCall.Id == rejectId
+                        )
+                    )
                     {
                         _innerState.Change(InteractionState.Connected.Instance);
                     }
@@ -170,7 +192,7 @@ public class MediaConnection(
                 }
             }
         }
-        catch (OperationCanceledException) {}
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             logger.LogError(ex, "Media receiver failed");
@@ -189,15 +211,13 @@ public class MediaConnection(
 
                 if (_innerState.Value is InteractionState.Calling calling)
                 {
-                    channel.Writer.TryWrite(
-                        RtcMessage.Create(RtcMessageType.WantCall, calling)
-                    );
+                    channel.Writer.TryWrite(RtcMessage.Create(RtcMessageType.WantCall, calling));
                 }
 
                 channel.Writer.TryWrite(new RtcMessage(RtcMessageType.Ping));
             }
         }
-        catch (OperationCanceledException) {}
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             logger.LogError(ex, "Media sender failed");
