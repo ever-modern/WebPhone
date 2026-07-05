@@ -10,25 +10,27 @@ public enum RtcConnectionState
     Connected,
     Disconnected,
     Failed,
-    Closed
+    Closed,
 }
 
 public interface IRtcConnection
 {
     string Id { get; }
 
-    INotifier<byte[]> BytesReceived { get; }
+    BytesChannel Bytes { get; }
+    
     IValueNotifier<RtcConnectionState> State { get; }
 
     Task<MediaState> GetMediaStateAsync();
 
     Task SetLocalVideoTargetAsync(ElementReference videoElement);
+    
     Task SetMediaStateAsync(MediaState mediaState);
+    
     Task SetVideoTargetAsync(ElementReference videoElement);
-    ValueTask<bool> WriteBytesAsync(byte[] bytes);
 
-    public static RtcConnectionState StateFromString(string stateString)
-        => stateString.ToLowerInvariant() switch
+    public static RtcConnectionState StateFromString(string stateString) =>
+        stateString.ToLowerInvariant() switch
         {
             "new" => RtcConnectionState.New,
             "connecting" => RtcConnectionState.Connecting,
@@ -41,6 +43,6 @@ public interface IRtcConnection
                 nameof(stateString),
                 stateString,
                 $"Unknown RTC connection state '{stateString}'."
-            )
+            ),
         };
 }

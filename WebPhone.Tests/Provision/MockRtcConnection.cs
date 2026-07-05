@@ -30,17 +30,26 @@ class MockRtcConnection : IRtcConnection
             if (sender.Offer == Offer && sender.Answer == Answer && sender.Owner != Owner)
                 _bytesReceived.Invoke(bytes);
         });
+
+        Bytes = new(
+            async bytes =>
+            {
+                _bytesSent.Invoke((this, bytes));
+                return true;
+            },
+            _bytesReceived
+        );
     }
 
     public string Id { get; }
-
-    public INotifier<byte[]> BytesReceived => _bytesReceived;
 
     public IValueNotifier<RtcConnectionState> State => _state;
 
     private MockRtcConnector Owner { get; init; }
     public WebRtcOffer Offer { get; init; }
     public WebRtcAnswer Answer { get; init; }
+
+    public BytesChannel Bytes { get; }
 
     public void Close()
     {
@@ -66,30 +75,14 @@ class MockRtcConnection : IRtcConnection
         return ValueTask.CompletedTask;
     }
 
-    public Task<MediaState> GetMediaStateAsync()
-    {
-      return Task.FromResult(new MediaState(new(false, false), new(false, false)));
-    }
+    public Task<MediaState> GetMediaStateAsync() =>
+        Task.FromResult(new MediaState(new(false, false), new(false, false)));
 
-    public Task<string> GetStateAsync()
-    {
-        return Task.FromResult("connected");
-    }
+    public Task SetLocalVideoTargetAsync(ElementReference videoElement) => Task.CompletedTask;
 
-    public Task SetLocalVideoTargetAsync(ElementReference videoElement)
-    {
-        return Task.CompletedTask;
-    }
+    public Task SetMediaStateAsync(MediaState mediaState) => Task.CompletedTask;
 
-    public Task SetMediaStateAsync(MediaState mediaState)
-    {
-        return Task.CompletedTask;
-    }
-
-    public Task SetVideoTargetAsync(ElementReference videoElement)
-    {
-        return Task.CompletedTask;
-    }
+    public Task SetVideoTargetAsync(ElementReference videoElement) => Task.CompletedTask;
 
     public ValueTask<bool> WriteBytesAsync(byte[] bytes)
     {

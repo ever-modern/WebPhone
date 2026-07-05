@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using Microsoft.VisualStudio.TestPlatform.CommunicationUtilities;
 using WebPhone.Channels;
 using WebPhone.Domain;
 using WebPhone.Messages;
@@ -7,9 +8,8 @@ using Xunit.Abstractions;
 
 namespace WebPhone.Tests;
 
-public class MessagesChannelTestsSet(
-    ITestOutputHelper output
-) : IntegrationWithBackendTestsSet(output)
+public class MessagesChannelTestsSet(ITestOutputHelper output)
+    : IntegrationWithBackendTestsSet(output)
 {
     const string _userId = "Single-User";
 
@@ -45,24 +45,26 @@ public class RtcMessageChannelTests
     public async Task WriteReceiveMessage()
     {
         var (connector1, connector2) = (new MockRtcConnector(), new MockRtcConnector());
-        var (offer, answer) = (new WebRtcOffer("", ""), new WebRtcAnswer("",""));
-        var (connection1, connection2) = (new MockRtcConnection(connector1, offer, answer), new MockRtcConnection(connector2, offer, answer));
+        var (offer, answer) = (new WebRtcOffer("", ""), new WebRtcAnswer("", ""));
+        var (connection1, connection2) = (
+            new MockRtcConnection(connector1, offer, answer),
+            new MockRtcConnection(connector2, offer, answer)
+        );
 
-        var (channel1, channel2) = (new RtcConnectionMessageChannel(connection1), new RtcConnectionMessageChannel(connection2));
+        var (channel1, channel2) = (
+            new RtcConnectionMessageChannel(connection1.Bytes),
+            new RtcConnectionMessageChannel(connection2.Bytes)
+        );
 
-        using var reader1 = channel1.Subscribe(_ => true);
-        using var reader2 = channel2.Subscribe(_ => true);
+        RtcMessage? messageIn = null;
+
+        using var reader2 = channel2.Received.Subscribe(rtcMessage => messageIn = rtcMessage);
 
         RtcMessage messageOut = RtcMessage.Create(RtcMessageType.Ping, 203);
 
-        await channel1.Writer.WriteAsync(messageOut);
+        await channel1.WriteAsync(messageOut);
 
         var timeout = new CancellationTokenSource(300).Token;
-
-        await foreach (var messageIn in reader2.ReadAllAsync(timeout))
-        {
-            Assert.Equal(messageOut, messageIn);
-            break;
-        }
+        Assert.Equal(messageOut, messageIn);
     }
 }

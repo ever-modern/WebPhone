@@ -1,3 +1,5 @@
+using EverModern.Events;
+
 namespace WebPhone.Domain;
 
 /// <summary>Body for POST /api/chat/send.</summary>

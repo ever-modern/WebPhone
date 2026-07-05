@@ -1,20 +1,19 @@
 ﻿using System.Text.Json;
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
-using EverModern.Threading.Channels;
 using EverModern.Threading.Locks;
 using Microsoft.Extensions.Logging;
 using WebPhone.Channels;
-using WebPhone.Domain;
 
 namespace WebPhone;
 
 public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : IDisposable
 {
-    readonly CancellationTokenSource _cts = new();
-    readonly SemaphoreSlim _locker = new(1, 1);
+    readonly Lock _locker = new();
 
     bool _disposed;
+
+    Subscription? _reading;
 
     readonly ObservedValue<InteractionState> _innerState = new(
         connection.State.Value == RtcConnectionState.Connected
@@ -24,15 +23,16 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
 
     public IValueNotifier<InteractionState> State => _innerState;
 
-    readonly IBroadcastChannel<RtcMessage, RtcMessage> channel = new RtcConnectionMessageChannel(
-        connection
+    readonly RtcConnectionMessageChannel channel = new(
+        connection.Bytes
     );
 
     public MediaConnection Started()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        _ = Task.Run(ReceiveLoop);
+        channel.Received.Subscribe(ReceiveHandler);
+
         _ = Task.Run(SenderLoop);
 
         return this;
@@ -41,7 +41,7 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
     public async ValueTask AcceptCall()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        using var _ = await _locker.LockScopeAsync();
+        using var _ = _locker.LockScope();
         if (_innerState.Value is not InteractionState.ReceivingCall receivingCall)
             return;
 
@@ -52,12 +52,17 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
             ? new MediaPartState(true, true)
             : new MediaPartState(false, false);
 
-        channel.Writer.TryWrite(RtcMessage.Create(RtcMessageType.WantCall, new InteractionState.Calling
-        {
-            Id = receivingCall.Id,
-            Audio = receivingCall.Audio,
-            Video = receivingCall.Video,
-        }));
+        await channel.WriteAsync(
+            RtcMessage.Create(
+                RtcMessageType.WantCall,
+                new InteractionState.Calling
+                {
+                    Id = receivingCall.Id,
+                    Audio = receivingCall.Audio,
+                    Video = receivingCall.Video,
+                }
+            )
+        );
 
         _innerState.Change(new InteractionState.OnCall { MediaState = new(audio, video) });
     }
@@ -65,17 +70,17 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
     public async ValueTask RejectCall()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        using var _ = await _locker.LockScopeAsync();
+        using var _ = _locker.LockScope();
         if (_innerState.Value is not InteractionState.ReceivingCall receivingCall)
             return;
-        channel.Writer.TryWrite(RtcMessage.Create(RtcMessageType.RejectCall, receivingCall.Id));
+        await channel.WriteAsync(RtcMessage.Create(RtcMessageType.RejectCall, receivingCall.Id));
         _innerState.Change(InteractionState.Connected.Instance);
     }
 
     public async ValueTask Call(bool audio = true, bool video = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        using var _ = await _locker.LockScopeAsync();
+        using var _ = _locker.LockScope();
         if (_innerState.Value.GetType() != typeof(InteractionState.Connected))
             return;
         _innerState.Change(new InteractionState.Calling { Audio = audio, Video = video });
@@ -84,121 +89,113 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
     public async ValueTask StopCalling()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        using var _ = await _locker.LockScopeAsync();
+        using var _ = _locker.LockScope();
         if (_innerState.Value is not InteractionState.Calling calling)
             return;
-        channel.Writer.TryWrite(RtcMessage.Create(RtcMessageType.RejectCall, calling.Id));
+        await channel.WriteAsync(RtcMessage.Create(RtcMessageType.RejectCall, calling.Id));
         _innerState.Change(InteractionState.Connected.Instance);
     }
 
     public async ValueTask StopCall()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        using var _ = await _locker.LockScopeAsync();
+        using var _ = _locker.LockScope();
         if (_innerState.Value is not InteractionState.OnCall)
             return;
-        channel.Writer.TryWrite(new RtcMessage(RtcMessageType.StopCall));
+        await channel.WriteAsync(new RtcMessage(RtcMessageType.StopCall));
         _innerState.Change(InteractionState.Connected.Instance);
     }
 
     public void Dispose()
     {
         _disposed = true;
-        _cts.Cancel();
+        _reading?.Dispose();
     }
 
-    async Task ReceiveLoop()
+    void ReceiveHandler(RtcMessage message, Subscription sub)
     {
         try
         {
-            using var messages = channel.Subscribe(_ => true);
+            _reading = sub;
+            logger.LogInformation("Received message: {MessageType}", message.Type);
 
-            await foreach (var message in messages.ReadAllAsync(_cts.Token))
+            if (message.Type is RtcMessageType.Disconnect)
             {
-                using var _ = await _locker.LockScopeAsync(_cts.Token);
+                logger.LogInformation(
+                    "Received disconnect ping from the other end. Closing connection."
+                );
 
-                logger.LogInformation("Received message: {MessageType}", message.Type);
+                _ = channel.WriteAsync(new RtcMessage(RtcMessageType.Disconnect));
 
-                if (message.Type is RtcMessageType.Disconnect)
-                {
-                    logger.LogInformation(
-                        "Received disconnect ping from the other end. Closing connection."
-                    );
+                _innerState.Change(InteractionState.Disconnected.Instance);
 
-                    channel.Writer.TryWrite(new RtcMessage(RtcMessageType.Disconnect));
+                sub.Dispose();
 
-                    _innerState.Change(InteractionState.Disconnected.Instance);
+                return;
+            }
 
-                    await _cts.CancelAsync();
+            if (message.Type is RtcMessageType.WantCall)
+            {
+                var payload = JsonSerializer.Deserialize<InteractionState.Calling>(message.Payload);
 
+                if (payload is null)
                     return;
-                }
 
-                if (message.Type is RtcMessageType.WantCall)
+                if (
+                    _innerState.Value is InteractionState.Calling calling
+                    && calling.Id == payload.Id
+                )
                 {
-                    var payload = JsonSerializer.Deserialize<InteractionState.Calling>(
-                        message.Payload
+                    var audio = payload.Audio
+                        ? new MediaPartState(true, true)
+                        : new MediaPartState(false, false);
+
+                    var video = payload.Video
+                        ? new MediaPartState(true, true)
+                        : new MediaPartState(false, false);
+
+                    _innerState.Change(
+                        new InteractionState.OnCall { MediaState = new(audio, video) }
                     );
-
-                    if (payload is null)
-                        continue;
-
-                    if (
+                }
+                else if (_innerState.Value is InteractionState.Calling)
+                {
+                    // Already sent ack, ignore further WantCall from caller
+                }
+                else if (_innerState.Value is not InteractionState.ReceivingCall)
+                {
+                    _innerState.Change(
+                        new InteractionState.ReceivingCall
+                        {
+                            Id = payload.Id,
+                            Audio = payload.Audio,
+                            Video = payload.Video,
+                        }
+                    );
+                }
+            }
+            else if (message.Type is RtcMessageType.RejectCall)
+            {
+                var rejectId = JsonSerializer.Deserialize<long>(message.Payload);
+                if (
+                    (
                         _innerState.Value is InteractionState.Calling calling
-                        && calling.Id == payload.Id
+                        && calling.Id == rejectId
                     )
-                    {
-                        var audio = payload.Audio
-                            ? new MediaPartState(true, true)
-                            : new MediaPartState(false, false);
-
-                        var video = payload.Video
-                            ? new MediaPartState(true, true)
-                            : new MediaPartState(false, false);
-
-                        _innerState.Change(
-                            new InteractionState.OnCall { MediaState = new(audio, video) }
-                        );
-                    }
-                    else if (_innerState.Value is InteractionState.Calling)
-                    {
-                        // Already sent ack, ignore further WantCall from caller
-                    }
-                    else if (_innerState.Value is not InteractionState.ReceivingCall)
-                    {
-                        _innerState.Change(
-                            new InteractionState.ReceivingCall
-                            {
-                                Id = payload.Id,
-                                Audio = payload.Audio,
-                                Video = payload.Video,
-                            }
-                        );
-                    }
-                }
-                else if (message.Type is RtcMessageType.RejectCall)
-                {
-                    var rejectId = JsonSerializer.Deserialize<long>(message.Payload);
-                    if (
-                        (
-                            _innerState.Value is InteractionState.Calling calling
-                            && calling.Id == rejectId
-                        )
-                        || (
-                            _innerState.Value is InteractionState.ReceivingCall receivingCall
-                            && receivingCall.Id == rejectId
-                        )
+                    || (
+                        _innerState.Value is InteractionState.ReceivingCall receivingCall
+                        && receivingCall.Id == rejectId
                     )
-                    {
-                        _innerState.Change(InteractionState.Connected.Instance);
-                    }
-                }
-                else if (message.Type is RtcMessageType.StopCall)
+                )
                 {
-                    if (_innerState.Value is InteractionState.OnCall)
-                    {
-                        _innerState.Change(InteractionState.Connected.Instance);
-                    }
+                    _innerState.Change(InteractionState.Connected.Instance);
+                }
+            }
+            else if (message.Type is RtcMessageType.StopCall)
+            {
+                if (_innerState.Value is InteractionState.OnCall)
+                {
+                    _innerState.Change(InteractionState.Connected.Instance);
                 }
             }
         }
@@ -213,19 +210,19 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
     {
         try
         {
-            while (!_cts.IsCancellationRequested)
+            while (_disposed is false)
             {
-                await Task.Delay(100, _cts.Token);
+                await Task.Delay(100);
 
-                using var _ = await _locker.LockScopeAsync(_cts.Token);
+                using var _ = _locker.LockScope();
 
                 if (_innerState.Value is InteractionState.Calling calling)
                 {
                     logger.LogInformation("Sending WantCall message");
-                    channel.Writer.TryWrite(RtcMessage.Create(RtcMessageType.WantCall, calling));
+                    await channel.WriteAsync(RtcMessage.Create(RtcMessageType.WantCall, calling));
                 }
 
-                channel.Writer.TryWrite(new RtcMessage(RtcMessageType.Ping));
+                await channel.WriteAsync(new RtcMessage(RtcMessageType.Ping));
             }
         }
         catch (OperationCanceledException) { }

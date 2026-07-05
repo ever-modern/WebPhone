@@ -1,9 +1,7 @@
 using System.Text;
 using System.Text.Json;
-using System.Threading.Channels;
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
-using EverModern.Threading.Channels;
 
 namespace WebPhone.Channels;
 
@@ -19,140 +17,37 @@ public enum RtcMessageType
     WantVideoCall,
 }
 
-public record struct RtcMessage(
-    RtcMessageType Type,
-    string? Payload = null
-)
+public record struct RtcMessage(RtcMessageType Type, string? Payload = null)
 {
-    public static RtcMessage Create(RtcMessageType type, object payload) => new RtcMessage(type, JsonSerializer.Serialize(payload));
+    public static RtcMessage Create(RtcMessageType type, object payload) =>
+        new RtcMessage(type, JsonSerializer.Serialize(payload));
 }
 
-public class RtcConnectionMessageChannel
-    : IBroadcastChannel<RtcMessage, RtcMessage>,
-        IAsyncDisposable,
-        IDisposable
+public class RtcConnectionMessageChannel(BytesChannel bytesChannel) : IDisposable
 {
-    readonly IRtcConnection _rtcConnection;
-    readonly List<Channel<RtcMessage>> _incoming = [];
-    readonly Channel<RtcMessage> _outgoing = Channel.CreateUnbounded<RtcMessage>();
-    readonly CancellationTokenSource _cts = new();
-    readonly Task _initializeTask;
-    readonly Task _sendLoopTask;
-    Subscription? _bytesSubscription;
+    readonly EventSource<RtcMessage> _received = CreateTransformer(bytesChannel.Received);
+
+    public INotifier<RtcMessage> Received => _received;
+
+    public ValueTask<bool> WriteAsync(RtcMessage message)
+    {
+        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
+        return bytesChannel.WriteAsync(bytes);
+    }
+
     bool _isDisposed;
 
-    public RtcConnectionMessageChannel(IRtcConnection rtcConnection)
+    static EventSource<RtcMessage> CreateTransformer(INotifier<byte[]> incoming)
     {
-        _rtcConnection = rtcConnection;
-        _initializeTask = InitializeAsync(_cts.Token);
-        _sendLoopTask = RunSendLoopAsync(_cts.Token);
-    }
-
-    public ChannelWriter<RtcMessage> Writer => _outgoing.Writer;
-
-    public IChannelSubscription<RtcMessage> Subscribe() => Subscribe(_ => true);
-
-    public IChannelSubscription<RtcMessage> Subscribe(Func<RtcMessage, bool> filter)
-    {
-        var channel = Channel.CreateUnbounded<RtcMessage>();
-
-        lock (_incoming)
+        EventSource<RtcMessage> result = new();
+        incoming.Subscribe(bytes =>
         {
-            _incoming.Add(channel);
-        }
-
-        return new ChannelSubscription<RtcMessage>(
-            channel.Reader,
-            _ =>
+            if (TryParseWireMessage(bytes, out RtcMessage parsed))
             {
-                lock (_incoming)
-                {
-                    _incoming.Remove(channel);
-                }
-
-                channel.Writer.TryComplete();
-            },
-            filter
-        );
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_isDisposed)
-            return;
-
-        _isDisposed = true;
-        _cts.Cancel();
-
-        try
-        {
-            await _initializeTask;
-        }
-        catch {}
-
-        _bytesSubscription?.Dispose();
-
-        lock (_incoming)
-        {
-            foreach (var incomingChannel in _incoming)
-            {
-                incomingChannel.Writer.TryComplete();
+                result.Invoke(parsed);
             }
-
-            _incoming.Clear();
-        }
-
-        _outgoing.Writer.TryComplete();
-        try
-        {
-            await _sendLoopTask;
-        }
-        catch {}
-
-        _cts.Dispose();
-    }
-
-    Task InitializeAsync(CancellationToken ct)
-    {
-        _bytesSubscription = _rtcConnection.BytesReceived.Subscribe(OnBytesReceived);
-        ct.ThrowIfCancellationRequested();
-        return Task.CompletedTask;
-    }
-
-    void OnBytesReceived(byte[] bytes)
-    {
-        if (!TryParseWireMessage(bytes, out var message))
-            return;
-
-        BroadcastIncoming(message);
-    }
-
-    async Task RunSendLoopAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await foreach (var msg in _outgoing.Reader.ReadAllAsync(cancellationToken))
-            {
-                var written = await _rtcConnection.WriteBytesAsync(ToWireMessage(msg));
-                if (written is false)
-                    return;
-            }
-        }
-        catch (OperationCanceledException) {}
-    }
-
-    void BroadcastIncoming(RtcMessage message)
-    {
-        Channel<RtcMessage>[] subscriptions;
-        lock (_incoming)
-        {
-            subscriptions = [.. _incoming];
-        }
-
-        foreach (var channel in subscriptions)
-        {
-            channel.Writer.TryWrite(message);
-        }
+        });
+        return result;
     }
 
     static byte[] ToWireMessage(RtcMessage message) =>
@@ -174,5 +69,5 @@ public class RtcConnectionMessageChannel
         }
     }
 
-    public void Dispose() => _ = DisposeAsync();
+    public void Dispose() => _received.Dispose();
 }

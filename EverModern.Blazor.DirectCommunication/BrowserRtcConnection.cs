@@ -2,22 +2,15 @@ using EverModern.Events;
 
 namespace EverModern.Blazor.DirectCommunication;
 
-public record MediaPartState(
-    bool InputEnabled,
-    bool OutputEnabled
-);
+public record MediaPartState(bool InputEnabled, bool OutputEnabled);
 
-public record MediaState(
-    MediaPartState Audio,
-    MediaPartState Video
-);
+public record MediaState(MediaPartState Audio, MediaPartState Video);
 
 public abstract class DelegatedRtcConnection(
     Func<string> getId,
     Func<ValueTask> dispose,
     IValueNotifier<RtcConnectionState> state,
-    INotifier<byte[]> bytesReceived,
-    Func<byte[], ValueTask<bool>> writeBytes,
+    BytesChannel bytesChannel,
     Func<Task<MediaState>> getMediaState,
     Func<MediaState, Task> setMediaState,
     Func<Microsoft.AspNetCore.Components.ElementReference, Task> setVideoTarget,
@@ -30,7 +23,7 @@ public abstract class DelegatedRtcConnection(
 
     public IValueNotifier<RtcConnectionState> State => state;
 
-    public INotifier<byte[]> BytesReceived => bytesReceived;
+    public BytesChannel Bytes => bytesChannel;
 
     public async Task<MediaState> GetMediaStateAsync()
     {
@@ -45,26 +38,26 @@ public abstract class DelegatedRtcConnection(
         await setMediaState(mediaState);
     }
 
-    public async Task SetVideoTargetAsync(Microsoft.AspNetCore.Components.ElementReference videoElement)
+    public async Task SetVideoTargetAsync(
+        Microsoft.AspNetCore.Components.ElementReference videoElement
+    )
     {
         ThrowIfDisposed();
         await setVideoTarget(videoElement);
     }
 
-    public async Task SetLocalVideoTargetAsync(Microsoft.AspNetCore.Components.ElementReference videoElement)
+    public async Task SetLocalVideoTargetAsync(
+        Microsoft.AspNetCore.Components.ElementReference videoElement
+    )
     {
         ThrowIfDisposed();
         await setLocalVideoTarget(videoElement);
     }
 
-    public async ValueTask<bool> WriteBytesAsync(byte[] bytes)
+    public void Dispose()
     {
-        ArgumentNullException.ThrowIfNull(bytes);
-        ThrowIfDisposed();
-        return await writeBytes(bytes);
+        _ = DisposeAsync();
     }
-
-    public void Dispose() { _ = DisposeAsync(); }
 
     public async ValueTask DisposeAsync()
     {
@@ -77,27 +70,29 @@ public abstract class DelegatedRtcConnection(
         await dispose();
     }
 
-    void ThrowIfDisposed() { ObjectDisposedException.ThrowIf(_disposed, this); }
+    void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+    }
 }
 
 public class BrowserRtcConnection(
     Func<string> getId,
     Func<ValueTask> dispose,
     IValueNotifier<RtcConnectionState> state,
-    INotifier<byte[]> bytesReceived,
-    Func<byte[], ValueTask<bool>> writeBytes,
+    BytesChannel bytesChannel,
     Func<Task<MediaState>> getMediaState,
     Func<MediaState, Task> setMediaState,
     Func<Microsoft.AspNetCore.Components.ElementReference, Task> setVideoTarget,
     Func<Microsoft.AspNetCore.Components.ElementReference, Task> setLocalVideoTarget
-) : DelegatedRtcConnection(
-    getId,
-    dispose,
-    state,
-    bytesReceived,
-    writeBytes,
-    getMediaState,
-    setMediaState,
-    setVideoTarget,
-    setLocalVideoTarget
-);
+)
+    : DelegatedRtcConnection(
+        getId,
+        dispose,
+        state,
+        bytesChannel,
+        getMediaState,
+        setMediaState,
+        setVideoTarget,
+        setLocalVideoTarget
+    );
