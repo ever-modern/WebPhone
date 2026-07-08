@@ -12,6 +12,7 @@ using PeerDispatcherData = (
     string UserId
 );
 
+[Collection(nameof(IntegrationTestCollection))]
 public class ContactsDispatcherIntegrationTests(ITestOutputHelper output)
     : IntegrationWithBackendTestsSet(output)
 {

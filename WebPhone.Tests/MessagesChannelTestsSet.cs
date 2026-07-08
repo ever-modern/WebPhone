@@ -8,6 +8,7 @@ using Xunit.Abstractions;
 
 namespace WebPhone.Tests;
 
+[Collection(nameof(IntegrationTestCollection))]
 public class MessagesChannelTestsSet(ITestOutputHelper output)
     : IntegrationWithBackendTestsSet(output)
 {

@@ -21,18 +21,36 @@ public class RtcConnectionProcesses
 
     public Task<IRtcConnection?> WhenAny() => Task.Run(async () =>
         {
-            var processes = _connectionProcesses.ToArray();
-            if (processes.Length == 0)
-                return null;
-            await Task.WhenAny(processes.Select(p => (Task<IRtcConnection>)p).ToArray());
-            var ready = RelevantProcesses.FirstOrDefault(p => p.IsConnected);
-            try
+            while (true)
             {
-                return await ready;
-            }
-            catch (Exception)
-            {
-                return null;
+                var ready = AnyReady();
+                if (ready is not null)
+                    return ready;
+
+                RtcConnectionProcess[] snapshot;
+                lock (_locker)
+                {
+                    snapshot = _connectionProcesses.ToArray();
+                }
+
+                if (snapshot.Length == 0)
+                    return null;
+
+                var pollDelay = Task.Delay(TimeSpan.FromMilliseconds(100));
+                var allTasks = new Task[snapshot.Length + 1];
+                allTasks[0] = pollDelay;
+                for (int i = 0; i < snapshot.Length; i++)
+                    allTasks[i + 1] = snapshot[i];
+
+                var completed = await Task.WhenAny(allTasks);
+
+                if (completed == pollDelay)
+                    continue;
+
+                var completedRtc = (Task<IRtcConnection>)completed;
+                var result = completedRtc.IsCompletedSuccessfully ? completedRtc.Result : null;
+                if (result is not null)
+                    return result;
             }
         }
     );

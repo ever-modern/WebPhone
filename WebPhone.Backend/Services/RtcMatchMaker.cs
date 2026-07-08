@@ -30,41 +30,43 @@ public class RtcMatchMaker(
 
         var pair = new PeersPair(initiatorId, targetId);
 
-        bool sendOffer = false;
-
         var isNew = false;
+        OngoingNegotiation ongoing;
 
-        using var negotiationEntry = currentNegotiations.Acquire(
+        using (var negotiationEntry = currentNegotiations.Acquire(
             pair,
             p =>
             {
                 isNew = true;
                 return StartNegotiation(offer, OfferTimeout);
             }
-        );
-
-        logger.LogInformation("{initiatorId} trying to connect to {targetId}", initiatorId, targetId);
-
-        if (isNew == false)
+        ))
         {
-            logger.LogInformation("There is already proceeding negotiation for pair {pair}", pair);
-            var request = negotiationEntry.Value;
-            if (offer != request.Offer)
-            {
-                logger.LogInformation("Countering incoming offer.");
-                request.ReplaceOffer(request.Offer);
-                return new(request.Offer, null);
-            }
-            if (answer is null)
-            {
-                logger.LogWarning("{initiatorId} tried to connect without an answer", initiatorId);
-                throw new UserFaultException("No answer provided");
-            }
+            ongoing = negotiationEntry.Value;
 
-            request.Complete(answer);
+            logger.LogInformation("{initiatorId} trying to connect to {targetId}", initiatorId, targetId);
 
-            return new(offer, answer);
-        }
+            if (isNew == false)
+            {
+                logger.LogInformation("There is already proceeding negotiation for pair {pair}", pair);
+                if (offer != ongoing.Offer)
+                {
+                    logger.LogInformation("Countering incoming offer.");
+                    ongoing.ReplaceOffer(offer);
+                    return new(ongoing.Offer, null);
+                }
+                if (answer is null)
+                {
+                    logger.LogWarning("{initiatorId} tried to connect without an answer", initiatorId);
+                    throw new UserFaultException("No answer provided");
+                }
+
+                ongoing.Complete(answer);
+                negotiationEntry.Remove();
+                logger.LogInformation("Removing pair {pair} negotiation from store.", pair);
+                return new(offer, answer);
+            }
+        } // lock released before any await — prevents deadlock
 
         logger.LogInformation("{initiatorId} started negotiation with {targetId}", initiatorId, targetId);
 
@@ -77,11 +79,7 @@ public class RtcMatchMaker(
                 cancellationToken
             );
 
-            var task = negotiationEntry.Value.WhenCompleted;
-
-            negotiationEntry.Dispose();
-
-            var answerFromPeer = await task;
+            var answerFromPeer = await ongoing.WhenCompleted;
 
             return answerFromPeer;
         }
@@ -89,11 +87,6 @@ public class RtcMatchMaker(
         {
             logger.LogWarning("The pair {pair} negotiation timed out.", pair);
             throw new UserFaultException($"Negotiation hasn't been completed within the time boundary of {OfferTimeout}.");
-        }
-        finally
-        {
-            logger.LogInformation("Removing pair {pair} negotiation from store.", pair);
-            currentNegotiations.Acquire(pair, _ => throw new InvalidOperationException()).Remove();
         }
     }
 

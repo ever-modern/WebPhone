@@ -5,14 +5,16 @@ namespace WebPhone.Backend.Services;
 
 public class OngoingNegotiation(
     TaskCompletionSource<RtcMatchParameters> completionSource,
-    WebRtcOffer offer
+    WebRtcOffer initialOffer
 )
 {
+    WebRtcOffer _offer = initialOffer;
+
     public void Complete(WebRtcAnswer answer)
-        => completionSource.TrySetResult(new(offer, answer));
-    public void ReplaceOffer(WebRtcOffer offer) => completionSource.TrySetResult(new(offer));
+        => completionSource.TrySetResult(new(_offer, answer));
+    public void ReplaceOffer(WebRtcOffer newOffer) => _offer = newOffer;
     public void Negate() => completionSource.TrySetResult(new(null, null));
-    public WebRtcOffer Offer => offer;
+    public WebRtcOffer Offer => _offer;
 
     public Task<RtcMatchParameters> WhenCompleted => completionSource.Task;
 }

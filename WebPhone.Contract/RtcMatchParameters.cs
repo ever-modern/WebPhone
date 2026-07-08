@@ -28,4 +28,11 @@ public record RtcMatchResponse(WebRtcOffer? Offer, WebRtcAnswer? Answer)
         Offer is not null && Answer is not null
             ? ComputeNegotiationId(Offer, Answer).ToString()
             : null;
+
+    public void Deconstruct(out WebRtcOffer? Offer, out WebRtcAnswer? Answer, out string? Id)
+    {
+        Offer = this.Offer;
+        Answer = this.Answer;
+        Id = this.Id;
+    }
 }

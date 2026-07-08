@@ -15,18 +15,18 @@ public class PeerConnector(
 {
     const int _maxCounterOfferAttempts = 3;
     readonly Lock _locker = new();
-    readonly ObservedValue<InteractionState> _connectionEventSource = new(InteractionState.Disconnected.Instance);
+    readonly ObservedValue<InteractionState> _connectionEventSource = new(
+        InteractionState.Disconnected.Instance
+    );
     readonly CancellationTokenSource _cts = new();
 
     public IValueNotifier<InteractionState> ConnectionChanged => _connectionEventSource;
 
-    public Task<IRtcConnection?> Connecting =>
-        _connecting.WhenAny();
+    public Task<IRtcConnection?> Connecting => _connecting.WhenAny();
 
     readonly RtcConnectionProcesses _connecting = new();
 
-    public IRtcConnection? GetReadyConnection()
-        => _connecting.AnyReady();
+    public IRtcConnection? GetReadyConnection() => _connecting.AnyReady();
 
     public Task<IRtcConnection> ConnectAsync(
         CancellationToken cancellationToken = default,
@@ -41,7 +41,9 @@ public class PeerConnector(
         var ready = _connecting.AnyReady();
         if (ready is not null)
         {
-            logger.LogInformation("A connection is already established. Returning the ready result.");
+            logger.LogInformation(
+                "A connection is already established. Returning the ready result."
+            );
             return Task.FromResult(ready);
         }
 
@@ -95,9 +97,15 @@ public class PeerConnector(
 
     IRtcConnection WithSubscription(IRtcConnection connection)
     {
-        connection.State.Subscribe((newState, sub) =>
+        connection.State.Subscribe(
+            (newState, sub) =>
             {
-                if (newState is RtcConnectionState.Closed or RtcConnectionState.Failed or RtcConnectionState.Disconnected)
+                if (
+                    newState
+                    is RtcConnectionState.Closed
+                        or RtcConnectionState.Failed
+                        or RtcConnectionState.Disconnected
+                )
                 {
                     using var _ = _locker.LockScope();
                     sub.Dispose();
@@ -144,7 +152,9 @@ public class PeerConnector(
             logger.LogInformation("Attempt to connect encountered a counter-offer.");
             if (attempts++ >= _maxCounterOfferAttempts)
             {
-                throw new RtcConnectionException("Too many failed attempts to act on a counter offer.");
+                throw new RtcConnectionException(
+                    "Too many failed attempts to act on a counter offer."
+                );
             }
 
             (connection, counterOffer) = await AcceptOfferAsync(counterOffer, cancellationToken);
@@ -185,9 +195,7 @@ public class PeerConnector(
                         cancellationToken
                     );
 
-                var responseOffer = rtcMatchResponse.Offer;
-                var responseAnswer = rtcMatchResponse.Answer;
-                var connectionId = rtcMatchResponse.Id;
+                var (responseOffer, responseAnswer, connectionId) = rtcMatchResponse;
 
                 logger.LogInformation(
                     "Initiator backend response. PeerId={PeerId}, ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
@@ -199,7 +207,9 @@ public class PeerConnector(
                 if (responseAnswer is null)
                 {
                     if (responseOffer is null)
-                        logger.LogWarning("Server returned neither a response, nor a counter offer.");
+                        logger.LogWarning(
+                            "Server returned neither a response, nor a counter offer."
+                        );
                     else
                         logger.LogInformation(
                             "Received counter offer from server. PeerId={PeerId}",
@@ -209,6 +219,11 @@ public class PeerConnector(
                     counterOffer = responseOffer;
                     return (null, null);
                 }
+
+                if (responseOffer != offer)
+                    throw new InvalidOperationException(
+                        "Bad response from the server: answer is present but belongs to a different offer."
+                    );
 
                 return (responseAnswer, connectionId);
             },
@@ -246,15 +261,15 @@ public class PeerConnector(
                             if (t.Exception is null)
                                 return t.Result;
 
-                            logger.LogError($"Error sending connection request with incoming offer = {incomingOffer}:\n {t.Exception}");
+                            logger.LogError(
+                                $"Error sending connection request with incoming offer = {incomingOffer}:\n {t.Exception}"
+                            );
                             throw t.Exception;
                         },
                         cancellationToken
                     );
 
-                var responseOffer = rtcMatchParameter.Offer;
-                var responseAnswer = rtcMatchParameter.Answer;
-                var connectionId = rtcMatchParameter.Id;
+                var (responseOffer, responseAnswer, connectionId) = rtcMatchParameter;
 
                 logger.LogInformation(
                     "ResponseOffer={ResponseOffer}, ResponseAnswer={ResponseAnswer}",
@@ -279,6 +294,11 @@ public class PeerConnector(
                     return connectionId;
                 }
 
+                if (responseOffer != incomingOffer)
+                    throw new InvalidOperationException(
+                        "Bad response from the server: answer is present but belongs to a different offer."
+                    );
+
                 logger.LogInformation("Successfully sent answer.");
 
                 return connectionId;
@@ -295,14 +315,11 @@ public class PeerConnector(
     }
 }
 
-record struct NegotiationResult(
-    IRtcConnection? Connection,
-    WebRtcOffer? CounterOffer
-)
+record struct NegotiationResult(IRtcConnection? Connection, WebRtcOffer? CounterOffer)
 {
     public NegotiationResult(IRtcConnection connection)
-        : this(connection, null) {}
+        : this(connection, null) { }
 
     public NegotiationResult(WebRtcOffer offer)
-        : this(null, offer) {}
+        : this(null, offer) { }
 }

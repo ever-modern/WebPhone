@@ -3,6 +3,7 @@ using Xunit.Sdk;
 
 namespace WebPhone.Tests;
 
+[Collection(nameof(IntegrationTestCollection))]
 public class BackendCommunicationTests(
     ITestOutputHelper output
 ) : IntegrationWithBackendTestsSet(output)

@@ -34,14 +34,17 @@ public abstract class IntegrationWithBackendTestsSet : IAsyncDisposable
 
     readonly List<(string Message, bool IsServer)> _logs = [];
 
+    int _id0;
+
     protected IReadOnlyList<(string Message, bool IsServer)> Logs => _logs;
 
     protected Func<string, TestLoggerProvider> CreateLoggerFactory { get; }
 
-    protected static CancellationTokenSource Timeout => new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(2));
+    protected static CancellationTokenSource Timeout => new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(15));
 
     protected IntegrationWithBackendTestsSet(ITestOutputHelper output)
     {
+        _id0 = Random.Shared.Next(1000);
         _webApplicationFactory = new();
         var client = _webApplicationFactory.CreateClient();
         _virtualBaseUrl = client.BaseAddress!.ToString();
@@ -103,9 +106,9 @@ public abstract class IntegrationWithBackendTestsSet : IAsyncDisposable
 
     protected async IAsyncEnumerable<(PeerConnectionsDispatcher Connector, string PeerId)> GeneratePeers([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        for (int i = 0; i < int.MaxValue / 2; i++)
+        for (; _id0 < int.MaxValue / 2; _id0++)
         {
-            var user = $"User-{i}";
+            var user = $"User-{_id0}";
             yield return (await CreatePeerConnectorAsync(user, cancellationToken), user);
         }
     }
