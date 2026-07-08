@@ -4,7 +4,8 @@ WORKDIR /src
 # Копируем csproj-файлы всех зависимых проектов для кеширования restore
 COPY WebPhone.Web/WebPhone.Web.csproj WebPhone.Web/
 COPY WebPhone.Contract/WebPhone.Domain.csproj WebPhone.Contract/
-COPY WebPhone/WebPhone.csproj WebPhone/
+COPY WebPhone/WebPhone.UI.csproj WebPhone/
+COPY WebPhone.Core/WebPhone.csproj WebPhone.Core/
 COPY EverModern.Blazor.DirectCommunication/EverModern.Blazor.DirectCommunication.csproj EverModern.Blazor.DirectCommunication/
 
 RUN dotnet restore "WebPhone.Web/WebPhone.Web.csproj"

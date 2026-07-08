@@ -50,10 +50,29 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
         if (managerReference is null)
             return null;
 
-        var onDispose = () => managerReference.InvokeVoidAsync(identifier: "close", args: []);
+        bool observeState = true;
+        _ = Task.Run(async () =>
+        {
+            while (observeState)
+            {
+                await Task.Delay(2000);
+                var stateString = await managerReference.InvokeAsync<string>("getState");
+                state.Change(newValue: IRtcConnection.StateFromString(stateString));
+            }
+        });
+
+        var onDispose = () =>
+        {
+            observeState = false;
+            return managerReference.InvokeVoidAsync(identifier: "close", args: []);
+        };
 
         BytesChannel bytesChannel = new(
-            async bytes => await managerReference.InvokeAsync<bool>("writeToChannel", bytes),
+            async bytes =>
+            {
+                var written = await managerReference.InvokeAsync<bool>("writeToChannel", bytes);
+                return written;
+            },
             channelMessageReceived
         );
 
@@ -132,13 +151,32 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
                     ),
                 ]
             ) ?? throw new RtcConnectionException("Failed to create RTC connection.");
+        
+        bool observeState = true;
+        _ = Task.Run(async () =>
+        {
+            while (observeState)
+            {
+                await Task.Delay(2000);
+                var stateString = await managerReference.InvokeAsync<string>("getState");
+                state.Change(newValue: IRtcConnection.StateFromString(stateString));
+            }
+        });
 
-        var dispose = () => managerReference.InvokeVoidAsync("close", []);
+        var dispose = () =>
+        {
+            observeState = false;
+            return managerReference.InvokeVoidAsync(identifier: "close", args: []);
+        };
 
         var id = await managerReference.InvokeAsync<string>(identifier: "getId");
 
         BytesChannel bytesChannel = new(
-            async bytes => await managerReference.InvokeAsync<bool>("writeToChannel", bytes),
+            async bytes =>
+            {
+                var written = await managerReference.InvokeAsync<bool>("writeToChannel", bytes);
+                return written;
+            },
             channelMessageReceived
         );
 

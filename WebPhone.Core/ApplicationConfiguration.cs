@@ -46,7 +46,7 @@ public static class ApplicationConfiguration
                 var profile = sp.GetRequiredService<IProfile>();
                 var options = sp.GetRequiredService<PhoneOptions>();
                 var baseUrl = options.ExternalChannelBaseUrl;
-                baseUrl = "https://web-phone-api.enjoyer-station.myvnc.com";
+                baseUrl = "https://web-phone-api.ever-modern.duckdns.org";
 #if DEBUG
                 baseUrl = "http://localhost:5194";
 #endif

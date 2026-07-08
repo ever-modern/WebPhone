@@ -16,6 +16,7 @@ public partial class Program
                 policy
                     .WithOrigins(
                         "https://web-phone.enjoyer-station.myvnc.com",
+                        "https://web-phone.ever-modern.duckdns.org",
                         "https://localhost:7087",
                         "http://localhost:5108"
                     )

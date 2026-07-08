@@ -98,7 +98,7 @@ echo.
 echo ===== Done =====
 echo   API:  webphoneapi:%TAG%
 echo   Web:  webphoneweb:%TAG%
-echo   URL:  https://web-phone-api.enjoyer-station.myvnc.com
-echo   URL:  https://web-phone.enjoyer-station.myvnc.com
+echo   URL:  https://web-phone-api.ever-modern.duckdns.org
+echo   URL:  https://web-phone.ever-modern.duckdns.org
 echo.
 pause

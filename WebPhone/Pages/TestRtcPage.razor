@@ -37,14 +37,17 @@
 
         const string messageText = "Hello, Peer!";
 
-        using var channel1 = new RtcConnectionMessageChannel(connection1);
-        using var channel2 = new RtcConnectionMessageChannel(connection2);
+        using var channel1 = new RtcConnectionMessageChannel(connection1.Bytes);
+        using var channel2 = new RtcConnectionMessageChannel(connection2.Bytes);
 
-        using var reader = channel2.Subscribe();
-        await channel1.Writer.WriteAsync(new(RtcMessageType.Ping, messageText));
-        var channel2Message = await reader.ReadAllAsync().FirstAsync();
+        RtcMessage? message = null;
 
-        Assert(channel2Message.Payload == messageText, "Message payload does not match");
+        using var reader = channel2.Received.Subscribe(receivedMessage => message = receivedMessage);
+        await channel1.WriteAsync(new(RtcMessageType.Ping, messageText));
+
+        await Task.Delay(100);
+
+        Assert(message?.Payload == messageText, "Message payload does not match");
     }
 
     void RunCheck()

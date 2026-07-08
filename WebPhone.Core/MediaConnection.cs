@@ -41,30 +41,37 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
     public async ValueTask AcceptCall()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        using var _ = _locker.LockScope();
-        if (_innerState.Value is not InteractionState.ReceivingCall receivingCall)
-            return;
+        MediaState mediaState;
+        using (var _ = _locker.LockScope())
+        {
+            if (_innerState.Value is not InteractionState.ReceivingCall receivingCall)
+                return;
 
-        var audio = receivingCall.Audio
-            ? new MediaPartState(true, true)
-            : new MediaPartState(false, false);
-        var video = receivingCall.Video
-            ? new MediaPartState(true, true)
-            : new MediaPartState(false, false);
+            var audio = receivingCall.Audio
+                ? new MediaPartState(true, true)
+                : new MediaPartState(false, false);
+            var video = receivingCall.Video
+                ? new MediaPartState(true, true)
+                : new MediaPartState(false, false);
 
-        await channel.WriteAsync(
-            RtcMessage.Create(
-                RtcMessageType.WantCall,
-                new InteractionState.Calling
-                {
-                    Id = receivingCall.Id,
-                    Audio = receivingCall.Audio,
-                    Video = receivingCall.Video,
-                }
-            )
-        );
+            mediaState = new(audio, video);
 
-        _innerState.Change(new InteractionState.OnCall { MediaState = new(audio, video) });
+            await channel.WriteAsync(
+                RtcMessage.Create(
+                    RtcMessageType.WantCall,
+                    new InteractionState.Calling
+                    {
+                        Id = receivingCall.Id,
+                        Audio = receivingCall.Audio,
+                        Video = receivingCall.Video,
+                    }
+                )
+            );
+
+            _innerState.Change(new InteractionState.OnCall { MediaState = mediaState });
+        }
+
+        await connection.SetMediaStateAsync(mediaState);
     }
 
     public async ValueTask RejectCall()
@@ -106,6 +113,23 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
         _innerState.Change(InteractionState.Connected.Instance);
     }
 
+    async Task SyncMediaAsync(MediaState mediaState)
+    {
+        try
+        {
+            await connection.SetMediaStateAsync(mediaState);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to sync media state");
+        }
+    }
+
+    static readonly MediaState MediaDisabled = new(
+        new MediaPartState(false, false),
+        new MediaPartState(false, false)
+    );
+
     public void Dispose()
     {
         _disposed = true;
@@ -117,8 +141,7 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
         try
         {
             _reading = sub;
-            logger.LogInformation("Received message: {MessageType}", message.Type);
-
+            
             if (message.Type is RtcMessageType.Disconnect)
             {
                 logger.LogInformation(
@@ -154,9 +177,11 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
                         ? new MediaPartState(true, true)
                         : new MediaPartState(false, false);
 
+                    var mediaState = new MediaState(audio, video);
                     _innerState.Change(
-                        new InteractionState.OnCall { MediaState = new(audio, video) }
+                        new InteractionState.OnCall { MediaState = mediaState }
                     );
+                    _ = SyncMediaAsync(mediaState);
                 }
                 else if (_innerState.Value is InteractionState.Calling)
                 {
@@ -196,6 +221,7 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
                 if (_innerState.Value is InteractionState.OnCall)
                 {
                     _innerState.Change(InteractionState.Connected.Instance);
+                    _ = SyncMediaAsync(MediaDisabled);
                 }
             }
         }
@@ -212,7 +238,7 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
         {
             while (_disposed is false)
             {
-                await Task.Delay(100);
+                await Task.Delay(500);
 
                 using var _ = _locker.LockScope();
 

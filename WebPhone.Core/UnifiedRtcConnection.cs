@@ -102,7 +102,7 @@ public static class ConnectionProxyExtensions
                 return ValueTask.CompletedTask;
             },
             state: state,
-            bytesChannel,
+            bytesChannel: bytesChannel,
             getMediaState: async () =>
             {
                 if (connection.Value is null)

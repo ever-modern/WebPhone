@@ -62,10 +62,10 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
         }
     }
 
-    const writeBytes = async (input: Uint8Array | ArrayBuffer | string): Promise<void> => {
+    const writeBytes = async (input: Uint8Array | ArrayBuffer | string): Promise<boolean> => {
         await channelOpened;
         if (!dataChannel || dataChannel.readyState !== "open") {
-            throw new Error("RTC data channel is not open.");
+            return false;
         }
 
         let payload: Uint8Array;
@@ -77,6 +77,8 @@ export function bindCallbacks(connection: RTCPeerConnection, { onStateChanged, o
             payload = input instanceof Uint8Array ? input : new Uint8Array(input);
         }
         dataChannel.send(payload as unknown as ArrayBufferView<ArrayBuffer>);
+
+        return true;
     };
 
     const reactToState = () => {

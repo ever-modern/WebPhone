@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http.HttpResults;
+using WebPhone.Backend;
 using WebPhone.Backend.Actions;
 using WebPhone.Backend.Storage;
 using WebPhone.Domain;
@@ -7,7 +8,8 @@ namespace WebPhone.Api;
 
 public static class RestEndpoints
 {
-    static string RequireClientId(HttpRequest req) => req.Headers["X-Client-Id"].First()!;
+    static string RequireClientId(HttpRequest req) => req.Headers["X-Client-Id"].FirstOrDefault()
+        ?? throw new UserFaultException("No \"X-Client-Id\" present.");
 
 
     public static void MapRestEndpoints(this WebApplication app)

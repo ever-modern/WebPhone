@@ -12,6 +12,8 @@ public class OngoingNegotiation(
 
     public void Complete(WebRtcAnswer answer)
         => completionSource.TrySetResult(new(_offer, answer));
+    public void CompleteWithCounterOffer(WebRtcOffer counterOffer)
+        => completionSource.TrySetResult(new(counterOffer, null));
     public void ReplaceOffer(WebRtcOffer newOffer) => _offer = newOffer;
     public void Negate() => completionSource.TrySetResult(new(null, null));
     public WebRtcOffer Offer => _offer;
