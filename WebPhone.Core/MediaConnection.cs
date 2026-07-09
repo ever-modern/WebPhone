@@ -2,6 +2,7 @@
 using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
 using EverModern.Threading.Locks;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.Logging;
 using WebPhone.Channels;
 
@@ -14,6 +15,7 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
     bool _disposed;
 
     Subscription? _reading;
+    IDisposable? _connectionStateSub;
 
     readonly ObservedValue<InteractionState> _innerState = new(
         connection.State.Value == RtcConnectionState.Connected
@@ -23,15 +25,32 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
 
     public IValueNotifier<InteractionState> State => _innerState;
 
-    readonly RtcConnectionMessageChannel channel = new(
-        connection.Bytes
-    );
+    readonly RtcConnectionMessageChannel channel = new(connection.Bytes);
 
     public MediaConnection Started()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         channel.Received.Subscribe(ReceiveHandler);
+
+        _connectionStateSub = connection.State.Subscribe(newState =>
+        {
+            using var _ = _locker.LockScope();
+            InteractionState? interactionState = newState switch
+            {
+                RtcConnectionState.Closed
+                or RtcConnectionState.Failed
+                or RtcConnectionState.Disconnected => InteractionState.Disconnected.Instance,
+                RtcConnectionState.Connecting => InteractionState.Connecting.Instance,
+                RtcConnectionState.Connected => InteractionState.Connected.Instance,
+                _ => null,
+            };
+
+            if (interactionState is not null)
+            {
+                _innerState.Change(interactionState);
+            }
+        });
 
         _ = Task.Run(SenderLoop);
 
@@ -106,11 +125,27 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
     public async ValueTask StopCall()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        using var _ = _locker.LockScope();
-        if (_innerState.Value is not InteractionState.OnCall)
-            return;
-        await channel.WriteAsync(new RtcMessage(RtcMessageType.StopCall));
-        _innerState.Change(InteractionState.Connected.Instance);
+        using (var _ = _locker.LockScope())
+        {
+            if (_innerState.Value is not InteractionState.OnCall)
+                return;
+            await channel.WriteAsync(new RtcMessage(RtcMessageType.StopCall));
+            _innerState.Change(InteractionState.Connected.Instance);
+        }
+
+        _ = SyncMediaAsync(MediaDisabled);
+    }
+
+    public Task SetVideoTargetAsync(ElementReference element)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return connection.SetVideoTargetAsync(element);
+    }
+
+    public Task SetLocalVideoTargetAsync(ElementReference element)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        return connection.SetLocalVideoTargetAsync(element);
     }
 
     async Task SyncMediaAsync(MediaState mediaState)
@@ -134,6 +169,7 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
     {
         _disposed = true;
         _reading?.Dispose();
+        _connectionStateSub?.Dispose();
     }
 
     void ReceiveHandler(RtcMessage message, Subscription sub)
@@ -141,7 +177,7 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
         try
         {
             _reading = sub;
-            
+
             if (message.Type is RtcMessageType.Disconnect)
             {
                 logger.LogInformation(
@@ -178,9 +214,7 @@ public class MediaConnection(UnifiedRtcConnection connection, ILogger logger) : 
                         : new MediaPartState(false, false);
 
                     var mediaState = new MediaState(audio, video);
-                    _innerState.Change(
-                        new InteractionState.OnCall { MediaState = mediaState }
-                    );
+                    _innerState.Change(new InteractionState.OnCall { MediaState = mediaState });
                     _ = SyncMediaAsync(mediaState);
                 }
                 else if (_innerState.Value is InteractionState.Calling)

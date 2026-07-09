@@ -1,0 +1,137 @@
+@inherits DisposableComponent
+
+@inject ContactsDispatcher Dispatcher
+
+@{
+    var contacts = _contacts;
+    var incoming = contacts.FirstOrDefault(c => c.Interaction is InteractionState.ReceivingCall);
+    var calling = contacts.FirstOrDefault(c => c.Interaction is InteractionState.Calling);
+    var onCall = contacts.FirstOrDefault(c => c.Interaction is InteractionState.OnCall);
+}
+
+
+@* ── Active call fullscreen overlay ── *@
+@if (onCall is not null)
+{
+    <div class="active-call-overlay">
+        <div class="active-call-info">
+            <div class="active-call-avatar">@onCall.Contact.Name[0].ToString().ToUpperInvariant()</div>
+            <h2 class="active-call-name">
+                @(string.IsNullOrWhiteSpace(onCall.Contact.Nickname)
+                    ? onCall.Contact.Name
+                    : onCall.Contact.Nickname)
+            </h2>
+            <p class="active-call-status">On call</p>
+        </div>
+
+        <div class="active-call-video-area">
+            <audio class="webrtc-audio" autoplay playsinline @ref="_remoteAudio"></audio>
+            <video class="webrtc-video" autoplay playsinline @ref="_remoteVideo"></video>
+        </div>
+
+        <video class="webrtc-video webrtc-video--local" autoplay playsinline muted @ref="_localVideo"></video>
+
+        <div class="active-call-controls">
+            <button class="call-modal-btn call-modal-btn--hangup" @onclick="() => onCall.Hangup?.Invoke()">
+                <span>📞</span>
+                <span>Hang up</span>
+            </button>
+        </div>
+    </div>
+
+    return;
+
+}
+
+
+@* ── Outgoing call modal ── *@
+@if (calling is not null)
+{
+    <div class="call-modal-backdrop"></div>
+    <div class="call-modal">
+        <div class="call-modal-avatar">@calling.Contact.Name[0].ToString().ToUpperInvariant()</div>
+        <h3 class="call-modal-name">
+            @(string.IsNullOrWhiteSpace(calling.Contact.Nickname)
+                ? calling.Contact.Name
+                : calling.Contact.Nickname)
+        </h3>
+        <p class="call-modal-status">Calling…</p>
+        <div class="call-modal-actions">
+            <button class="call-modal-btn call-modal-btn--decline" @onclick="() => calling.StopCalling?.Invoke()">
+                <span>✕</span>
+                <span>Cancel</span>
+            </button>
+        </div>
+    </div>
+
+    return;
+}
+
+
+@* ── Incoming call modal ── *@
+@if (incoming is not null)
+{
+    <div class="call-modal-backdrop"></div>
+    <div class="call-modal">
+        <div class="call-modal-avatar">@incoming.Contact.Name[0].ToString().ToUpperInvariant()</div>
+        <h3 class="call-modal-name">
+            @(string.IsNullOrWhiteSpace(incoming.Contact.Nickname)
+                ? incoming.Contact.Name
+                : incoming.Contact.Nickname)
+        </h3>
+        <p class="call-modal-status">Incoming call…</p>
+        <div class="call-modal-actions">
+            <button class="call-modal-btn call-modal-btn--decline" @onclick="() => incoming.DeclineCall?.Invoke()">
+                <span>✕</span>
+                <span>Decline</span>
+            </button>
+            <button class="call-modal-btn call-modal-btn--accept" @onclick="() => incoming.AcceptCall?.Invoke()">
+                <span>📞</span>
+                <span>Accept</span>
+            </button>
+        </div>
+    </div>
+
+    return;
+}
+
+
+@code {
+    private IReadOnlyList<ContactManager> _contacts = [];
+    private ElementReference _remoteAudio;
+    private ElementReference _remoteVideo;
+    private ElementReference _localVideo;
+    private ElementReference _lastRemoteVideo;
+    private ElementReference _lastLocalVideo;
+
+    protected override void OnInitialized()
+    {
+        _contacts = Dispatcher.State.Value.Contacts;
+        BoundToLifetime(Dispatcher.State.Subscribe(s =>
+        {
+            _contacts = s.Contacts;
+            InvokeAsync(StateHasChanged);
+        }));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var onCall = _contacts.FirstOrDefault(c => c.Interaction is InteractionState.OnCall);
+        if (onCall is null)
+            return;
+
+        var setRemote = onCall.SetVideoTarget;
+        if (setRemote is not null && !_remoteVideo.Equals(_lastRemoteVideo))
+        {
+            _lastRemoteVideo = _remoteVideo;
+            await setRemote(_remoteVideo);
+        }
+
+        var setLocal = onCall.SetLocalVideoTarget;
+        if (setLocal is not null && !_localVideo.Equals(_lastLocalVideo))
+        {
+            _lastLocalVideo = _localVideo;
+            await setLocal(_localVideo);
+        }
+    }
+}

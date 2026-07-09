@@ -27,6 +27,8 @@ type RtcNegotiationAnswer = {
 
 type ConnectionDescriptionExchangeInfo = ((offer: RTCSessionDescriptionInit) => Promise<RtcNegotiationAnswer>) | OfferAnswerExchange;
 
+let lastProcessId = 0;
+
 async function createRtcConnection(
     exchangeInfo: ConnectionDescriptionExchangeInfo,
     iceServers: RTCIceServer[],
@@ -34,18 +36,23 @@ async function createRtcConnection(
 ) {
     const isInitator = typeof exchangeInfo === "function";
     const role = isInitator ? "initiator" : "acceptor";
-    console.log(`[RTC] starting connection as ${role}. iceServers=${iceServers.length}`);
+    const processId = ++lastProcessId;
+
+    const log = (message: string) => console.log(`[RTC][${processId}][${role}] ${message}`);
+    const logError = (message: string, error?: unknown) => console.error(`[RTC][${processId}][${role}] ${message}`, error);
+
+    log(`starting connection. iceServers=${iceServers.length}`);
 
     const peerConnection = iceServers?.length ? new RTCPeerConnection({ iceServers }) : new RTCPeerConnection();
 
-    peerConnection.onconnectionstatechange = () => console.log(`[RTC][${role}] connection state:`, peerConnection.connectionState);
-    peerConnection.oniceconnectionstatechange = () => console.log(`[RTC][${role}] ICE connection state:`, peerConnection.iceConnectionState);
-    peerConnection.onsignalingstatechange = () => console.log(`[RTC][${role}] signaling state:`, peerConnection.signalingState);
-    peerConnection.onicegatheringstatechange = () => console.log(`[RTC][${role}] ICE gathering state:`, peerConnection.iceGatheringState);
-    peerConnection.onicecandidate = (e) => console.log(`[RTC][${role}] ICE candidate:`, e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)");
+    peerConnection.onconnectionstatechange = () => log(`connection state: ${peerConnection.connectionState}`);
+    peerConnection.oniceconnectionstatechange = () => log(`ICE connection state: ${peerConnection.iceConnectionState}`);
+    peerConnection.onsignalingstatechange = () => log(`signaling state: ${peerConnection.signalingState}`);
+    peerConnection.onicegatheringstatechange = () => log(`ICE gathering state: ${peerConnection.iceGatheringState}`);
+    peerConnection.onicecandidate = (e) => log(`ICE candidate: ${e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)"}`);
 
-    const { getMediaState, setMediaState, setVideoTarget, setLocalVideoTarget } = bindMediaManager(peerConnection, isInitator);
-    const { unbind, writeToChannel, whenOpen, handleDataChannel } = bindCallbacks(peerConnection, callbacks);
+    const { getMediaState, setMediaState, setVideoTarget, setLocalVideoTarget } = bindMediaManager(peerConnection, isInitator, undefined, log);
+    const { unbind, writeToChannel, whenConnectionOpened, handleDataChannel } = bindCallbacks(peerConnection, callbacks, log);
 
     if (isInitator) {
         const dataChannel = peerConnection.createDataChannel("data");
@@ -70,20 +77,21 @@ async function createRtcConnection(
 
     if (isInitator) {
         const offer = await peerConnection.createOffer();
-        console.log(`[RTC][${role}] local offer created. type=${offer.type}, hasSdp=${Boolean(offer.sdp)}`);
+        log(`local offer created. type=${offer.type}, hasSdp=${Boolean(offer.sdp)}`);
         await peerConnection.setLocalDescription(offer);
 
-        await waitForIceGatheringComplete(peerConnection);
+        await waitForIceGatheringComplete(peerConnection, 10000, log);
 
         const { answer, connectionId } = await exchangeInfo(peerConnection.localDescription!);
-        console.log(`[RTC][${role}] remote answer received. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
-
+        
         if (!answer?.type || !answer?.sdp) {
-            console.log(`[RTC][${role}] no direct answer returned; likely switching to counter-offer flow.`);
+            log(`no direct answer returned; it means the outgoing offer has been superseeded.`);
             unbind();
             peerConnection.close();
-            return null;
+            return null; 
         }
+
+        log(`remote answer received. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
 
         await peerConnection.setRemoteDescription(answer);
 
@@ -91,7 +99,7 @@ async function createRtcConnection(
     }
     else {
         const { offer, sendAnswerBack } = exchangeInfo;
-        console.log(`[RTC][${role}] remote offer received. type=${offer?.type}, hasSdp=${Boolean(offer?.sdp)}`);
+        log(`remote offer received. type=${offer?.type}, hasSdp=${Boolean(offer?.sdp)}`);
 
         await peerConnection.setRemoteDescription(offer);
 
@@ -106,15 +114,15 @@ async function createRtcConnection(
 
         if (!answer) { return null; }
 
-        console.log(`[RTC][${role}] local answer created. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
+        log(`local answer created. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
         await peerConnection.setLocalDescription(answer);
 
-        await waitForIceGatheringComplete(peerConnection);
+        await waitForIceGatheringComplete(peerConnection, 10000, log);
 
         const connectionId = await sendAnswerBack(peerConnection.localDescription!);
 
         if (!connectionId) {
-            console.log(`[RTC][${role}] local answer has not been accepted by the remote peer.`);
+            log(`local answer has not been accepted by the remote peer.`);
             unbind();
             peerConnection.close();
             return null;
@@ -122,14 +130,17 @@ async function createRtcConnection(
 
         id = connectionId;
 
-        console.log(`[RTC][${role}] local answer sent back.`);
+        log(`local answer sent back.`);
+
+        log(`waiting for connection completion ${id}.`);
     }
 
     try {
-        await whenOpen;
-        console.log(`[RTC][${role}] data channel open.`);
+        
+        await whenConnectionOpened;
+        log(`RTC connection connected.`);
     } catch (e) {
-        console.error(`[RTC][${role}] failed before channel open.`, e);
+        logError(`failed before channel open.`, e);
         unbind();
         peerConnection.close();
         throw e;

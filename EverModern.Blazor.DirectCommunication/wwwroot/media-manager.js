@@ -15,7 +15,7 @@ function createVideoElement(videoContainer) {
     videoContainer.appendChild(remoteVideoElement);
     return remoteVideoElement;
 }
-export function bindMediaManager(connection, isInitiator, videoContainer) {
+export function bindMediaManager(connection, isInitiator, videoContainer, log) {
     const audioElement = createAudioElement();
     const videoElement = videoContainer ? createVideoElement(videoContainer) : null;
     let localAudioTrack = null;
@@ -25,22 +25,22 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
     let localVideoTarget = null;
     connection.ontrack = (event) => {
         const { kind, id, readyState } = event.track;
-        console.log("[MEDIA] ontrack kind=" + kind + " id=" + id + " readyState=" + readyState + " streams=" + event.streams.length);
+        log?.(`[MEDIA] ontrack kind=${kind} id=${id} readyState=${readyState} streams=${event.streams.length}`);
         const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
-        console.log("[MEDIA] stream id=" + remoteStream.id + " active=" + remoteStream.active);
+        log?.(`[MEDIA] stream id=${remoteStream.id} active=${remoteStream.active}`);
         if (event.track.kind === "audio") {
             audioElement.srcObject = remoteStream;
-            console.log("[MEDIA] audio element srcObject set, paused=" + audioElement.paused + " muted=" + audioElement.muted);
+            log?.(`[MEDIA] audio element srcObject set, paused=${audioElement.paused} muted=${audioElement.muted}`);
             audioElement.play()
-                .then(() => console.log("[MEDIA] audio play() resolved"))
-                .catch((err) => console.warn("[MEDIA] audio play() rejected:", err));
+                .then(() => log?.("[MEDIA] audio play() resolved"))
+                .catch((err) => log?.(`[MEDIA] audio play() rejected: ${err}`));
         }
         if (event.track.kind === "video") {
             // Use a video-only stream; event.streams[0] may contain audio too which
             // would trip Chrome's autoplay policy and block play() on the video element.
             const videoOnlyStream = new MediaStream([event.track]);
             remoteVideoStream = videoOnlyStream;
-            console.log("[VIDEO] ontrack"
+            log?.("[VIDEO] ontrack"
                 + " track.id=" + event.track.id
                 + " readyState=" + event.track.readyState
                 + " muted=" + event.track.muted
@@ -51,16 +51,16 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
             if (activeVideoTarget) {
                 activeVideoTarget.srcObject = videoOnlyStream;
                 activeVideoTarget.play()
-                    .then(() => console.log("[VIDEO] ontrack → play() resolved on existing target"))
-                    .catch((err) => console.warn("[VIDEO] ontrack → play() rejected:", err));
+                    .then(() => log?.("[VIDEO] ontrack → play() resolved on existing target"))
+                    .catch((err) => log?.(`[VIDEO] ontrack → play() rejected: ${err}`));
             }
             else {
-                console.log("[VIDEO] ontrack: no activeVideoTarget yet — stream stored for later setVideoTarget call");
+                log?.("[VIDEO] ontrack: no activeVideoTarget yet — stream stored for later setVideoTarget call");
             }
         }
-        event.track.onmute = () => console.log("[MEDIA] track muted kind=" + kind + " id=" + id);
-        event.track.onunmute = () => console.log("[MEDIA] track unmuted kind=" + kind + " id=" + id);
-        event.track.onended = () => console.log("[MEDIA] track ended kind=" + kind + " id=" + id);
+        event.track.onmute = () => log?.(`[MEDIA] track muted kind=${kind} id=${id}`);
+        event.track.onunmute = () => log?.(`[MEDIA] track unmuted kind=${kind} id=${id}`);
+        event.track.onended = () => log?.(`[MEDIA] track ended kind=${kind} id=${id}`);
     };
     // Initiator adds transceivers so they appear in the offer SDP.
     // Acceptor must NOT pre-add them: Chrome initialises auto-created transceivers
@@ -70,35 +70,35 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
     if (isInitiator) {
         cachedAudioTransceiver = connection.addTransceiver("audio", { direction: "sendrecv" });
         cachedVideoTransceiver = connection.addTransceiver("video", { direction: "sendrecv" });
-        console.log("[MEDIA] transceivers added (initiator) audio mid=" + cachedAudioTransceiver.mid + " video mid=" + cachedVideoTransceiver.mid);
+        log?.(`[MEDIA] transceivers added (initiator) audio mid=${cachedAudioTransceiver.mid} video mid=${cachedVideoTransceiver.mid}`);
     }
     else {
-        console.log("[MEDIA] acceptor - transceivers resolved after SDP exchange");
+        log?.("[MEDIA] acceptor - transceivers resolved after SDP exchange");
     }
     const getAudioTransceiver = () => {
         if (cachedAudioTransceiver)
             return cachedAudioTransceiver;
         cachedAudioTransceiver = connection.getTransceivers().find(t => t.receiver.track?.kind === "audio" && t.direction !== "stopped") ?? null;
-        console.log("[MEDIA] audio transceiver resolved: " + (cachedAudioTransceiver
+        log?.(`[MEDIA] audio transceiver resolved: ${cachedAudioTransceiver
             ? "direction=" + cachedAudioTransceiver.direction + " currentDirection=" + cachedAudioTransceiver.currentDirection + " mid=" + cachedAudioTransceiver.mid
-            : "NOT FOUND"));
+            : "NOT FOUND"}`);
         return cachedAudioTransceiver;
     };
     const getVideoTransceiver = () => {
         if (cachedVideoTransceiver) {
-            console.log("[VIDEO] getVideoTransceiver: cached direction=" + cachedVideoTransceiver.direction
-                + " currentDirection=" + cachedVideoTransceiver.currentDirection
-                + " stopped=" + (cachedVideoTransceiver.direction === "stopped"));
+            log?.(`[VIDEO] getVideoTransceiver: cached direction=${cachedVideoTransceiver.direction}`
+                + ` currentDirection=${cachedVideoTransceiver.currentDirection}`
+                + ` stopped=${cachedVideoTransceiver.direction === "stopped"}`);
             return cachedVideoTransceiver;
         }
         const all = connection.getTransceivers();
-        console.log("[VIDEO] getVideoTransceiver: searching " + all.length + " transceivers: "
-            + all.map(t => t.receiver.track?.kind ?? "null"
-                + "(" + t.direction + "/" + t.currentDirection + ")").join(", "));
+        log?.(`[VIDEO] getVideoTransceiver: searching ${all.length} transceivers: `
+            + all.map(t => (t.receiver.track?.kind ?? "null")
+                + `(${t.direction}/${t.currentDirection})`).join(", "));
         cachedVideoTransceiver = all.find(t => t.receiver.track?.kind === "video" && t.direction !== "stopped") ?? null;
-        console.log("[VIDEO] getVideoTransceiver: result=" + (cachedVideoTransceiver
+        log?.(`[VIDEO] getVideoTransceiver: result=${cachedVideoTransceiver
             ? "FOUND direction=" + cachedVideoTransceiver.direction + " currentDirection=" + cachedVideoTransceiver.currentDirection
-            : "NOT FOUND"));
+            : "NOT FOUND"}`);
         return cachedVideoTransceiver;
     };
     let currentState = {
@@ -107,75 +107,75 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
     };
     const manager = {
         setMediaState: async (state) => {
-            console.log("[MEDIA] setMediaState: currentState=" + JSON.stringify(currentState) + " → new=" + JSON.stringify(state));
-            console.log("[MEDIA] audio el: paused=" + audioElement.paused + " muted=" + audioElement.muted + " srcObject=" + (audioElement.srcObject ? "set" : "null") + " readyState=" + audioElement.readyState);
+            log?.(`[MEDIA] setMediaState: currentState=${JSON.stringify(currentState)} → new=${JSON.stringify(state)}`);
+            log?.(`[MEDIA] audio el: paused=${audioElement.paused} muted=${audioElement.muted} srcObject=${audioElement.srcObject ? "set" : "null"} readyState=${audioElement.readyState}`);
             const { audio, video } = state;
             const { outputEnabled: audioOutput, inputEnabled: audioInput } = audio;
             const { outputEnabled: videoOutput, inputEnabled: videoInput } = video;
             const aTransceiver = getAudioTransceiver();
-            console.log("[MEDIA] audio transceiver: " + (aTransceiver
+            log?.(`[MEDIA] audio transceiver: ${aTransceiver
                 ? "direction=" + aTransceiver.direction + " currentDirection=" + aTransceiver.currentDirection + " mid=" + aTransceiver.mid
-                : "NOT FOUND"));
+                : "NOT FOUND"}`);
             if (aTransceiver) {
                 if (audioInput && !currentState.audio.inputEnabled) {
-                    console.log("[MEDIA] acquiring microphone...");
+                    log?.("[MEDIA] acquiring microphone...");
                     const track = await navigator.mediaDevices
                         .getUserMedia({ audio: true, video: false })
                         .then(stream => stream.getAudioTracks()[0]);
                     localAudioTrack = track;
-                    console.log("[MEDIA] mic acquired id=" + track.id + " readyState=" + track.readyState);
+                    log?.(`[MEDIA] mic acquired id=${track.id} readyState=${track.readyState}`);
                     await aTransceiver.sender.replaceTrack(track);
-                    console.log("[MEDIA] sender track replaced direction=" + aTransceiver.direction + " currentDirection=" + aTransceiver.currentDirection);
+                    log?.(`[MEDIA] sender track replaced direction=${aTransceiver.direction} currentDirection=${aTransceiver.currentDirection}`);
                 }
                 else if (!audioInput && currentState.audio.inputEnabled) {
-                    console.log("[MEDIA] stopping microphone");
+                    log?.("[MEDIA] stopping microphone");
                     await aTransceiver.sender.replaceTrack(null);
                     localAudioTrack?.stop();
                     localAudioTrack = null;
                 }
             }
             audioElement.muted = audioOutput !== true;
-            console.log("[MEDIA] audio muted=" + audioElement.muted + " paused=" + audioElement.paused);
+            log?.(`[MEDIA] audio muted=${audioElement.muted} paused=${audioElement.paused}`);
             if (!audioElement.muted && audioElement.paused) {
-                console.log("[MEDIA] unpausing audio after unmute");
+                log?.("[MEDIA] unpausing audio after unmute");
                 audioElement.play()
-                    .then(() => console.log("[MEDIA] resume play() resolved"))
-                    .catch((err) => console.warn("[MEDIA] resume play() rejected:", err));
+                    .then(() => log?.("[MEDIA] resume play() resolved"))
+                    .catch((err) => log?.(`[MEDIA] resume play() rejected: ${err}`));
             }
             if (videoElement) {
                 videoElement.muted = videoOutput !== true;
             }
             const vTransceiver = getVideoTransceiver();
-            console.log("[VIDEO] setMediaState: vTransceiver=" + (vTransceiver ? "ok" : "NULL")
-                + " videoInput=" + videoInput
-                + " currentVideoInputEnabled=" + currentState.video.inputEnabled);
+            log?.(`[VIDEO] setMediaState: vTransceiver=${vTransceiver ? "ok" : "NULL"}`
+                + ` videoInput=${videoInput}`
+                + ` currentVideoInputEnabled=${currentState.video.inputEnabled}`);
             if (vTransceiver) {
                 if (videoInput && !currentState.video.inputEnabled) {
                     let acquired = false;
                     for (let attempt = 1; attempt <= 3 && !acquired; attempt++) {
                         try {
                             if (attempt > 1) {
-                                console.log(`[VIDEO] setMediaState: retry ${attempt}/3 — waiting 2 s before re-requesting camera...`);
+                                log?.(`[VIDEO] setMediaState: retry ${attempt}/3 — waiting 2 s before re-requesting camera...`);
                                 await new Promise(r => setTimeout(r, 2000));
                             }
                             else {
-                                console.log("[VIDEO] setMediaState: calling getUserMedia({video:true})...");
+                                log?.("[VIDEO] setMediaState: calling getUserMedia({video:true})...");
                             }
                             const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
                             const track = stream.getVideoTracks()[0];
                             if (!track) {
-                                console.error("[VIDEO] setMediaState: getUserMedia succeeded but returned 0 video tracks!");
+                                log?.("[VIDEO] setMediaState: getUserMedia succeeded but returned 0 video tracks!");
                             }
                             else {
                                 localVideoTrack = track;
-                                console.log("[VIDEO] setMediaState: camera acquired id=" + track.id
-                                    + " readyState=" + track.readyState + " enabled=" + track.enabled);
+                                log?.(`[VIDEO] setMediaState: camera acquired id=${track.id}`
+                                    + ` readyState=${track.readyState} enabled=${track.enabled}`);
                                 await vTransceiver.sender.replaceTrack(track);
-                                console.log("[VIDEO] setMediaState: video sender replaceTrack completed");
+                                log?.("[VIDEO] setMediaState: video sender replaceTrack completed");
                                 // Mirror local camera in the self-view PiP element
                                 if (localVideoTarget) {
                                     localVideoTarget.srcObject = new MediaStream([track]);
-                                    localVideoTarget.play().catch((e) => console.warn("[VIDEO] local play() rejected:", e));
+                                    localVideoTarget.play().catch((e) => log?.(`[VIDEO] local play() rejected: ${e}`));
                                 }
                                 acquired = true;
                             }
@@ -183,10 +183,10 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
                         catch (err) {
                             const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
                             if (attempt < 3) {
-                                console.warn(`[VIDEO] setMediaState: camera failed (attempt ${attempt}/3): ${msg}`);
+                                log?.(`[VIDEO] setMediaState: camera failed (attempt ${attempt}/3): ${msg}`);
                             }
                             else {
-                                console.error(`[VIDEO] setMediaState: camera acquisition FAILED after 3 attempts: ${msg}`);
+                                log?.(`[VIDEO] setMediaState: camera acquisition FAILED after 3 attempts: ${msg}`);
                             }
                         }
                     }
@@ -197,33 +197,33 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
                     localVideoTrack = null;
                     if (localVideoTarget)
                         localVideoTarget.srcObject = null;
-                    console.log("[VIDEO] setMediaState: camera stopped");
+                    log?.("[VIDEO] setMediaState: camera stopped");
                 }
                 else {
-                    console.log("[VIDEO] setMediaState: video path skipped (no state change needed)");
+                    log?.("[VIDEO] setMediaState: video path skipped (no state change needed)");
                 }
             }
             currentState = state;
-            console.log("[MEDIA] setMediaState complete");
+            log?.("[MEDIA] setMediaState complete");
         },
         getMediaState: () => ({
             ...currentState
         }),
         setVideoTarget: (element) => {
             const isValidEl = element instanceof HTMLVideoElement;
-            console.log("[VIDEO] setVideoTarget called"
+            log?.("[VIDEO] setVideoTarget called"
                 + " element=" + (element ? (isValidEl ? "HTMLVideoElement" : "INVALID(" + element?.tagName + ")") : "null")
                 + " remoteVideoStream=" + (remoteVideoStream ? "id=" + remoteVideoStream.id + " tracks=" + remoteVideoStream.getTracks().length : "null"));
             activeVideoTarget = isValidEl ? element : null;
             if (activeVideoTarget && remoteVideoStream) {
                 activeVideoTarget.srcObject = remoteVideoStream;
-                console.log("[VIDEO] srcObject assigned — calling play()");
+                log?.("[VIDEO] srcObject assigned — calling play()");
                 activeVideoTarget.play()
-                    .then(() => console.log("[VIDEO] play() resolved — video should be visible"))
-                    .catch((err) => console.warn("[VIDEO] play() rejected:", err));
+                    .then(() => log?.("[VIDEO] play() resolved — video should be visible"))
+                    .catch((err) => log?.(`[VIDEO] play() rejected: ${err}`));
             }
             else {
-                console.log("[VIDEO] setVideoTarget: no srcObject assigned"
+                log?.("[VIDEO] setVideoTarget: no srcObject assigned"
                     + " (activeVideoTarget=" + (activeVideoTarget ? "ok" : "null")
                     + " remoteVideoStream=" + (remoteVideoStream ? "ok" : "null") + ")");
             }
@@ -232,7 +232,7 @@ export function bindMediaManager(connection, isInitiator, videoContainer) {
             localVideoTarget = element instanceof HTMLVideoElement ? element : null;
             if (localVideoTarget && localVideoTrack) {
                 localVideoTarget.srcObject = new MediaStream([localVideoTrack]);
-                localVideoTarget.play().catch((e) => console.warn("[VIDEO] local play() rejected:", e));
+                localVideoTarget.play().catch((e) => log?.(`[VIDEO] local play() rejected: ${e}`));
             }
         }
     };

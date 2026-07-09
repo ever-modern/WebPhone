@@ -44,30 +44,23 @@ public partial class ContactPage
     // Keeps trying to connect (and reconnect after drop) until the page is left.
     async Task RunAutoConnectAsync(CancellationToken ct)
     {
-        await Task.Delay(5000);
         while (!ct.IsCancellationRequested)
         {
-            var mgr = Manager;
-            if (mgr?.Interaction is not InteractionState.Connected and not InteractionState.Offline)
+            await Task.Delay(TimeSpan.FromSeconds(1), ct);
+
+            if (Manager?.Interaction is not InteractionState.Connected)
             {
-                Connect("poll");
-            }
-
-            return;
-            await Task.Delay(TimeSpan.FromSeconds(3), ct);
-
+                Connect();
+            }            
         }
     }
 
-    void Connect(string source)
+    void Connect()
     {
         var action = Manager?.Connect;
         if (action is null)
             return;
 
-        Console.WriteLine(
-            $"[CONNECT] ContactPage.TryConnect({source}): calling Connect for {ContactId}"
-        );
         action.Invoke();
     }
 

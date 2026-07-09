@@ -17,7 +17,7 @@ export function createEventSource<T>() {
                     if (index !== -1) {
                         callbacks.splice(index, 1);
                     }
-                } 
+                }  
             }; 
         }, 
 
@@ -26,7 +26,8 @@ export function createEventSource<T>() {
                 try {
                     await callback(event); 
                 } catch (error) {
-                    console.error("Error invoking callback:", error);
+                    // Error invoking callback — intentionally silenced to avoid
+                    // breaking the invocation chain for other subscribers.
                 }
             }
         }

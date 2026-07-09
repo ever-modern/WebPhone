@@ -123,7 +123,11 @@ public sealed class ContactsDispatcher(
             _oneConnectionChanged.Invoke(contact.Id)
         );
 
-        return new(contact, mediaConnection, sub.Dispose);
+        return new(contact, mediaConnection, () =>
+        {
+            sub.Dispose();
+            mediaConnection.Dispose();
+        });
     }
 
     record Entry(Contact Contact, MediaConnection MediaConnection, Action OnDisposed) : IDisposable

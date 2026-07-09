@@ -21,7 +21,7 @@ export async function registerPush(vapid: string) {
                 applicationServerKey: urlBase64ToUint8Array(vapid)
             });
         }
-
+         
         return JSON.stringify(subscription);
     } catch {
         return null;

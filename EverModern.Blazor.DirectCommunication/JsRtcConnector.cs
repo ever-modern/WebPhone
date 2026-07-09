@@ -53,9 +53,8 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
         bool observeState = true;
         _ = Task.Run(async () =>
         {
-            while (observeState)
+            while (observeState && false)
             {
-                await Task.Delay(2000);
                 var stateString = await managerReference.InvokeAsync<string>("getState");
                 state.Change(newValue: IRtcConnection.StateFromString(stateString));
             }
@@ -151,13 +150,12 @@ public sealed class JsRtcConnector(IJSRuntime jsRuntime, IEnumerable<WebRtcIceSe
                     ),
                 ]
             ) ?? throw new RtcConnectionException("Failed to create RTC connection.");
-        
+
         bool observeState = true;
         _ = Task.Run(async () =>
         {
-            while (observeState)
+            while (observeState && false)
             {
-                await Task.Delay(2000);
                 var stateString = await managerReference.InvokeAsync<string>("getState");
                 state.Change(newValue: IRtcConnection.StateFromString(stateString));
             }

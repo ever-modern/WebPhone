@@ -13,8 +13,8 @@ public class RtcMatchMaker(
 )
 {
     static readonly TimeSpan OfferTimeout = TimeSpan.FromSeconds(30);
-    
-    public async Task<RtcMatchParameters> MatchAsync(
+
+    public async Task<RtcMatchResponse> MatchAsync(
         string initiatorId,
         string targetId,
         RtcMatchParameters parameters,
@@ -33,22 +33,31 @@ public class RtcMatchMaker(
         var isNew = false;
         OngoingNegotiation ongoing;
 
-        using (var negotiationEntry = currentNegotiations.Acquire(
-            pair,
-            p =>
-            {
-                isNew = true;
-                return StartNegotiation(offer, OfferTimeout);
-            }
-        ))
+        using (
+            var negotiationEntry = currentNegotiations.Acquire(
+                pair,
+                p =>
+                {
+                    isNew = true;
+                    return StartNegotiation(offer, OfferTimeout);
+                }
+            )
+        )
         {
             ongoing = negotiationEntry.Value;
 
-            logger.LogInformation("{initiatorId} trying to connect to {targetId}", initiatorId, targetId);
+            logger.LogInformation(
+                "{initiatorId} trying to connect to {targetId}",
+                initiatorId,
+                targetId
+            );
 
             if (isNew == false)
             {
-                logger.LogInformation("There is already proceeding negotiation for pair {pair}", pair);
+                logger.LogInformation(
+                    "There is already proceeding negotiation for pair {pair}",
+                    pair
+                );
                 if (offer != ongoing.Offer)
                 {
                     logger.LogInformation("Countering incoming offer.");
@@ -58,36 +67,51 @@ public class RtcMatchMaker(
                 }
                 if (answer is null)
                 {
-                    logger.LogWarning("{initiatorId} tried to connect without an answer", initiatorId);
+                    logger.LogWarning(
+                        "{initiatorId} tried to connect without an answer",
+                        initiatorId
+                    );
                     throw new UserFaultException("No answer provided");
                 }
 
+                var result = new RtcMatchResponse(offer, answer);
+                var offerCut = new string([.. offer.Sdp.Take(60)]) + "...";
+                var answerCut = new string([.. answer.Sdp.Take(60)]) + "...";
+                logger.LogInformation(
+                    "Completing negotion {from} -> {to} with offer:'{offerCut}' answer:'{answerCut}'. The connection id: {connectionId}",
+                    initiatorId,
+                    targetId,
+                    offerCut,
+                    answerCut,
+                    result.Id
+                );
                 ongoing.Complete(answer);
                 negotiationEntry.Remove();
                 logger.LogInformation("Removing pair {pair} negotiation from store.", pair);
-                return new(offer, answer);
+                return result;
             }
         } // lock released before any await — prevents deadlock
 
-        logger.LogInformation("{initiatorId} started negotiation with {targetId}", initiatorId, targetId);
+        logger.LogInformation(
+            "{initiatorId} started negotiation with {targetId}",
+            initiatorId,
+            targetId
+        );
 
         try
         {
-            await NotifyTargetPeerAsync(
-                initiatorId,
-                targetId,
-                offer,
-                cancellationToken
-            );
+            await NotifyTargetPeerAsync(initiatorId, targetId, offer, cancellationToken);
 
             var answerFromPeer = await ongoing.WhenCompleted;
 
-            return answerFromPeer;
+            return new(answerFromPeer.Offer, answerFromPeer.Answer);
         }
         catch (OperationCanceledException)
         {
             logger.LogWarning("The pair {pair} negotiation timed out.", pair);
-            throw new UserFaultException($"Negotiation hasn't been completed within the time boundary of {OfferTimeout}.");
+            throw new UserFaultException(
+                $"Negotiation hasn't been completed within the time boundary of {OfferTimeout}."
+            );
         }
     }
 
@@ -95,14 +119,18 @@ public class RtcMatchMaker(
         string initiatorId,
         string targetId,
         WebRtcOffer offer,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken
+    )
     {
         try
         {
             await messagesWriter.WriteAsync(
                 targetId: targetId,
                 senderId: initiatorId,
-                messageContent: new(Type: MessageType.ConnectionAttempt, Payload: JsonSerializer.SerializeToElement(value: offer)),
+                messageContent: new(
+                    Type: MessageType.ConnectionAttempt,
+                    Payload: JsonSerializer.SerializeToElement(value: offer)
+                ),
                 cancellationToken: cancellationToken
             );
 
@@ -123,7 +151,9 @@ public class RtcMatchMaker(
 
     static OngoingNegotiation StartNegotiation(WebRtcOffer offer, TimeSpan timeout)
     {
-        var tcs = new TaskCompletionSource<RtcMatchParameters>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcs = new TaskCompletionSource<RtcMatchParameters>(
+            TaskCreationOptions.RunContinuationsAsynchronously
+        );
         var cts = new CancellationTokenSource(timeout);
         cts.Token.Register(() => tcs.TrySetCanceled());
         OngoingNegotiation result = new(tcs, offer);

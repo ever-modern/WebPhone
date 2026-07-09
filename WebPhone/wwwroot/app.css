@@ -1628,17 +1628,35 @@ code {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 1.5rem;
-    padding: 2rem;
+    padding: 2rem 2rem 6rem;
 }
 
-.active-call-info {
+.active-call-overlay .active-call-info {
+    flex-shrink: 0;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 0.75rem;
     color: #fff;
+    padding-top: 1rem;
+}
+
+.active-call-overlay .active-call-video-area {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.active-call-overlay .active-call-video-area .webrtc-video {
+    width: auto;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0.5rem;
+    object-fit: contain;
 }
 
 .active-call-avatar {
@@ -1682,4 +1700,24 @@ code {
     .call-modal { width: calc(100vw - 1.5rem); padding: 1.5rem 1rem; }
     .active-call-avatar { width: 4.5rem; height: 4.5rem; font-size: 2rem; }
     .active-call-name { font-size: 1.3rem; }
+}
+
+.webrtc-video {
+    width: 100%;
+    max-height: 360px;
+    background: #000;
+    border-radius: 0.5rem;
+    object-fit: cover;
+}
+
+.webrtc-video--local {
+    width: 160px;
+    height: 120px;
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    border: 2px solid rgba(255, 255, 255, 0.6);
+    border-radius: 0.5rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 100;
 }

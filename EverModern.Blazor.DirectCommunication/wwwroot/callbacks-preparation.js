@@ -17,10 +17,22 @@ const PromiseResolutionSource = (timeoutMs = 0) => {
     const result = { ...promise, resolve, reject };
     return result;
 };
-export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage }) {
+export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage }, log) {
     let dataChannel = null;
     const connectionOpened = PromiseResolutionSource(300_000);
     const channelOpened = PromiseResolutionSource(300_000);
+    const reactToState = () => {
+        log?.(`peer connection state: ${connection.connectionState}`);
+        onStateChanged?.(connection.connectionState);
+        if (connection.connectionState === "connected") {
+            log?.("whenOpen resolving (connected)");
+            connectionOpened.resolve();
+        }
+        else if (connection.connectionState === "disconnected" || connection.connectionState === "failed" || connection.connectionState === "closed") {
+            log?.(`whenOpen rejecting, state: ${connection.connectionState}`);
+            connectionOpened.reject(new Error(`Connection state is ${connection.connectionState}`));
+        }
+    };
     const handleDataChannel = (channel) => {
         dataChannel = channel;
         channel.binaryType = "arraybuffer";
@@ -39,20 +51,19 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
             }
         };
         channel.onopen = () => {
-            console.log("[RTC] data channel opened");
+            log?.("data channel opened");
             channelOpened.resolve();
         };
         if (channel.readyState === "open") {
-            console.log("[RTC] data channel already open at handleDataChannel time");
+            log?.("data channel already open at handleDataChannel time");
             channelOpened.resolve();
         }
-        channel.onerror = (e) => { console.warn("[RTC] data channel error:", e); connectionOpened.reject(e); };
+        channel.onerror = (e) => { log?.(`data channel error: ${e}`); connectionOpened.reject(e); };
         channel.onclose = () => {
-            console.log("[RTC] data channel closed, readyState:", channel.readyState);
+            log?.(`data channel closed, readyState: ${channel.readyState}`);
             if (channel.readyState !== "open") {
                 channelOpened.reject(new Error("Channel is closed. Connection has not been established."));
-                if (onStateChanged)
-                    onStateChanged("closed");
+                reactToState();
             }
         };
     };
@@ -79,21 +90,9 @@ export function bindCallbacks(connection, { onStateChanged, onDataChannelMessage
         dataChannel.send(payload);
         return true;
     };
-    const reactToState = () => {
-        console.log("[RTC] peer connection state:", connection.connectionState);
-        onStateChanged?.(connection.connectionState);
-        if (connection.connectionState === "connected") {
-            console.log("[RTC] whenOpen resolving (connected)");
-            connectionOpened.resolve();
-        }
-        else if (connection.connectionState === "disconnected" || connection.connectionState === "failed" || connection.connectionState === "closed") {
-            console.warn("[RTC] whenOpen rejecting, state:", connection.connectionState);
-            connectionOpened.reject(new Error(`Connection state is ${connection.connectionState}`));
-        }
-    };
     connection.onconnectionstatechange = () => {
         reactToState();
     };
     reactToState();
-    return { unbind: () => { connection.ondatachannel = null, connection.onconnectionstatechange = null; }, handleDataChannel, writeToChannel: writeBytes, whenOpen: connectionOpened };
+    return { unbind: () => { connection.ondatachannel = null, connection.onconnectionstatechange = null; }, handleDataChannel, writeToChannel: writeBytes, whenConnectionOpened: connectionOpened };
 }

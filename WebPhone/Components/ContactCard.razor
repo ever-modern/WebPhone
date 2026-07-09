@@ -1,5 +1,3 @@
-@inject PeerConnectionsDispatcher PeerConnectionsDispatcher
-
 @{
     var contact = Manager.Contact;
     var interaction = Manager.Interaction;
@@ -54,14 +52,6 @@
 
         <div class="contact-detail-actions">
             <ContactSettingsSection ContactId="@contact.Id"/>
-            @if (Manager.AcceptCall is not null)
-            {
-                <button class="webrtc-button" @onclick="AcceptCall">Accept call</button>
-            }
-            @if (Manager.DeclineCall is not null)
-            {
-                <button class="webrtc-button webrtc-button--danger" @onclick="DeclineCall">Decline</button>
-            }
             @if (Manager.AudioCall is not null)
             {
                 <button class="webrtc-button" @onclick="StartCall">Call</button>
@@ -70,17 +60,8 @@
             {
                 <button class="webrtc-button" @onclick="StartVideoCall">&#127909; Video call</button>
             }
-            @if (Manager.Hangup is not null)
-            {
-                <button class="webrtc-button webrtc-button--danger" @onclick="EndCall">Hang up</button>
-            }
-            @if (Manager.StopCalling is not null)
-            {
-                <button class="webrtc-button webrtc-button--danger" @onclick="CancelCall">Cancel call</button>
-            }
         </div>
     </div>
-    <audio class="webrtc-audio" autoplay playsinline @ref="_remoteAudio"></audio>
 </div>
 
 @code {
@@ -89,14 +70,9 @@
 
     private bool _editingNickname;
     private string _nicknameEdit = string.Empty;
-    private ElementReference _remoteAudio;
 
     private void StartCall() => Manager.AudioCall?.Invoke();
     private void StartVideoCall() => Manager.VideoCall?.Invoke();
-    private void AcceptCall() => Manager.AcceptCall?.Invoke();
-    private void DeclineCall() => Manager.DeclineCall?.Invoke();
-    private void EndCall() => Manager.Hangup?.Invoke();
-    private void CancelCall() => Manager.StopCalling?.Invoke();
 
     private void StartNicknameEdit()
     {

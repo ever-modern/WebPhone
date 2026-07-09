@@ -49,6 +49,12 @@ public class PeerConnector(
 
         using (_locker.LockScope())
         {
+            if (_connecting.RelevantProcesses.Any())
+            {
+                logger.LogInformation("Already connecting.");
+                return _connecting.WhenAny();
+            }
+
             logger.LogInformation("No ready connection yet.");
 
             _connectionEventSource.Change(InteractionState.Connecting.Instance);
@@ -221,9 +227,15 @@ public class PeerConnector(
                 }
 
                 if (responseOffer != offer)
+                {
+                    logger.LogError(
+                        "Bad response from the server: answer is present but belongs to a different offer. PeerId={PeerId}",
+                        peerId
+                    );
                     throw new InvalidOperationException(
                         "Bad response from the server: answer is present but belongs to a different offer."
                     );
+                }
 
                 return (responseAnswer, connectionId);
             },
@@ -295,9 +307,15 @@ public class PeerConnector(
                 }
 
                 if (responseOffer != incomingOffer)
+                {
+                    logger.LogError(
+                        "Bad response from the server: answer is present but belongs to a different offer. PeerId={PeerId}",
+                        peerId
+                    );
                     throw new InvalidOperationException(
                         "Bad response from the server: answer is present but belongs to a different offer."
                     );
+                }
 
                 logger.LogInformation("Successfully sent answer.");
 

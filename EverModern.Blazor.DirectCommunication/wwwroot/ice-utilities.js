@@ -1,12 +1,12 @@
-export function waitForIceGatheringComplete(peerConnection, timeoutMs = 2000) {
+export function waitForIceGatheringComplete(peerConnection, timeoutMs = 10000, log) {
     if (peerConnection.iceGatheringState === "complete") {
-        console.log("[ICE] gathering already complete");
+        log?.("[ICE] gathering already complete");
         return Promise.resolve();
     }
     return new Promise((resolve) => {
         const handler = () => {
             if (peerConnection.iceGatheringState === "complete") {
-                console.log("[ICE] gathering completed naturally");
+                log?.("[ICE] gathering completed naturally");
                 peerConnection.removeEventListener("icegatheringstatechange", handler);
                 resolve();
             }
@@ -14,7 +14,7 @@ export function waitForIceGatheringComplete(peerConnection, timeoutMs = 2000) {
         peerConnection.addEventListener("icegatheringstatechange", handler);
         setTimeout(() => {
             peerConnection.removeEventListener("icegatheringstatechange", handler);
-            console.warn("[ICE] gathering timed out after " + timeoutMs + "ms, state is '" + peerConnection.iceGatheringState + "', using partial candidates");
+            log?.(`[ICE] gathering timed out after ${timeoutMs}ms, state is '${peerConnection.iceGatheringState}', using partial candidates`);
             resolve();
         }, timeoutMs);
     });

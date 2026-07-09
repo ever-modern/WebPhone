@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Components;
 using WebPhone.Data;
 
 namespace WebPhone;
@@ -18,9 +19,6 @@ public class ContactManager(
             InteractionState mediaConnectionState = mediaConnection.State.Value;
             if (mediaConnectionState is InteractionState.Disconnected)
             {
-                var dispatcherState = peerConnectionsDispatcher.ConnectionsChange.Value.GetValueOrDefault(contact.Id);
-                if (dispatcherState is InteractionState.Connecting or InteractionState.Connected)
-                    return dispatcherState;
                 return TellInteractivity(Contact.LastSeen);
             }
 
@@ -63,6 +61,16 @@ public class ContactManager(
 
     public Action<string?> SetNickname =>
         (nickname) => _ = contactsRepository.SetNicknameAsync(contact.Id, nickname);
+
+    public Func<ElementReference, Task>? SetVideoTarget =>
+        Interaction is InteractionState.Connected ?
+            (el) => mediaConnection.SetVideoTargetAsync(el) :
+            null;
+
+    public Func<ElementReference, Task>? SetLocalVideoTarget =>
+        Interaction is InteractionState.Connected ?
+            (el) => mediaConnection.SetLocalVideoTargetAsync(el) :
+            null;
 
     public Func<IReadOnlyList<string>>? GetChat =>
         Interaction is InteractionState.Offline ? null : () => [];

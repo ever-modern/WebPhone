@@ -1,20 +1,21 @@
 export function waitForIceGatheringComplete(
     peerConnection: RTCPeerConnection,
-    timeoutMs = 2000): Promise<void> {
+    timeoutMs = 10000,
+    log?: (message: string) => void): Promise<void> {
     if (peerConnection.iceGatheringState === "complete") {
-        console.log("[ICE] gathering already complete");
+        log?.("[ICE] gathering already complete");
         return Promise.resolve();
     }
 
     return new Promise<void>((resolve) => {
         const handler = () => {
             if (peerConnection.iceGatheringState === "complete") {
-                console.log("[ICE] gathering completed naturally");
+                log?.("[ICE] gathering completed naturally");
                 peerConnection.removeEventListener(
                     "icegatheringstatechange",
                     handler
                 ); 
-                resolve();
+                resolve(); 
             }
         }; 
 
@@ -25,7 +26,7 @@ export function waitForIceGatheringComplete(
                 "icegatheringstatechange",
                 handler 
             );
-            console.warn("[ICE] gathering timed out after " + timeoutMs + "ms, state is '" + peerConnection.iceGatheringState + "', using partial candidates");
+            log?.(`[ICE] gathering timed out after ${timeoutMs}ms, state is '${peerConnection.iceGatheringState}', using partial candidates`);
             resolve();
         }, timeoutMs);
     });

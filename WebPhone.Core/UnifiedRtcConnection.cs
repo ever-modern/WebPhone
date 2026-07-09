@@ -45,6 +45,24 @@ public static class ConnectionProxyExtensions
         );
         EventSource<byte[]> bytesReceived = new();
         Subscription? bytesSub = null;
+        IDisposable? rtcStateSub = null;
+
+        async void ApplyTargetsAndMedia(IRtcConnection? conn)
+        {
+            if (conn is null) return;
+
+            try
+            {
+                if (videoRemoteTarget is not null)
+                    await conn.SetVideoTargetAsync(videoElement: videoRemoteTarget.Value);
+                if (localVideoTarget is not null)
+                    await conn.SetLocalVideoTargetAsync(videoElement: localVideoTarget.Value);
+
+                await conn.SetMediaStateAsync(mediaState: mediaState);
+            }
+            catch (ObjectDisposedException) { }
+        }
+
         BytesChannel bytesChannel = new(
             (bytes) =>
                 connection.Value?.Bytes.WriteAsync(bytes) ?? ValueTask.FromResult(result: false),
@@ -53,10 +71,20 @@ public static class ConnectionProxyExtensions
         var connectionChangedSub = dispatcher.ConnectionsChange.SubscribeAfter(() =>
         {
             var newConnection = dispatcher.FindReadyConnection(peerId: peerId);
-            if (newConnection?.State.Value != state.Value)
-                state.Change(
-                    newValue: newConnection?.State.Value ?? RtcConnectionState.Disconnected
-                );
+
+            // Track real RTC state by subscribing to the underlying connection.
+            rtcStateSub?.Dispose();
+            if (newConnection is not null)
+            {
+                state.Change(newValue: newConnection.State.Value);
+                rtcStateSub = newConnection.State.Subscribe(s =>
+                    state.Change(newValue: s));
+            }
+            else
+            {
+                state.Change(newValue: RtcConnectionState.Disconnected);
+                rtcStateSub = null;
+            }
 
             if (newConnection == connection.Value)
                 return;
@@ -64,30 +92,25 @@ public static class ConnectionProxyExtensions
             bytesSub?.Dispose();
             bytesSub = newConnection?.Bytes?.Received.Subscribe(handler: bytesReceived.Invoke);
 
-            if (connection.Value is not null)
-            {
-                if (videoRemoteTarget is not null)
-                    connection.Value.SetVideoTargetAsync(videoElement: videoRemoteTarget.Value);
-                if (localVideoTarget is not null)
-                    connection.Value.SetLocalVideoTargetAsync(videoElement: localVideoTarget.Value);
-
-                connection.Value.SetMediaStateAsync(mediaState: mediaState);
-            }
-
             connection.Change(newValue: newConnection);
+
+            ApplyTargetsAndMedia(newConnection);
         });
 
-        connection.Change(newValue: dispatcher.FindReadyConnection(peerId: peerId));
+        var initialConnection = dispatcher.FindReadyConnection(peerId: peerId);
+        connection.Change(newValue: initialConnection);
 
-        var initialConnection = connection.Value;
         if (initialConnection is not null)
         {
             state.Change(newValue: initialConnection.State.Value);
+            rtcStateSub = initialConnection.State.Subscribe(s =>
+                state.Change(newValue: s));
             bytesSub = initialConnection.Bytes.Received.Subscribe(handler: bytesReceived.Invoke);
         }
 
         Action dispose = () =>
         {
+            rtcStateSub?.Dispose();
             connection.Dispose();
             bytesSub?.Dispose();
             connectionChangedSub.Dispose();
@@ -110,31 +133,53 @@ public static class ConnectionProxyExtensions
                         Audio: new(InputEnabled: false, OutputEnabled: false),
                         Video: new(InputEnabled: false, OutputEnabled: false)
                     );
-                return await connection.Value.GetMediaStateAsync();
+                try
+                {
+                    return await connection.Value.GetMediaStateAsync();
+                }
+                catch (ObjectDisposedException)
+                {
+                    return new(
+                        Audio: new(InputEnabled: false, OutputEnabled: false),
+                        Video: new(InputEnabled: false, OutputEnabled: false)
+                    );
+                }
             },
             setMediaState: async newMediaState =>
             {
-                if (connection.Value is null)
-                    return;
-
                 mediaState = newMediaState;
-                await connection.Value.SetMediaStateAsync(mediaState: newMediaState);
+                if (connection.Value is not null)
+                {
+                    try
+                    {
+                        await connection.Value.SetMediaStateAsync(mediaState: newMediaState);
+                    }
+                    catch (ObjectDisposedException) { }
+                }
             },
             setVideoTarget: async newRemoteVideoTarget =>
             {
-                if (connection.Value is null)
-                    return;
-
                 videoRemoteTarget = newRemoteVideoTarget;
-                await connection.Value.SetVideoTargetAsync(videoElement: newRemoteVideoTarget);
+                if (connection.Value is not null)
+                {
+                    try
+                    {
+                        await connection.Value.SetVideoTargetAsync(videoElement: newRemoteVideoTarget);
+                    }
+                    catch (ObjectDisposedException) { }
+                }
             },
             setLocalVideoTarget: async newLocalVideoTarget =>
             {
-                if (connection.Value is null)
-                    return;
-
                 localVideoTarget = newLocalVideoTarget;
-                await connection.Value.SetLocalVideoTargetAsync(videoElement: newLocalVideoTarget);
+                if (connection.Value is not null)
+                {
+                    try
+                    {
+                        await connection.Value.SetLocalVideoTargetAsync(videoElement: newLocalVideoTarget);
+                    }
+                    catch (ObjectDisposedException) { }
+                }
             }
         );
 

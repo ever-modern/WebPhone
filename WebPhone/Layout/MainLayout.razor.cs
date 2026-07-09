@@ -22,15 +22,6 @@ public partial class MainLayout
 
     IReadOnlyList<ContactManager> Contacts => Dispatcher.State.Value.Contacts;
 
-    ContactManager? ActiveCallContact => Contacts.FirstOrDefault(
-        c => c.Interaction is InteractionState.OnCall);
-
-    ContactManager? IncomingCallContact => Contacts.FirstOrDefault(
-        c => c.Interaction is InteractionState.ReceivingCall);
-
-    ContactManager? CallingContact => Contacts.FirstOrDefault(
-        c => c.Interaction is InteractionState.Calling);
-
     // ── Lifecycle ─────────────────────────────────────────────────────────
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -122,13 +113,6 @@ public partial class MainLayout
         if (e.Key == "Enter")
             await RegisterAsync();
     }
-
-    // ── Call handlers ─────────────────────────────────────────────────────
-
-    void HandleAcceptCall() => IncomingCallContact?.AcceptCall?.Invoke();
-    void HandleDeclineCall() => IncomingCallContact?.DeclineCall?.Invoke();
-    void HandleHangup() => ActiveCallContact?.Hangup?.Invoke();
-    void HandleCancelCall() => CallingContact?.StopCalling?.Invoke();
 
     public void Dispose()
     {
