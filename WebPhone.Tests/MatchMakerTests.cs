@@ -1,6 +1,10 @@
+using System.Collections;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using EverModern.Events;
 using EverModern.Threading.Channels;
+using EverModern.Threading.Locks;
 using WebPhone.Backend.Services;
 using WebPhone.Backend.Storage;
 using WebPhone.Domain;
@@ -53,31 +57,35 @@ public class MatchMakerTests(ITestOutputHelper output)
             channel
         );
 
-        List<RtcMatchParameters> unansweredRequests = [];
+        ConcurrentQueue<RtcMatchParameters> unansweredRequests = [];
+        ConcurrentQueue<Task> subscriberTasks = [];
 
         List<RtcMatchResponse> responses = [];
 
         const string peer1 = "User-1";
         const string peer2 = "User-2";
 
-        using var _ = channel.Event.Subscribe(
+        using var subscription = channel.Event.Subscribe(
             (TransmittedMessage message) =>
-                Task.Run(async () =>
+            {
+                var task = Task.Run(async () =>
                 {
                     var answer = CreateAnswer(message.Receiver, message.Sender);
                     var offer = JsonSerializer.Deserialize<WebRtcOffer>(message.Payload);
                     var request = new RtcMatchParameters(offer, answer);
-                    unansweredRequests.Add(request);
+                    unansweredRequests.Enqueue(request);
                     var response = await matchMaker.MatchAsync(
                         message.Receiver,
                         message.Sender,
                         request,
                         default
                     );
-                    responses.Add(response);
-                    unansweredRequests.Remove(request);
-                    return response;
-                })
+                    lock (responses)
+                        responses.Add(response);
+                    unansweredRequests.TryDequeue(out _);
+                });
+                subscriberTasks.Enqueue(task);
+            }
         );
 
         var start = (string from, string to, int howMany) =>
@@ -94,7 +102,8 @@ public class MatchMakerTests(ITestOutputHelper output)
                             default
                         );
 
-                        responses.Add(response);
+                        lock (responses)
+                            responses.Add(response);
 
                         if (response.Id is not null)
                         {
@@ -110,7 +119,8 @@ public class MatchMakerTests(ITestOutputHelper output)
                                 new RtcMatchParameters(response.Offer, answerToCounter),
                                 default
                             );
-                            responses.Add(counterAnswerAttempt);
+                            lock (responses)
+                                responses.Add(counterAnswerAttempt);
                         }
                     })
                 )
@@ -119,16 +129,39 @@ public class MatchMakerTests(ITestOutputHelper output)
         const int numberOfRequests = 100;
 
         await Task.WhenAll([
-            ..start(peer1, peer2, numberOfRequests),
-            ..start(peer2, peer1, numberOfRequests),
+            .. start(peer1, peer2, numberOfRequests),
+            .. start(peer2, peer1, numberOfRequests),
         ]);
 
-        await Task.Delay(500);
+        // Drain subscriber tasks — new subscribers may be enqueued as previous ones
+        // create new negotiations, so poll until the chain is fully drained.
+        var sw = Stopwatch.StartNew();
+        while (sw.Elapsed < TimeSpan.FromSeconds(15))
+        {
+            while (subscriberTasks.TryDequeue(out var task))
+                await task;
+
+            if (unansweredRequests.IsEmpty)
+                break;
+
+            await Task.Delay(50);
+        }
 
         var connectionsMade = responses.Count(r => r.Id is not null);
-        const int expectedNumberOfConnection = numberOfRequests * 2;
+        const int expectedNumberOfConnection = numberOfRequests;
+
+        var innerStore =
+            typeof(LockingDictionary<(string, string), OngoingNegotiation>)
+                .GetField(
+                    "_store",
+                    System.Reflection.BindingFlags.Instance
+                        | System.Reflection.BindingFlags.NonPublic
+                )
+                ?.GetValue(store) as IEnumerable
+            ?? throw new InvalidCastException();
 
         Assert.Empty(unansweredRequests);
+        Assert.Empty(innerStore);
         Assert.True(connectionsMade >= expectedNumberOfConnection);
     }
 }

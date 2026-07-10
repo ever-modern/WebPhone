@@ -61,9 +61,7 @@ public class RtcMatchMaker(
                 if (offer != ongoing.Offer)
                 {
                     logger.LogInformation("Countering incoming offer.");
-                    ongoing.CompleteWithCounterOffer(offer);
-                    negotiationEntry.Remove();
-                    return new(offer, null);
+                    return new(ongoing.Offer, null);
                 }
                 if (answer is null)
                 {
