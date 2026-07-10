@@ -1,5 +1,5 @@
 ﻿import { bindCallbacks } from "./callbacks-preparation.js";
-import { waitForIceGatheringComplete } from "./ice-utilities.js";
+import { createLogger, Logger, sdpChecksum, waitForIceGatheringComplete } from "./ice-utilities.js";
 import { bindMediaManager } from "./media-manager.js";
 import { RtcConnectionCallbacks } from "./rtc-connection.js";
 
@@ -29,6 +29,7 @@ type ConnectionDescriptionExchangeInfo = ((offer: RTCSessionDescriptionInit) => 
 
 let lastProcessId = 0;
 
+
 async function createRtcConnection(
     exchangeInfo: ConnectionDescriptionExchangeInfo,
     iceServers: RTCIceServer[],
@@ -38,28 +39,43 @@ async function createRtcConnection(
     const role = isInitator ? "initiator" : "acceptor";
     const processId = ++lastProcessId;
 
-    const log = (message: string) => console.log(`[RTC][${processId}][${role}] ${message}`);
-    const logError = (message: string, error?: unknown) => console.error(`[RTC][${processId}][${role}] ${message}`, error);
+    const logger = createLogger(`RTC:${processId}:${role}`);
 
-    log(`starting connection. iceServers=${iceServers.length}`);
+    logger.info(`starting connection. iceServers=${iceServers.length}`);
 
     const peerConnection = iceServers?.length ? new RTCPeerConnection({ iceServers }) : new RTCPeerConnection();
 
-    peerConnection.onconnectionstatechange = () => log(`connection state: ${peerConnection.connectionState}`);
-    peerConnection.oniceconnectionstatechange = () => log(`ICE connection state: ${peerConnection.iceConnectionState}`);
-    peerConnection.onsignalingstatechange = () => log(`signaling state: ${peerConnection.signalingState}`);
-    peerConnection.onicegatheringstatechange = () => log(`ICE gathering state: ${peerConnection.iceGatheringState}`);
-    peerConnection.onicecandidate = (e) => log(`ICE candidate: ${e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)"}`);
+    // Low-level ICE / signaling / transport events — purely diagnostic.
+    peerConnection.oniceconnectionstatechange = () =>
+        logger.debug(`ICE connection state: ${peerConnection.iceConnectionState}`);
+    peerConnection.onsignalingstatechange = () =>
+        logger.debug(`signaling state: ${peerConnection.signalingState}`);
+    peerConnection.onicegatheringstatechange = () =>
+        logger.debug(`ICE gathering state: ${peerConnection.iceGatheringState}`);
+    peerConnection.onicecandidate = (e) =>
+        logger.debug(`ICE candidate: ${e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)"}`);
 
-    const { getMediaState, setMediaState, setVideoTarget, setLocalVideoTarget } = bindMediaManager(peerConnection, isInitator, undefined, log);
-    const { unbind, writeToChannel, whenConnectionOpened, handleDataChannel } = bindCallbacks(peerConnection, callbacks, log);
+    // NOTE: peerConnection.onconnectionstatechange is set inside bindCallbacks
+    // so logging + external callback happen in a single handler.
+
+    const { getMediaState, setMediaState, setVideoTarget, setLocalVideoTarget } =
+        bindMediaManager(peerConnection, isInitator, undefined, logger);
+    const { unbind, writeToChannel, whenConnectionOpened, handleDataChannel } =
+        bindCallbacks(peerConnection, callbacks, logger);
 
     if (isInitator) {
         const dataChannel = peerConnection.createDataChannel("data");
         handleDataChannel(dataChannel);
-    }
+    } 
 
     let id: RtcConnectionId;
+
+    const logSdp = (label: string, sdp: string | undefined) => {
+        if (!sdp) return;
+        const checksum = sdpChecksum(sdp);
+        const lines = sdp.split("\r\n").length;
+        logger.info(`${label} sdpChecksum=${checksum} sdpLines=${lines}`);
+    };
 
     const connectionManager = {
         close: () => {
@@ -77,21 +93,23 @@ async function createRtcConnection(
 
     if (isInitator) {
         const offer = await peerConnection.createOffer();
-        log(`local offer created. type=${offer.type}, hasSdp=${Boolean(offer.sdp)}`);
+        logger.info(`local offer created. type=${offer.type}`);
+        logSdp("local-offer", offer.sdp);
         await peerConnection.setLocalDescription(offer);
 
-        await waitForIceGatheringComplete(peerConnection, 10000, log);
+        await waitForIceGatheringComplete(peerConnection, 10000, logger);
 
         const { answer, connectionId } = await exchangeInfo(peerConnection.localDescription!);
-        
+
         if (!answer?.type || !answer?.sdp) {
-            log(`no direct answer returned; it means the outgoing offer has been superseeded.`);
+            logger.info(`no direct answer returned; the outgoing offer has been superseded.`);
             unbind();
             peerConnection.close();
-            return null; 
+            return null;
         }
 
-        log(`remote answer received. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
+        logger.info(`remote answer received. type=${answer.type}`);
+        logSdp("remote-answer", answer.sdp);
 
         await peerConnection.setRemoteDescription(answer);
 
@@ -99,7 +117,8 @@ async function createRtcConnection(
     }
     else {
         const { offer, sendAnswerBack } = exchangeInfo;
-        log(`remote offer received. type=${offer?.type}, hasSdp=${Boolean(offer?.sdp)}`);
+        logger.info(`remote offer received. type=${offer?.type}`);
+        logSdp("remote-offer", offer?.sdp);
 
         await peerConnection.setRemoteDescription(offer);
 
@@ -114,15 +133,16 @@ async function createRtcConnection(
 
         if (!answer) { return null; }
 
-        log(`local answer created. type=${answer?.type}, hasSdp=${Boolean(answer?.sdp)}`);
+        logger.info(`local answer created. type=${answer?.type}`);
+        logSdp("local-answer", answer.sdp);
         await peerConnection.setLocalDescription(answer);
 
-        await waitForIceGatheringComplete(peerConnection, 10000, log);
+        await waitForIceGatheringComplete(peerConnection, 10000, logger);
 
         const connectionId = await sendAnswerBack(peerConnection.localDescription!);
 
         if (!connectionId) {
-            log(`local answer has not been accepted by the remote peer.`);
+            logger.info(`local answer has not been accepted by the remote peer.`);
             unbind();
             peerConnection.close();
             return null;
@@ -130,17 +150,15 @@ async function createRtcConnection(
 
         id = connectionId;
 
-        log(`local answer sent back.`);
-
-        log(`waiting for connection completion ${id}.`);
+        logger.info(`local answer sent back. waiting for connection completion ${id}.`);
     }
 
     try {
-        
+
         await whenConnectionOpened;
-        log(`RTC connection connected.`);
+        logger.info(`RTC connection connected.`);
     } catch (e) {
-        logError(`failed before channel open.`, e);
+        logger.error(`failed before channel open.`, e);
         unbind();
         peerConnection.close();
         throw e;

@@ -1,3 +1,5 @@
+import { Logger } from "./ice-utilities.js";
+
 export type mediaPartState = {
     outputEnabled: boolean;
     inputEnabled: boolean;
@@ -27,7 +29,7 @@ function createVideoElement(videoContainer: HTMLElement) {
     return remoteVideoElement;
 }
 
-export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boolean, videoContainer?: HTMLElement, log?: (message: string) => void) {
+export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boolean, videoContainer?: HTMLElement, logger?: Logger) {
 
     const audioElement = createAudioElement();
     const videoElement = videoContainer ? createVideoElement(videoContainer) : null;
@@ -40,17 +42,17 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
 
     connection.ontrack = (event) => {
         const { kind, id, readyState } = event.track;
-        log?.(`[MEDIA] ontrack kind=${kind} id=${id} readyState=${readyState} streams=${event.streams.length}`);
+        logger?.debug(`ontrack kind=${kind} id=${id} readyState=${readyState} streams=${event.streams.length}`);
 
         const remoteStream = event.streams[0] ?? new MediaStream([event.track]);
-        log?.(`[MEDIA] stream id=${remoteStream.id} active=${remoteStream.active}`);
+        logger?.debug(`stream id=${remoteStream.id} active=${remoteStream.active}`);
 
         if (event.track.kind === "audio") {
             audioElement.srcObject = remoteStream;
-            log?.(`[MEDIA] audio element srcObject set, paused=${audioElement.paused} muted=${audioElement.muted}`);
+            logger?.debug(`audio element srcObject set, paused=${audioElement.paused} muted=${audioElement.muted}`);
             audioElement.play()
-                .then(() => log?.("[MEDIA] audio play() resolved"))
-                .catch((err: unknown) => log?.(`[MEDIA] audio play() rejected: ${err}`));
+                .then(() => logger?.debug("audio play() resolved"))
+                .catch((err: unknown) => logger?.warning(`audio play() rejected: ${err}`));
         }
 
         if (event.track.kind === "video") {
@@ -58,27 +60,27 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
             // would trip Chrome's autoplay policy and block play() on the video element.
             const videoOnlyStream = new MediaStream([event.track]);
             remoteVideoStream = videoOnlyStream;
-            log?.("[VIDEO] ontrack"
-                + " track.id=" + event.track.id
-                + " readyState=" + event.track.readyState
-                + " muted=" + event.track.muted
-                + " enabled=" + event.track.enabled
-                + " streams.len=" + event.streams.length
-                + " newStream.id=" + videoOnlyStream.id
-                + " activeVideoTarget=" + (activeVideoTarget ? "SET(" + activeVideoTarget.tagName + ")" : "null"));
+            logger?.debug(
+                `ontrack video: track.id=${event.track.id}` +
+                ` readyState=${event.track.readyState}` +
+                ` muted=${event.track.muted}` +
+                ` enabled=${event.track.enabled}` +
+                ` streams.len=${event.streams.length}` +
+                ` newStream.id=${videoOnlyStream.id}` +
+                ` activeVideoTarget=${activeVideoTarget ? "SET(" + activeVideoTarget.tagName + ")" : "null"}`);
             if (activeVideoTarget) {
                 activeVideoTarget.srcObject = videoOnlyStream;
                 activeVideoTarget.play()
-                    .then(() => log?.("[VIDEO] ontrack → play() resolved on existing target"))
-                    .catch((err: unknown) => log?.(`[VIDEO] ontrack → play() rejected: ${err}`));
+                    .then(() => logger?.debug("ontrack → play() resolved on existing target"))
+                    .catch((err: unknown) => logger?.warning(`ontrack → play() rejected: ${err}`));
             } else {
-                log?.("[VIDEO] ontrack: no activeVideoTarget yet — stream stored for later setVideoTarget call");
+                logger?.debug("ontrack: no activeVideoTarget yet — stream stored for later setVideoTarget call");
             }
         }
 
-        event.track.onmute = () => log?.(`[MEDIA] track muted kind=${kind} id=${id}`);
-        event.track.onunmute = () => log?.(`[MEDIA] track unmuted kind=${kind} id=${id}`);
-        event.track.onended = () => log?.(`[MEDIA] track ended kind=${kind} id=${id}`);
+        event.track.onmute = () => logger?.debug(`track muted kind=${kind} id=${id}`);
+        event.track.onunmute = () => logger?.debug(`track unmuted kind=${kind} id=${id}`);
+        event.track.onended = () => logger?.info(`track ended kind=${kind} id=${id}`);
     };
 
     // Initiator adds transceivers so they appear in the offer SDP.
@@ -90,9 +92,9 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
     if (isInitiator) {
         cachedAudioTransceiver = connection.addTransceiver("audio", { direction: "sendrecv" });
         cachedVideoTransceiver = connection.addTransceiver("video", { direction: "sendrecv" });
-        log?.(`[MEDIA] transceivers added (initiator) audio mid=${cachedAudioTransceiver.mid} video mid=${cachedVideoTransceiver.mid}`);
+        logger?.debug(`transceivers added (initiator) audio mid=${cachedAudioTransceiver.mid} video mid=${cachedVideoTransceiver.mid}`);
     } else {
-        log?.("[MEDIA] acceptor - transceivers resolved after SDP exchange");
+        logger?.debug("acceptor — transceivers resolved after SDP exchange");
     }
 
     const getAudioTransceiver = (): RTCRtpTransceiver | null => {
@@ -100,7 +102,7 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
         cachedAudioTransceiver = connection.getTransceivers().find(
             t => t.receiver.track?.kind === "audio" && t.direction !== "stopped"
         ) ?? null;
-        log?.(`[MEDIA] audio transceiver resolved: ${cachedAudioTransceiver
+        logger?.debug(`audio transceiver resolved: ${cachedAudioTransceiver
             ? "direction=" + cachedAudioTransceiver.direction + " currentDirection=" + cachedAudioTransceiver.currentDirection + " mid=" + cachedAudioTransceiver.mid
             : "NOT FOUND"}`);
         return cachedAudioTransceiver;
@@ -108,19 +110,19 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
 
     const getVideoTransceiver = (): RTCRtpTransceiver | null => {
         if (cachedVideoTransceiver) {
-            log?.(`[VIDEO] getVideoTransceiver: cached direction=${cachedVideoTransceiver.direction}`
+            logger?.debug(`getVideoTransceiver: cached direction=${cachedVideoTransceiver.direction}`
                 + ` currentDirection=${cachedVideoTransceiver.currentDirection}`
                 + ` stopped=${cachedVideoTransceiver.direction === "stopped"}`);
             return cachedVideoTransceiver;
         }
         const all = connection.getTransceivers();
-        log?.(`[VIDEO] getVideoTransceiver: searching ${all.length} transceivers: `
+        logger?.debug(`getVideoTransceiver: searching ${all.length} transceivers: `
             + all.map(t => (t.receiver.track?.kind ?? "null")
                 + `(${t.direction}/${t.currentDirection})`).join(", "));
         cachedVideoTransceiver = all.find(
             t => t.receiver.track?.kind === "video" && t.direction !== "stopped"
         ) ?? null;
-        log?.(`[VIDEO] getVideoTransceiver: result=${cachedVideoTransceiver
+        logger?.debug(`getVideoTransceiver: result=${cachedVideoTransceiver
             ? "FOUND direction=" + cachedVideoTransceiver.direction + " currentDirection=" + cachedVideoTransceiver.currentDirection
             : "NOT FOUND"}`);
         return cachedVideoTransceiver;
@@ -133,30 +135,30 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
 
     const manager = {
         setMediaState: async (state: mediaState) => {
-            log?.(`[MEDIA] setMediaState: currentState=${JSON.stringify(currentState)} → new=${JSON.stringify(state)}`);
-            log?.(`[MEDIA] audio el: paused=${audioElement.paused} muted=${audioElement.muted} srcObject=${audioElement.srcObject ? "set" : "null"} readyState=${audioElement.readyState}`);
+            logger?.debug(`setMediaState: currentState=${JSON.stringify(currentState)} → new=${JSON.stringify(state)}`);
+            logger?.debug(`audio el: paused=${audioElement.paused} muted=${audioElement.muted} srcObject=${audioElement.srcObject ? "set" : "null"} readyState=${audioElement.readyState}`);
 
             const { audio, video } = state;
             const { outputEnabled: audioOutput, inputEnabled: audioInput } = audio;
             const { outputEnabled: videoOutput, inputEnabled: videoInput } = video;
 
             const aTransceiver = getAudioTransceiver();
-            log?.(`[MEDIA] audio transceiver: ${aTransceiver
+            logger?.debug(`audio transceiver: ${aTransceiver
                 ? "direction=" + aTransceiver.direction + " currentDirection=" + aTransceiver.currentDirection + " mid=" + aTransceiver.mid
                 : "NOT FOUND"}`);
 
             if (aTransceiver) {
                 if (audioInput && !currentState.audio.inputEnabled) {
-                    log?.("[MEDIA] acquiring microphone...");
+                    logger?.info("acquiring microphone...");
                     const track = await navigator.mediaDevices
                         .getUserMedia({ audio: true, video: false })
                         .then(stream => stream.getAudioTracks()[0]);
                     localAudioTrack = track;
-                    log?.(`[MEDIA] mic acquired id=${track.id} readyState=${track.readyState}`);
+                    logger?.info(`mic acquired id=${track.id} readyState=${track.readyState}`);
                     await aTransceiver.sender.replaceTrack(track);
-                    log?.(`[MEDIA] sender track replaced direction=${aTransceiver.direction} currentDirection=${aTransceiver.currentDirection}`);
+                    logger?.info(`sender track replaced direction=${aTransceiver.direction} currentDirection=${aTransceiver.currentDirection}`);
                 } else if (!audioInput && currentState.audio.inputEnabled) {
-                    log?.("[MEDIA] stopping microphone");
+                    logger?.info("stopping microphone");
                     await aTransceiver.sender.replaceTrack(null);
                     localAudioTrack?.stop();
                     localAudioTrack = null;
@@ -164,12 +166,12 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
             }
 
             audioElement.muted = audioOutput !== true;
-            log?.(`[MEDIA] audio muted=${audioElement.muted} paused=${audioElement.paused}`);
+            logger?.debug(`audio muted=${audioElement.muted} paused=${audioElement.paused}`);
             if (!audioElement.muted && audioElement.paused) {
-                log?.("[MEDIA] unpausing audio after unmute");
+                logger?.debug("unpausing audio after unmute");
                 audioElement.play()
-                    .then(() => log?.("[MEDIA] resume play() resolved"))
-                    .catch((err: unknown) => log?.(`[MEDIA] resume play() rejected: ${err}`));
+                    .then(() => logger?.debug("resume play() resolved"))
+                    .catch((err: unknown) => logger?.warning(`resume play() rejected: ${err}`));
             }
 
             if (videoElement) {
@@ -177,44 +179,44 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
             }
 
             const vTransceiver = getVideoTransceiver();
-            log?.(`[VIDEO] setMediaState: vTransceiver=${vTransceiver ? "ok" : "NULL"}`
+            logger?.debug(`setMediaState video: vTransceiver=${vTransceiver ? "ok" : "NULL"}`
                 + ` videoInput=${videoInput}`
                 + ` currentVideoInputEnabled=${currentState.video.inputEnabled}`);
-
+                 
             if (vTransceiver) {
                 if (videoInput && !currentState.video.inputEnabled) {
                     let acquired = false;
                     for (let attempt = 1; attempt <= 3 && !acquired; attempt++) {
                         try {
-                            if (attempt > 1) {
-                                log?.(`[VIDEO] setMediaState: retry ${attempt}/3 — waiting 2 s before re-requesting camera...`);
+                            if (attempt > 1) { 
+                                logger?.debug(`setMediaState: retry ${attempt}/3 — waiting 2 s before re-requesting camera...`);
                                 await new Promise<void>(r => setTimeout(r, 2000));
                             } else {
-                                log?.("[VIDEO] setMediaState: calling getUserMedia({video:true})...");
+                                logger?.info("calling getUserMedia({video:true})...");
                             }
                             const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: true });
                             const track = stream.getVideoTracks()[0];
                             if (!track) {
-                                log?.("[VIDEO] setMediaState: getUserMedia succeeded but returned 0 video tracks!");
+                                logger?.error("getUserMedia succeeded but returned 0 video tracks!");
                             } else {
                                 localVideoTrack = track;
-                                log?.(`[VIDEO] setMediaState: camera acquired id=${track.id}`
+                                logger?.info(`camera acquired id=${track.id}`
                                     + ` readyState=${track.readyState} enabled=${track.enabled}`);
                                 await vTransceiver.sender.replaceTrack(track);
-                                log?.("[VIDEO] setMediaState: video sender replaceTrack completed");
+                                logger?.info("video sender replaceTrack completed");
                                 // Mirror local camera in the self-view PiP element
                                 if (localVideoTarget) {
                                     localVideoTarget.srcObject = new MediaStream([track]);
-                                    localVideoTarget.play().catch((e: unknown) => log?.(`[VIDEO] local play() rejected: ${e}`));
+                                    localVideoTarget.play().catch((e: unknown) => logger?.warning(`local play() rejected: ${e}`));
                                 }
                                 acquired = true;
                             }
                         } catch (err: unknown) {
                             const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
                             if (attempt < 3) {
-                                log?.(`[VIDEO] setMediaState: camera failed (attempt ${attempt}/3): ${msg}`);
+                                logger?.warning(`camera failed (attempt ${attempt}/3): ${msg}`);
                             } else {
-                                log?.(`[VIDEO] setMediaState: camera acquisition FAILED after 3 attempts: ${msg}`);
+                                logger?.error(`camera acquisition FAILED after 3 attempts: ${msg}`);
                             }
                         }
                     }
@@ -223,14 +225,14 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
                     localVideoTrack?.stop();
                     localVideoTrack = null;
                     if (localVideoTarget) localVideoTarget.srcObject = null;
-                    log?.("[VIDEO] setMediaState: camera stopped");
+                    logger?.info("camera stopped");
                 } else {
-                    log?.("[VIDEO] setMediaState: video path skipped (no state change needed)");
+                    logger?.debug("video path skipped (no state change needed)");
                 }
             }
 
             currentState = state;
-            log?.("[MEDIA] setMediaState complete");
+            logger?.debug("setMediaState complete");
         },
 
         getMediaState: () => ({
@@ -239,20 +241,22 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
 
         setVideoTarget: (element: HTMLVideoElement | null) => {
             const isValidEl = element instanceof HTMLVideoElement;
-            log?.("[VIDEO] setVideoTarget called"
-                + " element=" + (element ? (isValidEl ? "HTMLVideoElement" : "INVALID(" + (element as unknown as Element)?.tagName + ")") : "null")
-                + " remoteVideoStream=" + (remoteVideoStream ? "id=" + remoteVideoStream.id + " tracks=" + remoteVideoStream.getTracks().length : "null"));
+            logger?.debug(
+                `setVideoTarget called` +
+                ` element=${element ? (isValidEl ? "HTMLVideoElement" : "INVALID(" + (element as unknown as Element)?.tagName + ")") : "null"}` +
+                ` remoteVideoStream=${remoteVideoStream ? "id=" + remoteVideoStream.id + " tracks=" + remoteVideoStream.getTracks().length : "null"}`);
             activeVideoTarget = isValidEl ? element : null;
             if (activeVideoTarget && remoteVideoStream) {
                 activeVideoTarget.srcObject = remoteVideoStream;
-                log?.("[VIDEO] srcObject assigned — calling play()");
+                logger?.debug("srcObject assigned — calling play()");
                 activeVideoTarget.play()
-                    .then(() => log?.("[VIDEO] play() resolved — video should be visible"))
-                    .catch((err: unknown) => log?.(`[VIDEO] play() rejected: ${err}`));
+                    .then(() => logger?.debug("play() resolved — video should be visible"))
+                    .catch((err: unknown) => logger?.warning(`play() rejected: ${err}`));
             } else {
-                log?.("[VIDEO] setVideoTarget: no srcObject assigned"
-                    + " (activeVideoTarget=" + (activeVideoTarget ? "ok" : "null")
-                    + " remoteVideoStream=" + (remoteVideoStream ? "ok" : "null") + ")");
+                logger?.debug(
+                    `setVideoTarget: no srcObject assigned` +
+                    ` (activeVideoTarget=${activeVideoTarget ? "ok" : "null"}` +
+                    ` remoteVideoStream=${remoteVideoStream ? "ok" : "null"})`);
             }
         },
 
@@ -260,7 +264,7 @@ export function bindMediaManager(connection: RTCPeerConnection, isInitiator: boo
             localVideoTarget = element instanceof HTMLVideoElement ? element : null;
             if (localVideoTarget && localVideoTrack) {
                 localVideoTarget.srcObject = new MediaStream([localVideoTrack]);
-                localVideoTarget.play().catch((e: unknown) => log?.(`[VIDEO] local play() rejected: ${e}`));
+                localVideoTarget.play().catch((e: unknown) => logger?.warning(`local play() rejected: ${e}`));
             }
         }
     };

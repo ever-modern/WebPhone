@@ -41,7 +41,7 @@ public class PeerConnectorIntegrationTests(ITestOutputHelper output)
     /// both connections succeed without deadlock or failure. This tests the race condition
     /// handling in the peer connection logic.
     /// </summary>
-    [Fact(Timeout = 30000)]
+    [Fact(Timeout = 1000)]
     public async Task TwoConnectSimultaneously()
     {
         var ct = Timeout.Token;

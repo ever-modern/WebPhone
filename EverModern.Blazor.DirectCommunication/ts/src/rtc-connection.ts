@@ -19,7 +19,7 @@ export function createEventSource<T>() {
                     }
                 }  
             }; 
-        }, 
+        },
 
         invoke: async (event: T) => {
             for (const callback of callbacks) {

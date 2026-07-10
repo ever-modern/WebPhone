@@ -1,4 +1,5 @@
-﻿using EverModern.Blazor.DirectCommunication;
+﻿using System.Collections.Concurrent;
+using EverModern.Blazor.DirectCommunication;
 using EverModern.Events;
 using Microsoft.AspNetCore.Components;
 using WebPhone.Domain;
@@ -7,10 +8,15 @@ namespace WebPhone.Tests.Provision;
 
 class MockRtcConnection : IRtcConnection
 {
-    static readonly List<MockRtcConnection> _existingConnections = [];
+    static readonly ConcurrentDictionary<
+        MockRtcConnection,
+        List<MockRtcConnection>
+    > _existingConnections = [];
     static readonly EventSource<(MockRtcConnection, byte[])> _bytesSent = new();
 
     readonly ObservedValue<RtcConnectionState> _state = new(RtcConnectionState.New);
+
+    public Task WhenConnected { get; }
 
     readonly Subscription _bytesExchangeSubscription;
     readonly EventSource<byte[]> _bytesReceived = new();
@@ -22,8 +28,31 @@ class MockRtcConnection : IRtcConnection
         Answer = answer;
 
         Id = RtcMatchParameters.ComputeNegotiationId(Offer, Answer).ToString();
-        _state.Change(RtcConnectionState.Connected);
-        _existingConnections.Add(this);
+
+        WhenConnected = _state.WhenSatisfies(v => v is RtcConnectionState.Connected, default);
+
+        _state.Change(RtcConnectionState.Connecting);
+
+        bool alreadyConnected = true;
+        _existingConnections
+            .GetOrAdd(
+                this,
+                _ =>
+                {
+                    alreadyConnected = false;
+                    return [];
+                }
+            )
+            .Add(this);
+
+        if (alreadyConnected)
+        {
+            foreach (var connection in _existingConnections[this])
+            {
+                connection._state.Change(RtcConnectionState.Connected);
+            }
+        }
+
         _bytesExchangeSubscription = _bytesSent.Subscribe(senderBytes =>
         {
             var (sender, bytes) = senderBytes;
@@ -60,9 +89,10 @@ class MockRtcConnection : IRtcConnection
     public void Dispose()
     {
         _bytesExchangeSubscription.Dispose();
-        var otherConnections = _existingConnections
-            .Where(con => con.Offer == Offer && con.Answer == Answer && con.Owner != Owner)
+        var otherConnections = _existingConnections[this]
+            .Where(con => con.Owner != Owner)
             .ToArray();
+
         foreach (var otherConnection in otherConnections)
         {
             otherConnection._state.Change(RtcConnectionState.Closed);
