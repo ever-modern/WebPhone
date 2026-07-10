@@ -6,18 +6,18 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
     const isInitator = typeof exchangeInfo === "function";
     const role = isInitator ? "initiator" : "acceptor";
     const processId = ++lastProcessId;
-    const logger = createLogger(`RTC:${processId}:${role}`);
-    logger.info(`starting connection. iceServers=${iceServers.length}`);
+    const log = createLogger(`RTC:${processId}:${role}`);
+    log.info(`starting connection. iceServers=${iceServers.length}`);
     const peerConnection = iceServers?.length ? new RTCPeerConnection({ iceServers }) : new RTCPeerConnection();
     // Low-level ICE / signaling / transport events — purely diagnostic.
-    peerConnection.oniceconnectionstatechange = () => logger.debug(`ICE connection state: ${peerConnection.iceConnectionState}`);
-    peerConnection.onsignalingstatechange = () => logger.debug(`signaling state: ${peerConnection.signalingState}`);
-    peerConnection.onicegatheringstatechange = () => logger.debug(`ICE gathering state: ${peerConnection.iceGatheringState}`);
-    peerConnection.onicecandidate = (e) => logger.debug(`ICE candidate: ${e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)"}`);
+    peerConnection.oniceconnectionstatechange = () => log.debug(`ICE connection state: ${peerConnection.iceConnectionState}`);
+    peerConnection.onsignalingstatechange = () => log.debug(`signaling state: ${peerConnection.signalingState}`);
+    peerConnection.onicegatheringstatechange = () => log.debug(`ICE gathering state: ${peerConnection.iceGatheringState}`);
+    peerConnection.onicecandidate = (e) => log.debug(`ICE candidate: ${e.candidate ? `${e.candidate.type} ${e.candidate.protocol} ${e.candidate.address}` : "(end of candidates)"}`);
     // NOTE: peerConnection.onconnectionstatechange is set inside bindCallbacks
     // so logging + external callback happen in a single handler.
-    const { getMediaState, setMediaState, setVideoTarget, setLocalVideoTarget } = bindMediaManager(peerConnection, isInitator, undefined, logger);
-    const { unbind, writeToChannel, whenConnectionOpened, handleDataChannel } = bindCallbacks(peerConnection, callbacks, logger);
+    const { getMediaState, setMediaState, setVideoTarget, setLocalVideoTarget } = bindMediaManager(peerConnection, isInitator, undefined, log);
+    const { unbind, writeToChannel, whenConnectionOpened, handleDataChannel } = bindCallbacks(peerConnection, callbacks, log);
     if (isInitator) {
         const dataChannel = peerConnection.createDataChannel("data");
         handleDataChannel(dataChannel);
@@ -28,7 +28,7 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
             return;
         const checksum = sdpChecksum(sdp);
         const lines = sdp.split("\r\n").length;
-        logger.info(`${label} sdpChecksum=${checksum} sdpLines=${lines}`);
+        log.info(`${label} sdpChecksum=${checksum} sdpLines=${lines}`);
     };
     const connectionManager = {
         close: () => {
@@ -45,25 +45,25 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
     };
     if (isInitator) {
         const offer = await peerConnection.createOffer();
-        logger.info(`local offer created. type=${offer.type}`);
+        log.info(`local offer created. type=${offer.type}`);
         logSdp("local-offer", offer.sdp);
         await peerConnection.setLocalDescription(offer);
-        await waitForIceGatheringComplete(peerConnection, 10000, logger);
+        await waitForIceGatheringComplete(peerConnection, 10000, log);
         const { answer, connectionId } = await exchangeInfo(peerConnection.localDescription);
         if (!answer?.type || !answer?.sdp) {
-            logger.info(`no direct answer returned; the outgoing offer has been superseded.`);
+            log.info(`no direct answer returned; the outgoing offer has been superceeded.`);
             unbind();
             peerConnection.close();
             return null;
         }
-        logger.info(`remote answer received. type=${answer.type}`);
+        log.info(`remote answer received. type=${answer.type}`);
         logSdp("remote-answer", answer.sdp);
         await peerConnection.setRemoteDescription(answer);
         id = connectionId;
     }
     else {
         const { offer, sendAnswerBack } = exchangeInfo;
-        logger.info(`remote offer received. type=${offer?.type}`);
+        log.info(`remote offer received. type=${offer?.type}`);
         logSdp("remote-offer", offer?.sdp);
         await peerConnection.setRemoteDescription(offer);
         // Chrome initialises auto-created transceivers as recvonly.
@@ -76,26 +76,26 @@ async function createRtcConnection(exchangeInfo, iceServers, callbacks) {
         if (!answer) {
             return null;
         }
-        logger.info(`local answer created. type=${answer?.type}`);
+        log.info(`local answer created. type=${answer?.type}`);
         logSdp("local-answer", answer.sdp);
         await peerConnection.setLocalDescription(answer);
-        await waitForIceGatheringComplete(peerConnection, 10000, logger);
+        await waitForIceGatheringComplete(peerConnection, 10000, log);
         const connectionId = await sendAnswerBack(peerConnection.localDescription);
         if (!connectionId) {
-            logger.info(`local answer has not been accepted by the remote peer.`);
+            log.info(`local answer has not been accepted by the remote peer.`);
             unbind();
             peerConnection.close();
             return null;
         }
         id = connectionId;
-        logger.info(`local answer sent back. waiting for connection completion ${id}.`);
+        log.info(`local answer sent back. waiting for connection completion ${id}.`);
     }
     try {
         await whenConnectionOpened;
-        logger.info(`RTC connection connected.`);
+        log.info(`RTC connection connected.`);
     }
     catch (e) {
-        logger.error(`failed before channel open.`, e);
+        log.error(`failed before channel open.`, e);
         unbind();
         peerConnection.close();
         throw e;

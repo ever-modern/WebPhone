@@ -1,8 +1,8 @@
-﻿using Microsoft.AspNetCore.Hosting;
+﻿using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using WebPhone.Background;
 using WebPhone.Channels;
 using WebPhone.Tests.Provision;
@@ -12,18 +12,17 @@ namespace WebPhone.Tests;
 
 public class TestWebApplicationFactory : WebApplicationFactory<WebPhone.Api.Program>
 {
-    public event Action<string> OnLog = _ => {};
+    public event Action<string> OnLog = _ => { };
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureLogging(logging =>
-            {
-                logging.ClearProviders();
-                logging.AddProvider(new TestLoggerProvider(log => OnLog.Invoke(log)));
-                logging.SetMinimumLevel(LogLevel.Trace);
-            }
-        );
-        OnLog = (_) => {};
+        {
+            logging.ClearProviders();
+            logging.AddProvider(new TestLoggerProvider(log => OnLog.Invoke(log)));
+            logging.SetMinimumLevel(LogLevel.Trace);
+        });
+        OnLog = (_) => { };
     }
 }
 
@@ -40,7 +39,10 @@ public abstract class IntegrationWithBackendTestsSet : IAsyncDisposable
 
     protected Func<string, TestLoggerProvider> CreateLoggerFactory { get; }
 
-    protected static CancellationTokenSource Timeout => new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(15));
+    protected static CancellationTokenSource Timeout =>
+        new CancellationTokenSource(
+            Debugger.IsAttached ? TimeSpan.FromMinutes(5) : TimeSpan.FromSeconds(15)
+        );
 
     protected IntegrationWithBackendTestsSet(ITestOutputHelper output)
     {
@@ -51,16 +53,13 @@ public abstract class IntegrationWithBackendTestsSet : IAsyncDisposable
         _webApplicationFactory.OnLog += log =>
         {
             _logs.Add((log, true));
-            try { output.WriteLine($"[SERVER]{log}"); }
-            catch {}
-        };
-        CreateLoggerFactory = prefix => new TestLoggerProvider(log =>
+            try
             {
-                var logWithPrefix = $"[{prefix}]:{log}";
-                output.WriteLine(logWithPrefix);
-                _logs.Add((logWithPrefix, false));
+                output.WriteLine($"[SERVER]{log}");
             }
-        );
+            catch { }
+        };
+        CreateLoggerFactory = output.ToLoggerFactory(_logs);
     }
 
     protected BackendClient CreateVirtualBackendClient(string userId)
@@ -80,10 +79,13 @@ public abstract class IntegrationWithBackendTestsSet : IAsyncDisposable
         var client = new BackendClient($"http://localhost:{port}", new TestProfile(userId));
         return client;
     }
-    
+
     public ValueTask DisposeAsync() => _webApplicationFactory.DisposeAsync();
 
-    protected async Task<PeerConnectionsDispatcher> CreatePeerConnectorAsync(string userId, CancellationToken cancellationToken = default)
+    protected async Task<PeerConnectionsDispatcher> CreatePeerConnectorAsync(
+        string userId,
+        CancellationToken cancellationToken = default
+    )
     {
         var client = CreateVirtualBackendClient(userId);
         var result = new PeerConnectionsDispatcher(
@@ -96,15 +98,20 @@ public abstract class IntegrationWithBackendTestsSet : IAsyncDisposable
 
         var channel = await BackendMessagesChannel.BindAsync(hub);
 
-        var handlerLogger = CreateLoggerFactory($"[{userId}]").CreateLogger<IncomingConnectionsHandler>($"IncomingConnectionsHandler-{userId}");
-        IncomingConnectionsHandler connectionsHandler =
-            await new IncomingConnectionsHandler(peerConnectionsDispatcher: result, logger: handlerLogger)
-                .StartReadingAsync(channel, default);
+        var handlerLogger = CreateLoggerFactory($"[{userId}]")
+            .CreateLogger<IncomingConnectionsHandler>($"IncomingConnectionsHandler-{userId}");
+        IncomingConnectionsHandler connectionsHandler = await new IncomingConnectionsHandler(
+            peerConnectionsDispatcher: result,
+            logger: handlerLogger
+        ).StartReadingAsync(channel, default);
 
         return result;
     }
 
-    protected async IAsyncEnumerable<(PeerConnectionsDispatcher Connector, string PeerId)> GeneratePeers([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    protected async IAsyncEnumerable<(
+        PeerConnectionsDispatcher Connector,
+        string PeerId
+    )> GeneratePeers([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         for (; _id0 < int.MaxValue / 2; _id0++)
         {
