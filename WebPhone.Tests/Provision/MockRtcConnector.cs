@@ -27,15 +27,15 @@ class MockRtcConnector : IRtcConnector
     )
     {
         var answer = GenerateAnswer(offer);
-        var couldSendAnswer = await sendAnswerBack(answer) is not null or "";
-        if (couldSendAnswer is false)
+        var connectionId = await sendAnswerBack(answer);
+        if (string.IsNullOrEmpty(connectionId))
         {
             return null;
         }
 
-        var result = new MockRtcConnection(this, offer, answer);
+        var result = new MockRtcConnection(this, offer, answer, connectionId);
 
-        await Task.WhenAll(Task.Delay(750), result.WhenConnected);
+        await result.WhenConnected;
 
         return result;
     }
@@ -54,9 +54,9 @@ class MockRtcConnector : IRtcConnector
             return null;
         }
 
-        var result = new MockRtcConnection(this, offer, answer);
+        var result = new MockRtcConnection(this, offer, answer, connectionId);
 
-        await Task.WhenAll(Task.Delay(750), result.WhenConnected);
+        await result.WhenConnected;
 
         return result;
     }

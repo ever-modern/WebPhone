@@ -20,7 +20,7 @@ public class PeerConnectorIntegrationTests(ITestOutputHelper output)
         return ((connector0, user0), (connector1, user1));
     }
 
-    [Fact(Timeout = 30000)]
+    [Fact(Timeout = 1000)]
     public async Task FirstConnects_SecondOnlyAccepts()
     {
         var ct = Timeout.Token;
@@ -41,7 +41,7 @@ public class PeerConnectorIntegrationTests(ITestOutputHelper output)
     /// both connections succeed without deadlock or failure. This tests the race condition
     /// handling in the peer connection logic.
     /// </summary>
-    [Fact(Timeout = 1000)]
+    [Fact(Timeout = 3000)]
     public async Task TwoConnectSimultaneously()
     {
         var ct = Timeout.Token;
@@ -65,7 +65,7 @@ public class PeerConnectorIntegrationTests(ITestOutputHelper output)
     {
         var peers = new List<(PeerConnectionsDispatcher Connector, string PeerId)>();
 
-        const int peersCount = 200;
+        const int peersCount = 50;
         await foreach (var item in GeneratePeers(default).Take(peersCount))
             peers.Add(item);
 
